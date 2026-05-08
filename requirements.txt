@@ -1,0 +1,5 @@
+# v1 — gemini-live
+fastapi
+uvicorn[standard]
+google-genai
+httpx

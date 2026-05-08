@@ -1,0 +1,100 @@
+direction: right
+vars: {
+  d2-config: {
+    layout-engine: elk
+    sketch: true
+  }
+}
+
+title: |md
+  # Meet Live Architect — Original Architecture
+| {near: top-center}
+
+classes: {
+  gcp: {
+    style: {
+      fill: "#e8f0fe"
+      stroke: "#4285f4"
+      stroke-width: 2
+      border-radius: 8
+    }
+  }
+  browser: {
+    style: {
+      fill: "#e6f4ea"
+      stroke: "#34a853"
+      stroke-width: 2
+      border-radius: 8
+    }
+  }
+  highlight: {
+    style: {
+      fill: "#fce8e6"
+      stroke: "#ea4335"
+      stroke-width: 2
+      stroke-dash: 4
+      border-radius: 6
+    }
+  }
+}
+
+meet: Google Meet Browser {
+  class: browser
+
+  appsdk: Meet Add-on SDK {shape: rectangle}
+
+  panel: Side Panel UI\n(Lit / TypeScript) {
+    shape: rectangle
+    style: {
+      fill: "#fff8e1"
+      stroke: "#fbbc04"
+      stroke-width: 2
+    }
+  }
+
+  connect_btn: Connect Button\n(manual click) {
+    class: highlight
+    shape: rectangle
+  }
+
+  media: Meet Media API\n(WebRTC) {shape: rectangle}
+  worklet: PCM AudioWorklet\n16 kHz {shape: rectangle}
+  playback: Audio Playback\n24 kHz {shape: rectangle}
+
+  appsdk -> panel
+  connect_btn -> media: join meeting
+  media -> worklet: audio tracks
+}
+
+cloud_run: Cloud Run — FastAPI {
+  class: gcp
+
+  ws: WebSocket /ws {shape: rectangle}
+  session: Gemini Live Session {shape: rectangle}
+
+  ws -> session
+}
+
+vertex: Vertex AI\nGemini Live 2.5 Flash\n(native audio) {
+  shape: cloud
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#4285f4"
+    stroke-width: 2
+  }
+}
+
+apps_script: Apps Script\nManifest {
+  shape: document
+  style: {
+    fill: "#f3e8fd"
+    stroke: "#9c27b0"
+  }
+}
+
+apps_script -> meet.appsdk: registers sidePanelUrl
+meet.worklet -> cloud_run.ws: PCM frames\n(WebSocket, 100 ms)
+cloud_run.session -> vertex: audio stream
+vertex -> cloud_run.session: audio + transcript
+cloud_run.ws -> meet.panel: audio bytes + transcript
+meet.panel -> meet.playback: schedule audio

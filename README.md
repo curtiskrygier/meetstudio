@@ -1,0 +1,159 @@
+# Meet Live Architect
+
+A Google Meet Web Add-on that embeds a real-time AI voice assistant (powered by Gemini Live) into your meeting's side panel. The assistant listens to all meeting participants, responds by voice, and can optionally see the active speaker's video feed.
+
+## How it works
+
+```
+Google Meet participants
+        │  (WebRTC, recvonly)
+        ▼
+  Meet Media API  ──────────────────────────────────────────┐
+  (browser, side panel)                                     │
+        │                                                   │
+  AudioWorklet (16kHz PCM, 100ms batches)                   │
+        │ WebSocket (binary PCM + JSON video frames)        │
+        ▼                                                   │
+  FastAPI backend (Cloud Run)                               │
+        │                                                   │
+  Gemini Live  ◄────────────────────────────────────────────┘
+  gemini-live-2.5-flash-native-audio
+  (Vertex AI, configurable project)
+        │
+  Audio response (PCM 24kHz)
+        │ WebSocket
+        ▼
+  Web Audio playback (side panel)
+```
+
+## Features
+
+- 🎙 Hears all meeting participants (including the add-on user) via the Meet Media API
+- 🔊 Responds by voice using Gemini Live native audio (`Kore` voice by default)
+- 📹 Optional 1fps video feed sent to Gemini for visual context
+- 🔇 Audio and video send toggles in the side panel UI
+- 💸 Gemini API calls billed to a configurable GCP project (separate from the Cloud Run host)
+
+## Prerequisites
+
+- Google Cloud project with:
+  - Cloud Run API enabled
+  - A second GCP project (or the same) with Vertex AI API enabled for Gemini Live billing
+- Google Meet Web Add-on registered via the [GCP Marketplace SDK](https://console.cloud.google.com/apis/api/appsmarket-component.googleapis.com)
+- OAuth 2.0 Client ID (Web application) with the Meet scopes
+- [clasp](https://github.com/google/clasp) installed and authenticated
+- [Node.js](https://nodejs.org/) 18+ and Python 3.11+
+
+## Setup
+
+### 1. Clone and configure
+
+```bash
+git clone <this-repo>
+cd meet-live-architect
+cp sample.env .env
+# Edit .env with your values
+```
+
+### 2. Install frontend dependencies
+
+```bash
+npm install
+```
+
+### 3. IAM — grant Gemini billing project access to Cloud Run SA
+
+```bash
+# Replace with your Cloud Run project number and Gemini billing project ID
+gcloud projects add-iam-policy-binding <GEMINI_PROJECT> \
+  --member="serviceAccount:<CLOUD_RUN_PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+### 4. Deploy to Cloud Run
+
+```bash
+source .env
+gcloud run deploy meet-live-architect \
+  --source . \
+  --region $REGION \
+  --timeout=3600 \
+  --session-affinity \
+  --allow-unauthenticated \
+  --set-build-env-vars="CLIENT_ID=${CLIENT_ID},CLOUD_PROJECT_NUMBER=${CLOUD_PROJECT_NUMBER}" \
+  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE}" \
+  --project=<YOUR_CLOUD_RUN_PROJECT>
+```
+
+### 5. Register the Apps Script Add-on
+
+```bash
+cd appsscript
+
+# Create a new standalone Apps Script project (only needed once)
+clasp create --title "Meet Live Architect" --type standalone
+# clasp writes .clasp.json — this file is git-ignored; don't commit it
+
+# Substitute your Cloud Run URL in the manifest
+sed -i 's|YOUR_CLOUD_RUN_URL|https://<YOUR_SERVICE_URL>|g' appsscript.json
+
+clasp push --force
+clasp deploy --description "v1"
+```
+
+Copy the deployment ID (`AKfycb...`) and enter it in:
+**GCP Console → APIs & Services → Google Workspace Marketplace SDK → App Configuration**
+
+> **Template files**
+> - `appsscript/appsscript.json` — contains `YOUR_CLOUD_RUN_URL` placeholders; substitute before pushing
+> - `appsscript/.clasp.json.sample` — copy to `.clasp.json` if you already have a script ID:
+>   ```bash
+>   cp appsscript/.clasp.json.sample appsscript/.clasp.json
+>   # Edit .clasp.json and replace YOUR_APPS_SCRIPT_ID with the real ID
+>   ```
+>   The live `.clasp.json` is git-ignored so credentials stay local.
+
+### 6. Install the add-on
+
+Use the **Test Install** button in the Marketplace SDK console, then open Google Meet.
+
+## Local development
+
+```bash
+source .env
+# Terminal 1 — backend
+uvicorn main:app --reload --port 8080
+
+# Terminal 2 — frontend (proxies /ws to :8080)
+npm run dev
+```
+
+## Configuration
+
+| Variable | Required | Description |
+|---|---|---|
+| `CLOUD_PROJECT_NUMBER` | Yes (build) | Numeric GCP project number for the Meet Add-on SDK |
+| `CLIENT_ID` | Yes (build) | OAuth 2.0 client ID for the Meet scopes |
+| `GEMINI_PROJECT` | Yes (runtime) | GCP project ID billed for Gemini Live API usage |
+| `REGION` | No | Cloud Run / Vertex AI region (default: `us-central1`) |
+| `KORE_VOICE` | No | Gemini Live voice name (default: `Kore`) |
+| `SYSTEM_PROMPT` | No | Override the agent's system instruction |
+
+## Architecture notes
+
+**Why 100ms PCM batches?** The AudioWorklet fires at ~125Hz (128 samples @ 16kHz). Sending every frame would generate ~7,500 API calls/min, exceeding Gemini Live quota. Batching to 1,600 samples (100ms) reduces this to ~600 RPM.
+
+**Why a hidden `<audio muted>` element per track?** Chrome's Opus decoder is lazy — it won't decode a `MediaStreamTrack` unless something is playing it. Without this, all Meet audio tracks deliver silence to the AudioWorklet.
+
+**Why two AudioContexts created before any `await`?** Chrome's autoplay policy suspends AudioContexts created outside a user gesture context. Both the recording (16kHz) and playback (24kHz) contexts must be created synchronously at the start of the click handler.
+
+## Gemini Live voices
+
+| Voice | Character |
+|---|---|
+| Kore | Firm, clear |
+| Puck | Upbeat, expressive |
+| Aoede | Breezy, easy |
+| Fenrir | Excitable |
+| Charon | Informative, neutral |
+| Zephyr | Light, positive |
