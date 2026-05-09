@@ -145,7 +145,6 @@
   <div class="topbar">
     <span class="topbar-title" id="title">Agent Archi</span>
     <span class="topbar-badge">Gemini · D2</span>
-    <button class="save-btn" id="save-btn" disabled onclick="saveToDrive()">Save to Drive</button>
     <button class="save-btn" id="new-btn" onclick="newDiagram()">New Diagram</button>
   </div>
   <div class="diagram-wrap" id="wrap">
@@ -250,20 +249,9 @@
       } catch (_) {}
     }
 
-    async function saveToDrive() {
-      const btn = document.getElementById('save-btn');
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
-      try {
-        showToast('Use "Save to Drive" in the side panel', false);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Save to Drive';
-      }
-    }
-
-    async function newDiagram() {
-      showToast('Use "Save & New" in the side panel', false);
+    function newDiagram() {
+      const newId = crypto.randomUUID();
+      location.href = `${location.pathname}?id=${encodeURIComponent(newId)}`;
     }
 
     // Initial load then poll every 8 seconds
