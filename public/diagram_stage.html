@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Archi — Diagram</title>
+  <script src="https://www.gstatic.com/meetjs/addons/1.1.0/meet.addons.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Google Sans', sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: rgba(255,255,255,0.05);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+      gap: 12px;
+    }
+    .topbar-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
+      flex: 1;
+    }
+    .topbar-badge {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      white-space: nowrap;
+    }
+    .save-btn {
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 6px;
+      background: rgba(155,109,255,0.2);
+      border: 1px solid rgba(155,109,255,0.4);
+      color: #c5a9ff;
+      font-family: inherit;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 120ms;
+    }
+    .save-btn:hover { background: rgba(155,109,255,0.35); }
+    .save-btn:disabled { opacity: 0.4; cursor: default; }
+    .diagram-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow: auto;
+    }
+    .diagram-wrap svg {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 12px;
+      background: #fff;
+      padding: 16px;
+    }
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      text-align: center;
+      max-width: 360px;
+    }
+    .ear-icon {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: rgba(155,109,255,0.15);
+      border: 1px solid rgba(155,109,255,0.3);
+      display: grid;
+      place-items: center;
+      animation: pulse 3s ease-in-out infinite;
+    }
+    .ear-icon svg { width: 32px; height: 32px; color: #9B6DFF; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(155,109,255,0); }
+      50% { box-shadow: 0 0 0 12px rgba(155,109,255,0.12); }
+    }
+    .placeholder-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+    }
+    .placeholder-sub {
+      font-size: 13px;
+      color: rgba(255,255,255,0.45);
+      line-height: 1.5;
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(155,109,255,0.2);
+      border-top-color: #9B6DFF;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .generating {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      color: rgba(255,255,255,0.5);
+      font-size: 14px;
+    }
+    .error {
+      color: #f3a59f;
+      font-size: 13px;
+      padding: 20px;
+      text-align: center;
+    }
+    .save-toast {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(52,210,122,0.15);
+      border: 1px solid rgba(52,210,122,0.4);
+      color: #7ce0a4;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 500;
+      opacity: 0;
+      transition: opacity 300ms;
+      pointer-events: none;
+    }
+    .save-toast.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="topbar-title" id="title">Agent Archi</span>
+    <span class="topbar-badge">Gemini · D2</span>
+    <button class="save-btn" id="save-btn" disabled onclick="saveToDrive()">Save to Drive</button>
+    <button class="save-btn" id="new-btn" onclick="newDiagram()">New Diagram</button>
+  </div>
+  <div class="diagram-wrap" id="wrap">
+    <div class="placeholder">
+      <div class="ear-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+        </svg>
+      </div>
+      <div class="placeholder-title">Agent Archi is listening…</div>
+      <div class="placeholder-sub">Describe your architecture in the meeting.<br>Diagram will appear after a brief pause.</div>
+    </div>
+  </div>
+  <div class="save-toast" id="save-toast"></div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const diagramId = params.get('id') || '';
+    let knownVersion = 0;
+    let svgLoaded = false;
+
+    function showToast(msg, isError) {
+      const t = document.getElementById('save-toast');
+      t.textContent = msg;
+      t.style.background = isError
+        ? 'rgba(244,67,54,0.15)' : 'rgba(52,210,122,0.15)';
+      t.style.borderColor = isError
+        ? 'rgba(244,67,54,0.4)' : 'rgba(52,210,122,0.4)';
+      t.style.color = isError ? '#f3a59f' : '#7ce0a4';
+      t.classList.add('visible');
+      setTimeout(() => t.classList.remove('visible'), 3000);
+    }
+
+    function showGenerating() {
+      document.getElementById('wrap').innerHTML =
+        '<div class="generating"><div class="spinner"></div><span>Generating diagram…</span></div>';
+    }
+
+    function showPlaceholder() {
+      document.getElementById('wrap').innerHTML = `
+        <div class="placeholder">
+          <div class="ear-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+            </svg>
+          </div>
+          <div class="placeholder-title">Agent Archi is listening…</div>
+          <div class="placeholder-sub">Describe your architecture in the meeting.<br>Diagram will appear after a brief pause.</div>
+        </div>`;
+    }
+
+    function renderSvg(svg) {
+      const wrap = document.getElementById('wrap');
+      wrap.innerHTML = svg;
+      const svgEl = wrap.querySelector('svg');
+      if (svgEl) {
+        svgEl.removeAttribute('width');
+        svgEl.removeAttribute('height');
+        svgEl.style.maxWidth = '100%';
+        svgEl.style.maxHeight = 'calc(100vh - 80px)';
+      }
+      svgLoaded = true;
+      document.getElementById('save-btn').disabled = false;
+    }
+
+    async function loadDiagram() {
+      if (!diagramId) {
+        showPlaceholder();
+        return false;
+      }
+      try {
+        const resp = await fetch(`/api/diagram/${diagramId}.svg`);
+        if (resp.status === 404) {
+          // Not yet generated — keep the listening placeholder
+          if (!svgLoaded) showPlaceholder();
+          return false;
+        }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        renderSvg(await resp.text());
+        return true;
+      } catch (e) {
+        if (!svgLoaded) showPlaceholder();
+        return false;
+      }
+    }
+
+    async function pollVersion() {
+      if (!diagramId) return;
+      try {
+        const resp = await fetch(`/api/diagram/${diagramId}/version`);
+        if (!resp.ok) return;
+        const { version } = await resp.json();
+        if (version > knownVersion) {
+          if (!svgLoaded) showGenerating();
+          knownVersion = version;
+          await loadDiagram();
+        }
+      } catch (_) {}
+    }
+
+    async function saveToDrive() {
+      const btn = document.getElementById('save-btn');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        showToast('Use "Save to Drive" in the side panel', false);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save to Drive';
+      }
+    }
+
+    async function newDiagram() {
+      showToast('Use "Save & New" in the side panel', false);
+    }
+
+    // Initial load then poll every 8 seconds
+    loadDiagram().then(ok => {
+      if (ok) knownVersion = 1;
+      setInterval(pollVersion, 8000);
+    });
+
+    // Init Meet SDK
+    (async () => {
+      try {
+        const session = await meet.addon.createAddonSession({ cloudProjectNumber: '649226456677' });
+        await session.createMainStageClient();
+      } catch (e) { console.warn('Meet SDK init:', e); }
+    })();
+  </script>
+</body>
+</html>

@@ -18,6 +18,25 @@ _Last updated: 2026-05-08_
 | GitHub repo | ✅ Pushed | `curtiskrygier/google-meet-live-architect-add-on-` (private) |
 | workspace-subagent (GE04) | ✅ Redeployed | `projects/828378723395/.../2432159852814925824` |
 | Shared drive move fix | ✅ Deployed | `supportsAllDrives=True` added to move + create tools |
+| Save to Drive | ⚠️ Broken | Investigating: token scopes vs shared drive visibility |
+
+---
+
+## Technical Analysis: "Save to Drive" Issues
+
+### Current Flow
+1. **Frontend (`index.tsx`)**: Requests OAuth token with `https://www.googleapis.com/auth/drive.file` scope.
+2. **Handshake**: Token is sent to `main.py` via WebSocket `init` message.
+3. **Trigger**: When the Workspace Agent returns a Doc URL, `save_doc_shortcut_to_drive()` is called.
+4. **Folder Logic**: `get_or_create_meeting_folder()` looks for "Meet Recordings" in `root`.
+
+### Potential Avenues to Explore
+1. **Scope Conflicts**: `drive.file` only sees files created by *this* specific Client ID. If "Meet Recordings" was created by a previous app version or manually, the bot is blind to it and may fail during creation/retrieval.
+    - *Action*: Try elevating scope to `https://www.googleapis.com/auth/drive` for debugging.
+2. **Shared Drive Support**: The current Drive API calls in `main.py` lack the `supportsAllDrives=True` and `includeItemsFromAllDrives=True` parameters.
+    - *Action*: Add these parameters to all `httpx` calls in `main.py`'s Drive logic.
+3. **Token Expiry**: User tokens last 1 hour. Long meetings will result in `401 Unauthorized` without a refresh mechanism.
+4. **Visibility**: If "Meet Recordings" is not in the user's My Drive (e.g., they are a guest), the `root` search will fail.
 
 ---
 
@@ -102,6 +121,36 @@ A voice-activated Workspace assistant embedded in Google Meet:
 | Shared drives | All Drive API calls need `supportsAllDrives=True` to see/move shared drive files |
 | workspace-subagent endpoint | `projects/828378723395/locations/us-central1/reasoningEngines/2432159852814925824` |
 | GE04 auth service | `https://workspace-subagent-auth-828378723395.us-central1.run.app/auth` |
+
+---
+
+## Delta Analysis & Sharing Strategy ("Virgin" Copy)
+
+To share a clean version of this project on GitHub without exposing private credentials or environment-specific IDs, follow this approach.
+
+### 1. Identify the "Delta"
+The delta is the unique logic added to the base Meet Add-on template. Key custom files:
+- **`index.tsx`**: Custom orb animations, wake-word detection, and `openInMainStage` logic.
+- **`main.py`**: Integration with GE04 reasoning engine and Drive shortcut automation.
+- **`public/main_stage.html`**: Shared document previewer.
+
+### 2. Sanitization Checklist (Creating the "Virgin" Copy)
+Before pushing to a public repository, remove or genericize these files:
+- **Environment**: Delete `.env` and `.env.production`. Replace with `sample.env` containing empty values.
+- **Apps Script**: Delete `appsscript/.clasp.json` (contains script IDs).
+- **Hardcoded IDs**: Replace `649226456677` and `633006702698` with `YOUR_IDENTITY_PROJECT` and `YOUR_HOSTING_PROJECT` in `index.tsx` and `appsscript.json`.
+- **Reasoning Engine**: Genericize the `WORKSPACE_AGENT_ENGINE` project path in `main.py`.
+
+### 3. GitHub Reference
+- **Private Repo**: `curtiskrygier/google-meet-live-architect-add-on-` (Current source of truth).
+- **Public Reference**: Use the [Pierrick Voulet Sample](https://github.com/PierrickVoulet/meet-media-api-samples) as the baseline for calculating the architectural delta.
+
+### 4. Delta Calculation Command
+To see exactly what has changed relative to the clean state:
+```bash
+# Compare current state against the initial commit (assuming clean template start)
+git diff --stat $(git rev-list --max-parents=0 HEAD) HEAD
+```
 
 ---
 

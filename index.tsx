@@ -37,6 +37,16 @@ export class GdmArchitectAgent extends LitElement {
   @state() videoEnabled = false;
   @state() wakeActive = false;
   @state() actionLinks: Array<{url: string; label: string}> = [];
+  @state() diagramMode = false;
+  @state() diagramming = false;
+  @state() diagramContext = '';
+
+  private diagramInterval: ReturnType<typeof setInterval> | null = null;
+  private diagramSessionId = '';
+  private diagramActivityStarted = false;
+  private lastTranscriptTime = 0;
+  private lastGenerationTime = 0;
+  private speechSilenceTimer: ReturnType<typeof setTimeout> | null = null;
 
   private meetClient: MeetMediaApiClientImpl | null = null;
   private sidePanelClient: any = null;
@@ -239,6 +249,16 @@ export class GdmArchitectAgent extends LitElement {
     .turn-name.gem { background: linear-gradient(135deg, var(--gem-1), var(--gem-2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
     .turn-text { font-size: 13px; line-height: 1.45; color: var(--fg); }
     .transcript-empty { padding: 18px 16px; background: var(--bg-1); border: 1px dashed var(--line); border-radius: 12px; text-align: center; color: var(--fg-3); font-size: 12.5px; }
+    .context-input { width: 100%; min-height: 88px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg); font-family: inherit; font-size: 12px; line-height: 1.5; padding: 10px 12px; resize: vertical; box-sizing: border-box; transition: border-color 150ms; }
+    .context-input:focus { outline: none; border-color: var(--gem-2); }
+    .context-input.has-content { border-color: rgba(52,210,122,0.5); }
+    .context-input::placeholder { color: var(--fg-4); }
+    .context-row { display: flex; gap: 8px; align-items: flex-start; }
+    .context-row .context-input { flex: 1; }
+    .ctx-send { flex-shrink: 0; height: 36px; padding: 0 14px; background: var(--gem-2); border: none; border-radius: var(--radius-sm); color: #fff; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; align-self: flex-end; white-space: nowrap; }
+    .ctx-send:hover { opacity: 0.85; }
+    .ctx-send:disabled { opacity: 0.4; cursor: default; }
+    .ctx-hint { font-size: 10.5px; color: var(--fg-4); margin-top: 5px; }
     /* Action cards */
     .action-list { display: flex; flex-direction: column; gap: 6px; }
     .action { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--bg-1); border: 1px solid var(--line-soft); border-radius: 12px; cursor: pointer; transition: all 120ms; text-decoration: none; }
@@ -288,7 +308,7 @@ export class GdmArchitectAgent extends LitElement {
   private unloadHandler = () => { this.disconnect(); };
 
   firstUpdated() {
-    console.log('[concierge] build v12 — kill switch + latency');
+    console.log('[concierge] build v16 — backend transcription, shared drive support');
     this.initializeAddon();
   }
 
@@ -318,6 +338,9 @@ export class GdmArchitectAgent extends LitElement {
           'https://www.googleapis.com/auth/meetings.space.created',
           'https://www.googleapis.com/auth/meetings.conference.media.readonly',
           'https://www.googleapis.com/auth/meetings.space.readonly',
+          'https://www.googleapis.com/auth/chat.messages.readonly',
+          'https://www.googleapis.com/auth/drive',
+          'https://www.googleapis.com/auth/calendar.readonly',
           'openid',
           'email',
         ].join(' '),
@@ -339,19 +362,37 @@ export class GdmArchitectAgent extends LitElement {
 
     this.ws.onopen = () => {
       this.status = 'Agent connected';
-      if (this.userEmail) {
-        this.ws!.send(JSON.stringify({ type: 'init', user_email: this.userEmail }));
-      }
+      this.ws!.send(JSON.stringify({
+        type: 'init',
+        user_email: this.userEmail,
+        access_token: this.accessToken,
+        meeting_id: this.meetingId,
+      }));
     };
     this.ws.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
-        this.playAudioChunk(e.data);
+        // In diagramming mode suppress Gemini's voice — just listen/transcribe
+        if (!this.diagramMode) this.playAudioChunk(e.data);
         return;
       }
       try {
         const msg = JSON.parse(e.data as string);
         if (msg.type === 'transcript') {
-          this.transcript = (this.transcript + `\n[${msg.role}] ${msg.text}`).trimStart();
+          console.log('[concierge] backend transcript:', msg.text);
+          // Only append if we didn't get it from local SR (simple de-dupe)
+          if (!this.transcript.toLowerCase().includes(msg.text.toLowerCase().substring(0, 20))) {
+             this.transcript = (this.transcript + `\n[${msg.role}] ${msg.text}`).trimStart();
+          }
+          // In diagramming mode: when user speaks, clear the text box and arm silence timer
+          if (this.diagramMode && msg.role === 'user' && msg.text?.trim()) {
+            this.diagramContext = '';
+            this.lastTranscriptTime = Date.now();
+            if (this.speechSilenceTimer) clearTimeout(this.speechSilenceTimer);
+            this.speechSilenceTimer = setTimeout(() => {
+              this.speechSilenceTimer = null;
+              if (this.diagramMode && !this.diagramming) this.generateDiagram();
+            }, 5000);
+          }
         } else if (msg.type === 'status') {
           this.status = msg.text;
         } else if (msg.type === 'action_link') {
@@ -539,40 +580,6 @@ export class GdmArchitectAgent extends LitElement {
     tick();
   }
 
-  private startWakeWordDetection() {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      this.status = 'Connected — use audio toggle to speak';
-      return;
-    }
-    this.speechRecognition = new SR();
-    this.speechRecognition.continuous = true;
-    this.speechRecognition.interimResults = false;
-    this.speechRecognition.lang = 'en-US';
-    this.speechRecognition.onresult = (e: any) => {
-      const lastResult = e.results[e.results.length - 1];
-      if (!lastResult.isFinal) return;
-      const text = lastResult[0].transcript.toLowerCase().trim();
-      if (text.includes('hey gemini') || text.includes('ok gemini')) {
-        this.activateWakeWord();
-      } else if (this.wakeActive && (
-        text.includes('thanks gemini') || text.includes('thank you gemini') ||
-        text.includes('stop listening') || text.includes('goodbye gemini')
-      )) {
-        this.deactivateWakeWord();
-      }
-    };
-    this.speechRecognition.onend = () => {
-      if (this.connected) { try { this.speechRecognition?.start(); } catch {} }
-    };
-    this.speechRecognition.onerror = (e: any) => {
-      if (e.error !== 'no-speech') console.log('[SpeechRecognition] error:', e.error);
-    };
-    try { this.speechRecognition.start(); } catch (e) {
-      console.log('[SpeechRecognition] could not start:', e);
-    }
-  }
-
   private activateWakeWord() {
     this.wakeActive = true;
     this.status = 'Listening...';
@@ -591,6 +598,11 @@ export class GdmArchitectAgent extends LitElement {
     if (this.speechRecognition) { try { this.speechRecognition.stop(); } catch {} this.speechRecognition = null; }
     if (this.wakeTimeout) { clearTimeout(this.wakeTimeout); this.wakeTimeout = null; }
     if (this.videoFrameInterval) { clearInterval(this.videoFrameInterval); this.videoFrameInterval = null; }
+    if (this.diagramInterval) { clearInterval(this.diagramInterval); this.diagramInterval = null; }
+    if (this.speechSilenceTimer) { clearTimeout(this.speechSilenceTimer); this.speechSilenceTimer = null; }
+    this.diagramMode = false;
+    this.diagramSessionId = '';
+    this.diagramActivityStarted = false;
     if (this.ws) { this.ws.close(); this.ws = null; }
     if (this.audioContext) { await this.audioContext.close(); this.audioContext = null; }
     if (this.playbackContext) { await this.playbackContext.close(); this.playbackContext = null; }
@@ -635,12 +647,154 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
+  private async fetchChatMessages(): Promise<string> {
+    if (!this.accessToken || !this.meetingId) return '';
+    try {
+      // meetingId is in spaces/xxx format — same ID the Chat API uses
+      const spaceId = this.meetingId.startsWith('spaces/') ? this.meetingId : `spaces/${this.meetingId}`;
+      const resp = await fetch(
+        `https://chat.googleapis.com/v1/${spaceId}/messages?pageSize=100&orderBy=createTime asc`,
+        { headers: { 'Authorization': `Bearer ${this.accessToken}` } }
+      );
+      if (!resp.ok) {
+        console.warn('[concierge] chat API', resp.status);
+        return '';
+      }
+      const data = await resp.json();
+      const messages: string[] = (data.messages || []).map((m: any) => {
+        const sender = m.sender?.displayName || m.sender?.name || 'Unknown';
+        const text = m.text || m.formattedText || '';
+        return text ? `${sender}: ${text}` : null;
+      }).filter(Boolean);
+      console.log(`[concierge] fetched ${messages.length} chat messages`);
+      return messages.join('\n');
+    } catch (e) {
+      console.warn('[concierge] fetchChatMessages error:', e);
+      return '';
+    }
+  }
+
+  private async toggleDiagramMode() {
+    if (this.diagramMode) {
+      this.diagramMode = false;
+      this.diagramContext = '';
+      this.diagramSessionId = '';
+      this.diagramActivityStarted = false;
+      this.lastTranscriptTime = 0;
+      this.lastGenerationTime = 0;
+      if (this.speechSilenceTimer) { clearTimeout(this.speechSilenceTimer); this.speechSilenceTimer = null; }
+      if (this.diagramInterval) { clearInterval(this.diagramInterval); this.diagramInterval = null; }
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'diagram_mode', active: false }));
+      }
+      this.status = 'Kore connected — listening';
+    } else {
+      this.diagramMode = true;
+      this.diagramSessionId = crypto.randomUUID();
+      this.lastTranscriptTime = 0;
+      this.lastGenerationTime = 0;
+      this.status = 'Agent Archi — speak your architecture description';
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'diagram_mode', active: true }));
+      }
+      // Open the main stage immediately with the listening placeholder —
+      // diagram_stage.html handles 404 gracefully until the SVG is ready.
+      if (this.sidePanelClient) {
+        this.diagramActivityStarted = true; // optimistic — prevent future startActivity calls
+        const stageUrl = `${location.origin}/diagram_stage.html?id=${encodeURIComponent(this.diagramSessionId)}`;
+        try {
+          await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+        } catch (e: any) {
+          console.warn('[concierge] startActivity (diagram):', e?.message || e);
+        }
+      }
+      // 30s auto-refresh — only triggers if new speech has occurred since last generation
+      this.diagramInterval = setInterval(() => {
+        if (this.diagramMode && !this.diagramming && this.lastTranscriptTime > this.lastGenerationTime) {
+          this.generateDiagram();
+        }
+      }, 30000);
+    }
+  }
+
+  private async generateDiagram() {
+    if (this.diagramming) return;
+    this.diagramming = true;
+    const transcript = this.diagramContext.trim() || this.transcript.trim() || '';
+    const chat = await this.fetchChatMessages();
+    try {
+      const resp = await fetch('/api/diagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript,
+          chat,
+          access_token: this.accessToken,
+          space_id: this.meetingId,
+          session_id: this.diagramSessionId,
+        }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      this.lastGenerationTime = Date.now();
+      if (this.diagramMode) this.status = 'Agent Archi — diagram updated';
+    } catch (e: any) {
+      console.error('[concierge] diagram error:', e);
+      this.status = `Diagram failed: ${(e as any).message || e}`;
+    } finally {
+      this.diagramming = false;
+    }
+  }
+
+  private async saveDiagramToDrive() {
+    if (!this.diagramSessionId || !this.accessToken || !this.meetingId) {
+      this.status = 'Cannot save — no active diagram session';
+      return;
+    }
+    this.status = 'Saving diagram to Drive…';
+    try {
+      const resp = await fetch(`/api/diagram/${this.diagramSessionId}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: this.accessToken, space_id: this.meetingId }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      this.status = 'Diagram saved to Drive ✓';
+    } catch (e: any) {
+      this.status = `Drive save failed: ${(e as any).message || e}`;
+    }
+  }
+
+  private async saveAndNewDiagram() {
+    // 1. Save current diagram
+    await this.saveDiagramToDrive();
+    
+    // 2. Reset diagram state
+    this.diagramContext = '';
+    this.diagramSessionId = crypto.randomUUID();
+    this.lastTranscriptTime = 0;
+    this.lastGenerationTime = 0;
+    
+    // 3. Update the main stage for everyone
+    if (this.sidePanelClient) {
+      const stageUrl = `${location.origin}/diagram_stage.html?id=${encodeURIComponent(this.diagramSessionId)}`;
+      try {
+        await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+        this.status = 'New diagram session started';
+      } catch (e: any) {
+        console.warn('[concierge] startActivity (new diagram):', e?.message || e);
+        this.status = 'Failed to start new diagram';
+      }
+    }
+  }
+
   render() {
     const transcriptLines = this.transcript
       ? this.transcript.split('\n').filter(l => l.trim())
       : [];
 
-    const docLinksSvg = html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8zm0-4h8v2H8z"/></svg>`;
+    const docLinksSvg = html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v23a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8zm0-4h8v2H8z"/></svg>`;
 
     const actionCards = this.actionLinks.length > 0 ? html`
       <div class="section">
@@ -667,6 +821,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
+          <div style="font-size:9px;color:var(--fg-4)">v16</div>
         </div>
         <div class="body">
           <div class="hero">
@@ -708,6 +863,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
+          <div style="font-size:9px;color:var(--fg-4)">v16</div>
         </div>
         <div class="body">
           <div class="hero">
@@ -739,6 +895,7 @@ export class GdmArchitectAgent extends LitElement {
           <div class="brand-mark">${GEMINI_LOGO}</div>
           <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
         </div>
+        <div style="font-size:9px;color:var(--fg-4)">v16</div>
       </div>
       <div class="body">
         <div class="hero" style="padding-bottom:12px">
@@ -753,7 +910,7 @@ export class GdmArchitectAgent extends LitElement {
         ${actionCards}
 
         <div class="section">
-          <div class="controls-row">
+          <div class="controls-row" style="grid-template-columns:1fr 1fr 1fr 1fr">
             <div class="ctrl" data-active="${this.audioEnabled}" @click=${() => this.toggleAudio()}>
               <div class="ctrl-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
@@ -776,8 +933,52 @@ export class GdmArchitectAgent extends LitElement {
               <span class="ctrl-label">Wake</span>
               <span class="ctrl-state">${this.wakeActive ? 'Active' : 'Standby'}</span>
             </div>
+            <div class="ctrl" data-active="${this.diagramMode}"
+                 @click=${() => this.toggleDiagramMode()}>
+              <div class="ctrl-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px">
+                  <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                  <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+                  <line x1="6.5" y1="10" x2="6.5" y2="14"/><line x1="17.5" y1="10" x2="17.5" y2="14"/>
+                  <line x1="10" y1="17.5" x2="14" y2="17.5"/>
+                </svg>
+              </div>
+              <span class="ctrl-label">Agent Archi</span>
+              <span class="ctrl-state">${this.diagramMode ? (this.diagramming ? 'Updating' : 'Active') : 'Off'}</span>
+            </div>
           </div>
         </div>
+
+        ${this.diagramMode ? html`
+        <div class="section">
+          <div class="section-head"><span class="section-title">Diagram Context</span></div>
+          <div class="context-row">
+            <textarea class="context-input ${this.diagramContext.trim() ? 'has-content' : ''}"
+              placeholder="Paste a description or architecture here, then click Generate. Speak to override with voice."
+              .value=${this.diagramContext}
+              @input=${(e: Event) => { this.diagramContext = (e.target as HTMLTextAreaElement).value; }}
+              @keydown=${(e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); this.generateDiagram(); } }}
+            ></textarea>
+            <button class="ctx-send" ?disabled=${this.diagramming}
+              @click=${() => this.generateDiagram()}>
+              ${this.diagramming ? 'Generating…' : 'Generate'}
+            </button>
+          </div>
+          <div class="ctx-hint">${this.diagramContext.trim() ? '✓ Context ready — click Generate or speak to override' : 'Speak your description — diagram generates after 5 s of silence · or paste text above'}</div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
+              ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
+              @click=${() => this.saveDiagramToDrive()}>
+              Save to Drive
+            </button>
+            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
+              ?disabled=${!this.diagramSessionId}
+              @click=${() => this.saveAndNewDiagram()}>
+              Save & New
+            </button>
+          </div>
+        </div>
+        ` : html``}
 
         <div class="section">
           <div class="section-head"><span class="section-title">Transcript</span></div>

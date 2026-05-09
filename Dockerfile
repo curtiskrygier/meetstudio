@@ -10,6 +10,14 @@ RUN npm run build
 
 FROM python:3.12-slim
 WORKDIR /app
+# Install d2 binary
+RUN apt-get update && apt-get install -y curl tar && \
+    curl -fsSL https://github.com/terrastruct/d2/releases/download/v0.7.1/d2-v0.7.1-linux-amd64.tar.gz \
+    -o /tmp/d2.tar.gz && \
+    mkdir -p /tmp/d2x && tar -xzf /tmp/d2.tar.gz -C /tmp/d2x && \
+    find /tmp/d2x -name d2 -type f -exec install -m755 {} /usr/local/bin/d2 \; && \
+    rm -rf /tmp/d2.tar.gz /tmp/d2x && \
+    apt-get remove -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
