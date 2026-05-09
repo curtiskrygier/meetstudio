@@ -697,11 +697,17 @@ export class GdmArchitectAgent extends LitElement {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: 'diagram_mode', active: true }));
       }
-      // Open the main stage immediately with the listening placeholder —
-      // diagram_stage.html handles 404 gracefully until the SVG is ready.
+      // Register this session server-side so the main stage can poll for updates
+      fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: this.diagramSessionId }),
+      }).catch(() => {});
+      // Open the main stage — pass both session id and meeting id so the stage
+      // can poll for session changes without restarting the activity.
       if (this.sidePanelClient) {
-        this.diagramActivityStarted = true; // optimistic — prevent future startActivity calls
-        const stageUrl = `${location.origin}/diagram_stage.html?id=${encodeURIComponent(this.diagramSessionId)}`;
+        this.diagramActivityStarted = true;
+        const stageUrl = `${location.origin}/diagram_stage.html?id=${encodeURIComponent(this.diagramSessionId)}&meeting=${encodeURIComponent(this.meetingId)}`;
         try {
           await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
         } catch (e: any) {
@@ -767,25 +773,22 @@ export class GdmArchitectAgent extends LitElement {
   }
 
   private async saveAndNewDiagram() {
-    // 1. Save current diagram
     await this.saveDiagramToDrive();
-    
-    // 2. Reset diagram state
     this.diagramContext = '';
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
-    
-    // 3. Update the main stage for everyone
-    if (this.sidePanelClient) {
-      const stageUrl = `${location.origin}/diagram_stage.html?id=${encodeURIComponent(this.diagramSessionId)}`;
-      try {
-        await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
-        this.status = 'New diagram session started';
-      } catch (e: any) {
-        console.warn('[concierge] startActivity (new diagram):', e?.message || e);
-        this.status = 'Failed to start new diagram';
-      }
+    // Tell the server the new session ID — the main stage polls this and switches
+    // without needing startActivity (which fails mid-activity).
+    try {
+      await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: this.diagramSessionId }),
+      });
+      this.status = 'New diagram session ready — speak to generate';
+    } catch (e: any) {
+      this.status = 'New session ready (server update failed)';
     }
   }
 

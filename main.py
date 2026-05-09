@@ -80,6 +80,9 @@ _meeting_folder_cache: dict[str, str] = {} # space_id → Drive folder ID
 # Diagram title store
 _diagram_title: dict[str, str] = {}        # diagram_id → title
 
+# Current active diagram session per meeting
+_current_session: dict[str, str] = {}      # meeting_id → diagram session_id
+
 
 async def get_calendar_meeting_name(space_id: str, access_token: str) -> str:
     """Return the Calendar event title for this Meet space, '' if not found."""
@@ -730,6 +733,16 @@ async def api_diagram(payload: dict = Body(...)):
     except Exception as e:
         print(f"[diagram] {type(e).__name__}: {e}", flush=True)
         return {"error": str(e)}
+
+
+@app.get("/api/session/{meeting_id:path}")
+async def get_current_session(meeting_id: str):
+    return {"session_id": _current_session.get(meeting_id, "")}
+
+@app.post("/api/session/{meeting_id:path}")
+async def set_current_session(meeting_id: str, payload: dict = Body(...)):
+    _current_session[meeting_id] = payload.get("session_id", "")
+    return {"ok": True}
 
 
 @app.get("/api/diagram/{diagram_id}/version")

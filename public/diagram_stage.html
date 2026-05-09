@@ -163,7 +163,8 @@
 
   <script>
     const params = new URLSearchParams(location.search);
-    const diagramId = params.get('id') || '';
+    let diagramId = params.get('id') || '';
+    const meetingId = params.get('meeting') || '';
     let knownVersion = 0;
     let svgLoaded = false;
 
@@ -249,11 +250,29 @@
     }
 
 
-    // Initial load then poll every 8 seconds
+    // Initial load then poll for diagram updates every 8 seconds
     loadDiagram().then(ok => {
       if (ok) knownVersion = 1;
       setInterval(pollVersion, 8000);
     });
+
+    // Poll for session changes (side panel Save & New) every 5 seconds
+    async function pollSession() {
+      if (!meetingId) return;
+      try {
+        const resp = await fetch(`/api/session/${encodeURIComponent(meetingId)}`);
+        if (!resp.ok) return;
+        const { session_id } = await resp.json();
+        if (session_id && session_id !== diagramId) {
+          diagramId = session_id;
+          svgLoaded = false;
+          knownVersion = 0;
+          showPlaceholder();
+          loadDiagram();
+        }
+      } catch (_) {}
+    }
+    setInterval(pollSession, 5000);
 
     // Init Meet SDK
     (async () => {
