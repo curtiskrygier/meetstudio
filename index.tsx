@@ -968,11 +968,13 @@ export class GdmArchitectAgent extends LitElement {
           <div style="display:flex;gap:8px;margin-top:8px">
             <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
               ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
+              title=${!this.lastGenerationTime ? 'Generate a diagram first' : 'Save diagram to Google Drive'}
               @click=${() => this.saveDiagramToDrive()}>
-              Save to Drive
+              ${this.lastGenerationTime ? 'Save to Drive' : 'Save to Drive (after generate)'}
             </button>
             <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
-              ?disabled=${!this.diagramSessionId}
+              ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
+              title=${!this.lastGenerationTime ? 'Generate a diagram first' : 'Save current diagram and start a new session'}
               @click=${() => this.saveAndNewDiagram()}>
               Save & New
             </button>
