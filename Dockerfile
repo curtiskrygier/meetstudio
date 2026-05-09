@@ -11,7 +11,7 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 # Install d2 binary
-RUN apt-get update && apt-get install -y curl tar && \
+RUN apt-get update && apt-get install -y curl tar librsvg2-bin && \
     curl -fsSL https://github.com/terrastruct/d2/releases/download/v0.7.1/d2-v0.7.1-linux-amd64.tar.gz \
     -o /tmp/d2.tar.gz && \
     mkdir -p /tmp/d2x && tar -xzf /tmp/d2.tar.gz -C /tmp/d2x && \

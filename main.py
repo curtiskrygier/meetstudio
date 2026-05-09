@@ -348,22 +348,45 @@ async def _drive_get_or_create_folder(name: str, parent_id: str, access_token: s
     return None
 
 
+def _svg_to_png(svg_bytes: bytes, width: int = 1200) -> bytes | None:
+    try:
+        result = subprocess.run(
+            ["rsvg-convert", "-w", str(width), "--format", "png"],
+            input=svg_bytes, capture_output=True, timeout=15,
+        )
+        if result.returncode == 0 and result.stdout:
+            return result.stdout
+        print(f"[drive] rsvg-convert failed: {result.stderr[:200]}", flush=True)
+    except Exception as e:
+        print(f"[drive] rsvg-convert error: {e}", flush=True)
+    return None
+
+
 async def save_diagram_to_drive(svg_bytes: bytes, title: str, space_id: str, access_token: str, meeting_name: str = ""):
     if not access_token or not space_id:
         return
     try:
         safe_title = re.sub(r'[^\w\s-]', '', title).strip()[:20] or "Meeting Diagram"
-        filename = f"{safe_title}.svg"
+        # Convert to PNG for clean Drive preview
+        png_bytes = await asyncio.get_event_loop().run_in_executor(None, _svg_to_png, svg_bytes)
+        if png_bytes:
+            upload_bytes = png_bytes
+            mime_type = "image/png"
+            filename = f"{safe_title}.png"
+        else:
+            upload_bytes = svg_bytes
+            mime_type = "image/svg+xml"
+            filename = f"{safe_title}.svg"
         meeting_folder_id = await get_or_create_meeting_folder(space_id, access_token, meeting_name=meeting_name)
         if not meeting_folder_id:
             return
         boundary = "boundary_d2svg"
-        metadata = json.dumps({"name": filename, "parents": [meeting_folder_id], "mimeType": "image/svg+xml"})
+        metadata = json.dumps({"name": filename, "parents": [meeting_folder_id], "mimeType": mime_type})
         body = (
             f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
             + metadata
-            + f"\r\n--{boundary}\r\nContent-Type: image/svg+xml\r\n\r\n"
-        ).encode() + svg_bytes + f"\r\n--{boundary}--".encode()
+            + f"\r\n--{boundary}\r\nContent-Type: {mime_type}\r\n\r\n"
+        ).encode() + upload_bytes + f"\r\n--{boundary}--".encode()
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
