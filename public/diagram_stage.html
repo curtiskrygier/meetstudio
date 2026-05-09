@@ -145,7 +145,6 @@
   <div class="topbar">
     <span class="topbar-title" id="title">Agent Archi</span>
     <span class="topbar-badge">Gemini · D2</span>
-    <button class="save-btn" id="new-btn" onclick="newDiagram()">New Diagram</button>
   </div>
   <div class="diagram-wrap" id="wrap">
     <div class="placeholder">
@@ -249,10 +248,6 @@
       } catch (_) {}
     }
 
-    function newDiagram() {
-      const newId = crypto.randomUUID();
-      location.href = `${location.pathname}?id=${encodeURIComponent(newId)}`;
-    }
 
     // Initial load then poll every 8 seconds
     loadDiagram().then(ok => {
