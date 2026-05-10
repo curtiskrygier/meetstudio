@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y curl tar librsvg2-bin && \
     apt-get remove -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY assets ./assets
 COPY main.py .
 COPY --from=frontend /app/dist ./dist
 ENV PORT=8080

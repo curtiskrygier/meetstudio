@@ -3,33 +3,67 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document Ready</title>
+  <title>Meet Live Concierge — Main Stage</title>
   <script src="https://www.gstatic.com/meetjs/addons/1.1.0/meet.addons.js"></script>
   <style>
+    :root {
+      --active-font-size: 32px;
+      --prev-font-size: 24px;
+      --older-font-size: 18px;
+      --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-duration: 400ms;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    
     body {
-      font-family: 'Google Sans', sans-serif;
-      background: #1a1a2e;
+      font-family: 'Google Sans', 'Plus Jakarta Sans', sans-serif;
+      background: #0c0d10;
       color: #fff;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Topbar */
+    .topbar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: rgba(255,255,255,0.05);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+      z-index: 100;
+    }
+    .topbar-title { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); flex: 1; }
+
+    /* Content Area */
+    #content-layer {
+      flex: 1;
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
-      padding: 24px;
+      overflow: hidden;
+      padding: 0; /* Remove padding to allow diagram to fill space */
+      width: 100%;
     }
-    .card {
+
+    /* Document View */
+    .doc-card {
       background: rgba(255,255,255,0.07);
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 20px;
-      padding: 48px 56px;
+      padding: 48px;
       text-align: center;
       max-width: 560px;
-      width: 100%;
+      width: 90%;
     }
-    .icon { font-size: 56px; margin-bottom: 20px; }
-    h1 { font-size: 26px; font-weight: 500; margin-bottom: 10px; }
-    p { color: rgba(255,255,255,0.6); font-size: 15px; margin-bottom: 32px; line-height: 1.5; }
-    .btn {
+    .doc-btn {
       display: inline-block;
       background: #1a73e8;
       color: #fff;
@@ -38,42 +72,310 @@
       border-radius: 50px;
       font-size: 15px;
       font-weight: 500;
-      transition: background 0.2s;
+      margin-top: 24px;
     }
-    .btn:hover { background: #1557b0; }
-    .label {
-      margin-top: 20px;
-      font-size: 12px;
-      color: rgba(255,255,255,0.35);
-      word-break: break-all;
+
+    /* Diagram View */
+    .diagram-wrap {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0c0d10; /* Match body background */
     }
+    #diagram-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      position: relative;
+    }
+    #diagram-container svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    /* Internal Placeholder (for listening state) */
+    .inner-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      text-align: center;
+      color: rgba(255,255,255,0.4);
+    }
+    .ear-icon {
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: rgba(155,109,255,0.1);
+      border: 1px solid rgba(155,109,255,0.2);
+      display: grid; place-items: center;
+      color: #9B6DFF;
+    }
+
+    /* Placeholder / Waiting */
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      text-align: center;
+      color: rgba(255,255,255,0.5);
+    }
+    .pulse-icon {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: rgba(155,109,255,0.15);
+      display: grid; place-items: center;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.1); opacity: 1; } }
+
+    /* Transcript Layer (Permanent Overlay) */
+    #transcript-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding-bottom: 80px; /* Above Meet bar */
+      z-index: 200;
+    }
+
+    #transcript-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 90%;
+      max-width: 1000px;
+      gap: 12px;
+    }
+
+    .turn {
+      padding: 10px 20px;
+      border-radius: 16px;
+      background: rgba(12, 13, 16, 0.75);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+      transition: all var(--transition-duration) var(--transition-timing);
+      max-width: 100%;
+      word-wrap: break-word;
+      opacity: 0;
+      transform: translateY(15px) scale(0.98);
+    }
+
+    .turn.active { font-size: var(--active-font-size); font-weight: 500; opacity: 1; transform: translateY(0) scale(1); }
+    .turn.agent { border-color: rgba(155, 109, 255, 0.4); background: rgba(26, 21, 44, 0.8); }
+    .turn.prev-1 { font-size: var(--prev-font-size); opacity: 0.6; transform: translateY(-8px) scale(0.88); }
+    .turn.prev-2, .turn.old { display: none !important; }
+
+    .role-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 2px; opacity: 0.5; display: block; }
+    .agent .role-label { color: #c5a9ff; opacity: 0.8; }
+
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="icon">📄</div>
-    <h1 id="title">Document Ready</h1>
-    <p>Your Workspace Concierge has created a new document for this meeting.</p>
-    <a id="link" href="#" target="_blank" class="btn">Open Document</a>
-    <div class="label" id="url-label"></div>
+  <div class="topbar">
+    <span class="topbar-title" id="stage-title">Meet Live Concierge</span>
+    <div id="status-badge" style="font-size:11px; opacity:0.4">Ready</div>
+  </div>
+
+  <div id="content-layer">
+    <!-- View 1: Placeholder -->
+    <div id="view-placeholder" class="placeholder">
+      <div class="pulse-icon">✨</div>
+      <p>Awaiting activity from the Side Panel...</p>
+    </div>
+
+    <!-- View 2: Document Card -->
+    <div id="view-doc" class="doc-card hidden">
+      <h1 id="doc-title" style="font-size:24px; margin-bottom:12px">Document Ready</h1>
+      <p style="color:rgba(255,255,255,0.6); line-height:1.5">Your Concierge has prepared a new file for this meeting.</p>
+      <a id="doc-link" href="#" target="_blank" class="doc-btn">Open Document</a>
+    </div>
+
+    <!-- View 3: Diagram -->
+    <div id="view-diagram" class="diagram-wrap hidden">
+      <div id="diagram-container"></div>
+    </div>
+  </div>
+
+  <!-- Permanent Transcript Layer -->
+  <div id="transcript-layer">
+    <div id="transcript-container"></div>
   </div>
 
   <script>
     const params = new URLSearchParams(location.search);
-    const docUrl = params.get('doc') || '';
-    const label = params.get('label') || 'New Document';
+    let currentMode = params.get('mode') || 'placeholder';
+    let diagramId = params.get('diag_id') || '';
+    const meetingId = params.get('meeting') || '';
+    let knownVersion = 0;
+    let turns = [];
 
-    document.getElementById('title').textContent = label;
-    const link = document.getElementById('link');
-    link.href = docUrl;
-    link.textContent = 'Open ' + label;
-    document.getElementById('url-label').textContent = docUrl;
+    function showDiagramPlaceholder() {
+      document.getElementById('diagram-container').innerHTML = `
+        <div class="inner-placeholder">
+          <div class="ear-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:28px;height:28px">
+              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            </svg>
+          </div>
+          <div>
+            <div style="font-weight:600; color:rgba(255,255,255,0.8); margin-bottom:4px">Gemini Agent Architect is listening...</div>
+            <div style="font-size:12px">Describe your architecture to generate a new diagram</div>
+          </div>
+        </div>`;
+    }
+
+    function setView(mode) {
+      document.querySelectorAll('#content-layer > div').forEach(div => div.classList.add('hidden'));
+      const active = document.getElementById(`view-${mode}`);
+      if (active) active.classList.remove('hidden');
+      currentMode = mode;
+    }
+
+    function updateTranscript(msg) {
+      const { turn_id, role, text } = msg;
+      const container = document.getElementById('transcript-container');
+      let existing = turns.find(t => t.turn_id === turn_id);
+
+      if (!existing) {
+        const el = document.createElement('div');
+        el.className = `turn active ${role}`;
+        el.innerHTML = `<span class="role-label">${role === 'agent' ? 'Gemini' : 'You'}</span><span class="content"></span>`;
+        
+        turns.forEach(t => {
+          if (t.element.classList.contains('active')) { t.element.classList.replace('active', 'prev-1'); }
+          else if (t.element.classList.contains('prev-1')) { t.element.classList.replace('prev-1', 'prev-2'); }
+          else if (t.element.classList.contains('prev-2')) { t.element.classList.replace('prev-2', 'old'); }
+        });
+
+        container.appendChild(el);
+        existing = { turn_id, role, element: el };
+        turns.push(existing);
+        if (turns.length > 5) turns.shift().element.remove();
+      }
+      existing.element.querySelector('.content').textContent = text;
+    }
+
+    async function pollDiagram() {
+      if (currentMode !== 'diagram' || !diagramId) return;
+      try {
+        const vResp = await fetch(`/api/diagram/${diagramId}/version`);
+        if (!vResp.ok) return;
+        const { version } = await vResp.json();
+        if (version > knownVersion) {
+          const sResp = await fetch(`/api/diagram/${diagramId}.svg`);
+          if (!sResp.ok) return;
+          const svg = await sResp.text();
+          const container = document.getElementById('diagram-container');
+          container.innerHTML = svg;
+          const svgEl = container.querySelector('svg');
+          if (svgEl) {
+            svgEl.removeAttribute('width');
+            svgEl.removeAttribute('height');
+            svgEl.style.width = '100%';
+            svgEl.style.height = '100%';
+          }
+          knownVersion = version;
+          console.log('[stage] Diagram updated to v' + version);
+        }
+      } catch (e) {
+        console.warn('[stage] pollDiagram error:', e);
+      }
+    }
+
+    function connectStageWS() {
+      if (!meetingId) return;
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}`);
+      
+      ws.onopen = () => console.log('[stage] Caption broadcast connected');
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'transcript') {
+            updateTranscript(msg);
+          } else if (msg.type === 'view_change') {
+            if (msg.mode === 'diagram') {
+              if (diagramId !== msg.diag_id) {
+                diagramId = msg.diag_id;
+                knownVersion = 0;
+                showDiagramPlaceholder();
+              }
+            }
+            setView(msg.mode);
+            if (msg.mode === 'doc') {
+              document.getElementById('doc-link').href = msg.url;
+              document.getElementById('doc-title').textContent = msg.label;
+            } else if (msg.mode === 'diagram') {
+              pollDiagram();
+            }
+          }
+        } catch (err) {}
+      };
+      ws.onclose = () => setTimeout(connectStageWS, 3000);
+      ws.onerror = () => ws.close();
+    }
+
+    // Handle initial state from URL
+    if (params.get('doc')) {
+      setView('doc');
+      document.getElementById('doc-link').href = params.get('doc');
+      document.getElementById('doc-title').textContent = params.get('label') || 'Document Ready';
+    } else if (diagramId || params.get('mode') === 'diagram') {
+      showDiagramPlaceholder();
+      setView('diagram');
+      pollDiagram();
+    }
+
+    setInterval(pollDiagram, 5000);
+    connectStageWS();
 
     (async () => {
       try {
         const session = await meet.addon.createAddonSession({ cloudProjectNumber: '649226456677' });
-        await session.createMainStageClient();
-      } catch (e) { console.warn('Meet SDK init:', e); }
+        const client = await session.createMainStageClient();
+        
+        client.on('frameToFrameMessage', (arg) => {
+          try {
+            const msg = JSON.parse(arg.payload);
+            if (msg.type === 'transcript') {
+              updateTranscript(msg);
+            } else if (msg.type === 'view_change') {
+              if (msg.mode === 'diagram') {
+                if (diagramId !== msg.diag_id) {
+                  diagramId = msg.diag_id;
+                  knownVersion = 0;
+                  showDiagramPlaceholder();
+                }
+              }
+              setView(msg.mode);
+              if (msg.mode === 'doc') {
+                document.getElementById('doc-link').href = msg.url;
+                document.getElementById('doc-title').textContent = msg.label;
+              } else if (msg.mode === 'diagram') {
+                pollDiagram();
+              }
+            }
+          } catch (e) {}
+        });
+      } catch (e) { console.warn('Meet SDK init failed:', e); }
     })();
   </script>
 </body>

@@ -40,12 +40,16 @@ export class GdmArchitectAgent extends LitElement {
   @state() diagramMode = false;
   @state() diagramming = false;
   @state() diagramContext = '';
+  @state() transcriptMode = false;
 
   private diagramInterval: ReturnType<typeof setInterval> | null = null;
+
   private diagramSessionId = '';
   private diagramActivityStarted = false;
   private lastTranscriptTime = 0;
   private lastGenerationTime = 0;
+  private transcriptStartIndex = 0;
+  private diagramSessionStartTime: string | null = null;
   private speechSilenceTimer: ReturnType<typeof setTimeout> | null = null;
 
   private meetClient: MeetMediaApiClientImpl | null = null;
@@ -188,6 +192,13 @@ export class GdmArchitectAgent extends LitElement {
     .section { padding: 0 16px 14px; }
     .section + .section { padding-top: 4px; }
     .section-head { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 8px; }
+    .mode-toggle {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 3px 7px; border-radius: 5px;
+      background: var(--bg-3); border: 1px solid var(--line);
+      color: var(--gem-2); cursor: pointer; transition: all 120ms;
+    }
+    .mode-toggle:hover { background: var(--bg-2); border-color: var(--fg-4); }
     .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4); }
     /* Voice meter */
     .meter-card {
@@ -294,7 +305,10 @@ export class GdmArchitectAgent extends LitElement {
   `;
 
 
+  private isActivityStarted = false;
+
   connectedCallback() {
+
     super.connectedCallback();
     window.addEventListener('unload', this.unloadHandler);
   }
@@ -322,6 +336,23 @@ export class GdmArchitectAgent extends LitElement {
       this.meetingId = meetingInfo.meetingId;
       this.isAddonInitialized = true;
       this.initialized = true;
+
+      this.sidePanelClient.on('frameToFrameMessage', (arg: any) => {
+        try {
+          const msg = JSON.parse(arg.payload);
+          if (msg.type === 'change_mode') {
+            // Broadcast to all stages so UI syncs
+            if (this.ws?.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify({
+                type: 'broadcast_view',
+                mode: 'diagram',
+                diag_id: this.diagramSessionId
+              }));
+            }
+          }
+        } catch (e) {}
+      });
+
       this.status = 'Ready — click Connect to start';
     } catch (e: any) {
       this.error = `Add-on init failed: ${e.message || e}`;
@@ -383,15 +414,22 @@ export class GdmArchitectAgent extends LitElement {
           if (!this.transcript.toLowerCase().includes(msg.text.toLowerCase().substring(0, 20))) {
              this.transcript = (this.transcript + `\n[${msg.role}] ${msg.text}`).trimStart();
           }
+
+          // Broadcast to Main Stage if in transcript mode
+          if (this.transcriptMode && this.sidePanelClient) {
+            this.sidePanelClient.notifyMainStage(JSON.stringify(msg)).catch(() => {});
+          }
+
           // In diagramming mode: when user speaks, clear the text box and arm silence timer
           if (this.diagramMode && msg.role === 'user' && msg.text?.trim()) {
+
             this.diagramContext = '';
             this.lastTranscriptTime = Date.now();
             if (this.speechSilenceTimer) clearTimeout(this.speechSilenceTimer);
             this.speechSilenceTimer = setTimeout(() => {
               this.speechSilenceTimer = null;
               if (this.diagramMode && !this.diagramming) this.generateDiagram();
-            }, 5000);
+            }, 1000);
           }
         } else if (msg.type === 'status') {
           this.status = msg.text;
@@ -632,20 +670,110 @@ export class GdmArchitectAgent extends LitElement {
     return out;
   }
 
+  private async toggleTranscriptMode() {
+    if (this.transcriptMode) {
+      this.transcriptMode = false;
+    } else {
+      this.transcriptMode = true;
+      if (this.sidePanelClient && !this.isActivityStarted) {
+        const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}`;
+        try {
+          await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+          this.isActivityStarted = true;
+        } catch (e: any) {
+          console.warn('[concierge] startActivity (transcript):', e?.message || e);
+        }
+      }
+    }
+  }
+
+  private async toggleDiagramMode() {
+    if (this.diagramMode) {
+      this.diagramMode = false;
+      this.diagramContext = '';
+      this.diagramSessionId = '';
+      this.diagramActivityStarted = false;
+      if (this.speechSilenceTimer) { clearTimeout(this.speechSilenceTimer); this.speechSilenceTimer = null; }
+      if (this.diagramInterval) { clearInterval(this.diagramInterval); this.diagramInterval = null; }
+      
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'diagram_mode', active: false }));
+        // Tell everyone to clear the stage
+        this.ws.send(JSON.stringify({ type: 'broadcast_view', mode: 'placeholder' }));
+      }
+      this.status = 'Kore connected — listening';
+    } else {
+      this.diagramMode = true;
+      this.actionLinks = [];
+      this.transcriptStartIndex = this.transcript.length;
+      this.diagramSessionStartTime = new Date().toISOString();
+      this.diagramSessionId = crypto.randomUUID();
+      this.status = 'Gemini Agent Architect — speak your architecture description';
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'diagram_mode', active: true }));
+      }
+      // Register session server-side
+      fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: this.diagramSessionId }),
+      }).catch(() => {});
+
+      if (this.sidePanelClient) {
+        if (!this.isActivityStarted) {
+          const stageUrl = `${location.origin}/main_stage.html?mode=diagram&diag_id=${encodeURIComponent(this.diagramSessionId)}&meeting=${encodeURIComponent(this.meetingId)}`;
+          try {
+            await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+            this.isActivityStarted = true;
+          } catch (e: any) {
+            console.warn('[concierge] startActivity (diagram):', e?.message || e);
+          }
+        } else {
+          // Tell everyone's stage to switch to diagram view (listening state)
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+              type: 'broadcast_view',
+              mode: 'diagram',
+              diag_id: this.diagramSessionId
+            }));
+          }
+        }
+      }
+      this.diagramInterval = setInterval(() => {
+        if (this.diagramMode && !this.diagramming && this.lastTranscriptTime > this.lastGenerationTime) {
+          this.generateDiagram();
+        }
+      }, 1000);
+    }
+  }
+
   private async openInMainStage(url: string, label: string) {
     if (this.sidePanelClient && url.includes('docs.google.com')) {
-      const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}`;
-      console.log('[concierge] Manually starting main stage activity:', stageUrl);
-      try {
-        await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
-      } catch (e) {
-        console.error('[concierge] Failed to start activity:', e);
-        window.open(url, '_blank'); // Fallback
+      if (!this.isActivityStarted) {
+        const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}&meeting=${encodeURIComponent(this.meetingId)}`;
+        try {
+          await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+          this.isActivityStarted = true;
+        } catch (e) {
+          console.error('[concierge] Failed to start activity:', e);
+          window.open(url, '_blank');
+        }
+      } else {
+        // Tell everyone's stage to switch to doc view
+        if (this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'broadcast_view',
+            mode: 'doc',
+            url,
+            label
+          }));
+        }
       }
     } else {
       window.open(url, '_blank');
     }
   }
+
 
   private async fetchChatMessages(): Promise<string> {
     if (!this.accessToken || !this.meetingId) return '';
@@ -661,12 +789,15 @@ export class GdmArchitectAgent extends LitElement {
         return '';
       }
       const data = await resp.json();
-      const messages: string[] = (data.messages || []).map((m: any) => {
+      const messages: string[] = (data.messages || []).filter((m: any) => {
+        if (!this.diagramSessionStartTime) return true;
+        return m.createTime >= this.diagramSessionStartTime;
+      }).map((m: any) => {
         const sender = m.sender?.displayName || m.sender?.name || 'Unknown';
         const text = m.text || m.formattedText || '';
         return text ? `${sender}: ${text}` : null;
       }).filter(Boolean);
-      console.log(`[concierge] fetched ${messages.length} chat messages`);
+      console.log(`[concierge] fetched ${messages.length} relevant chat messages`);
       return messages.join('\n');
     } catch (e) {
       console.warn('[concierge] fetchChatMessages error:', e);
@@ -674,59 +805,10 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
-  private async toggleDiagramMode() {
-    if (this.diagramMode) {
-      this.diagramMode = false;
-      this.diagramContext = '';
-      this.diagramSessionId = '';
-      this.diagramActivityStarted = false;
-      this.lastTranscriptTime = 0;
-      this.lastGenerationTime = 0;
-      if (this.speechSilenceTimer) { clearTimeout(this.speechSilenceTimer); this.speechSilenceTimer = null; }
-      if (this.diagramInterval) { clearInterval(this.diagramInterval); this.diagramInterval = null; }
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'diagram_mode', active: false }));
-      }
-      this.status = 'Kore connected — listening';
-    } else {
-      this.diagramMode = true;
-      this.diagramSessionId = crypto.randomUUID();
-      this.lastTranscriptTime = 0;
-      this.lastGenerationTime = 0;
-      this.status = 'Agent Archi — speak your architecture description';
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'diagram_mode', active: true }));
-      }
-      // Register this session server-side so the main stage can poll for updates
-      fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: this.diagramSessionId }),
-      }).catch(() => {});
-      // Open the main stage — pass both session id and meeting id so the stage
-      // can poll for session changes without restarting the activity.
-      if (this.sidePanelClient) {
-        this.diagramActivityStarted = true;
-        const stageUrl = `${location.origin}/diagram_stage.html?id=${encodeURIComponent(this.diagramSessionId)}&meeting=${encodeURIComponent(this.meetingId)}`;
-        try {
-          await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
-        } catch (e: any) {
-          console.warn('[concierge] startActivity (diagram):', e?.message || e);
-        }
-      }
-      // 30s auto-refresh — only triggers if new speech has occurred since last generation
-      this.diagramInterval = setInterval(() => {
-        if (this.diagramMode && !this.diagramming && this.lastTranscriptTime > this.lastGenerationTime) {
-          this.generateDiagram();
-        }
-      }, 30000);
-    }
-  }
-
   private async generateDiagram() {
     if (this.diagramming) return;
     this.diagramming = true;
-    const transcript = this.diagramContext.trim() || this.transcript.trim() || '';
+    const transcript = this.diagramContext.trim() || this.transcript.substring(this.transcriptStartIndex).trim() || '';
     const chat = await this.fetchChatMessages();
     try {
       const resp = await fetch('/api/diagram', {
@@ -743,7 +825,7 @@ export class GdmArchitectAgent extends LitElement {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       this.lastGenerationTime = Date.now();
-      if (this.diagramMode) this.status = 'Agent Archi — diagram updated';
+      if (this.diagramMode) this.status = 'Gemini Agent Architect — diagram updated';
     } catch (e: any) {
       console.error('[concierge] diagram error:', e);
       this.status = `Diagram failed: ${(e as any).message || e}`;
@@ -775,20 +857,65 @@ export class GdmArchitectAgent extends LitElement {
   private async saveAndNewDiagram() {
     await this.saveDiagramToDrive();
     this.diagramContext = '';
+    this.actionLinks = [];
+    this.transcriptStartIndex = this.transcript.length;
+    this.diagramSessionStartTime = new Date().toISOString();
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
-    // Tell the server the new session ID — the main stage polls this and switches
-    // without needing startActivity (which fails mid-activity).
+    
+    // Register session server-side
     try {
       await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: this.diagramSessionId }),
       });
+
+      // Broadcast the new ID to everyone's stage
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'broadcast_view',
+          mode: 'diagram',
+          diag_id: this.diagramSessionId
+        }));
+      }
+
       this.status = 'New diagram session ready — speak to generate';
     } catch (e: any) {
-      this.status = 'New session ready (server update failed)';
+      this.status = 'New session ready (broadcast failed)';
+    }
+  }
+
+  private async resetDiagram() {
+    this.diagramContext = '';
+    this.actionLinks = [];
+    this.transcriptStartIndex = this.transcript.length;
+    this.diagramSessionStartTime = new Date().toISOString();
+    this.diagramSessionId = crypto.randomUUID();
+    this.lastTranscriptTime = 0;
+    this.lastGenerationTime = 0;
+    
+    // Register session server-side
+    try {
+      await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: this.diagramSessionId }),
+      });
+
+      // Broadcast the new ID to everyone's stage
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'broadcast_view',
+          mode: 'diagram',
+          diag_id: this.diagramSessionId
+        }));
+      }
+
+      this.status = 'Diagram reset — speak to generate';
+    } catch (e: any) {
+      this.status = 'Reset failed';
     }
   }
 
@@ -913,7 +1040,7 @@ export class GdmArchitectAgent extends LitElement {
         ${actionCards}
 
         <div class="section">
-          <div class="controls-row" style="grid-template-columns:1fr 1fr 1fr 1fr">
+          <div class="controls-row" style="grid-template-columns:repeat(5, 1fr)">
             <div class="ctrl" data-active="${this.audioEnabled}" @click=${() => this.toggleAudio()}>
               <div class="ctrl-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
@@ -936,6 +1063,18 @@ export class GdmArchitectAgent extends LitElement {
               <span class="ctrl-label">Wake</span>
               <span class="ctrl-state">${this.wakeActive ? 'Active' : 'Standby'}</span>
             </div>
+            <div class="ctrl" data-active="${this.transcriptMode}"
+                 @click=${() => this.toggleTranscriptMode()}>
+              <div class="ctrl-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px">
+                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+                  <path d="M7 15h2a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/>
+                  <path d="M15 15h2a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2z"/>
+                </svg>
+              </div>
+              <span class="ctrl-label">Captions</span>
+              <span class="ctrl-state">${this.transcriptMode ? 'On' : 'Off'}</span>
+            </div>
             <div class="ctrl" data-active="${this.diagramMode}"
                  @click=${() => this.toggleDiagramMode()}>
               <div class="ctrl-icon">
@@ -946,7 +1085,7 @@ export class GdmArchitectAgent extends LitElement {
                   <line x1="10" y1="17.5" x2="14" y2="17.5"/>
                 </svg>
               </div>
-              <span class="ctrl-label">Agent Archi</span>
+              <span class="ctrl-label">Diagrams</span>
               <span class="ctrl-state">${this.diagramMode ? (this.diagramming ? 'Updating' : 'Active') : 'Off'}</span>
             </div>
           </div>
@@ -954,7 +1093,9 @@ export class GdmArchitectAgent extends LitElement {
 
         ${this.diagramMode ? html`
         <div class="section">
-          <div class="section-head"><span class="section-title">Diagram Context</span></div>
+          <div class="section-head">
+            <span class="section-title">Diagram Context</span>
+          </div>
           <div class="context-row">
             <textarea class="context-input ${this.diagramContext.trim() ? 'has-content' : ''}"
               placeholder="Paste a description or architecture here, then click Generate. Speak to override with voice."
@@ -968,16 +1109,18 @@ export class GdmArchitectAgent extends LitElement {
             </button>
           </div>
           <div class="ctx-hint">${this.diagramContext.trim() ? '✓ Context ready — click Generate or speak to override' : 'Speak your description — diagram generates after 5 s of silence · or paste text above'}</div>
-          <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="display:flex;gap:6px;margin-top:8px">
             <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
-              ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
-              title=${!this.lastGenerationTime ? 'Generate a diagram first' : 'Save diagram to Google Drive'}
-              @click=${() => this.saveDiagramToDrive()}>
-              ${this.lastGenerationTime ? 'Save to Drive' : 'Save to Drive (after generate)'}
+              @click=${() => this.resetDiagram()}>
+              New
             </button>
-            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
+            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.2"
               ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
-              title=${!this.lastGenerationTime ? 'Generate a diagram first' : 'Save current diagram and start a new session'}
+              @click=${() => this.saveDiagramToDrive()}>
+              Save
+            </button>
+            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.5"
+              ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
               @click=${() => this.saveAndNewDiagram()}>
               Save & New
             </button>

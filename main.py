@@ -13,7 +13,8 @@ import httpx
 
 import google.genai as genai
 from google.genai import types
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
+from fastapi.responses import FileResponse, Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -83,6 +84,12 @@ _diagram_title: dict[str, str] = {}        # diagram_id → title
 # Current active diagram session per meeting
 _current_session: dict[str, str] = {}      # meeting_id → diagram session_id
 
+# Current active view per meeting (for new joiner sync)
+_current_view: dict[str, dict] = {}        # meeting_id → last view_change message
+
+# WebSocket listeners for the Main Stage (to broadcast transcripts meeting-wide)
+_stage_listeners: dict[str, set[WebSocket]] = {}
+
 
 async def get_calendar_meeting_name(space_id: str, access_token: str) -> str:
     """Return the Calendar event title for this Meet space, '' if not found."""
@@ -149,14 +156,15 @@ async def fetch_meeting_chat(space_id: str, access_token: str) -> str:
     if not space_id or not access_token:
         return ""
     # Normalise: spaces_xxx → spaces/xxx, bare xxx → spaces/xxx
-    space_id = re.sub(r'^spaces[_/]', '', space_id)
-    space_id = f"spaces/{space_id}"
+    bare_id = re.sub(r'^spaces[_/]', '', space_id).strip()
+    if not bare_id: return ""
+    full_space_id = f"spaces/{bare_id}"
     try:
-        url = f"https://chat.googleapis.com/v1/{space_id}/messages?pageSize=100&orderBy=createTime+asc"
+        url = f"https://chat.googleapis.com/v1/{full_space_id}/messages?pageSize=100&orderBy=createTime+asc"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
         if resp.status_code != 200:
-            print(f"[chat] API {resp.status_code}: {resp.text[:200]}", flush=True)
+            print(f"[chat] API {resp.status_code} for {full_space_id}: {resp.text[:200]}", flush=True)
             return ""
         messages = []
         for m in resp.json().get("messages", []):
@@ -194,27 +202,32 @@ async def fetch_url(url: str) -> str:
 
 DIAGRAM_MODEL = "gemini-2.5-flash"
 
-D2_PROMPT = """You are an expert systems architect. Analyse the meeting context below and generate a D2 diagram that best represents the system, architecture, process, or concepts being discussed.
+D2_PROMPT = """You are an expert systems architect. Analyse the meeting context below and generate a professional architecture diagram.
 
 Rules:
-- Output ONLY valid D2 code. No markdown fences, no backticks, no explanation.
-- Start with this exact header:
+- Output ONLY valid D2 code. No markdown, no backticks, no explanation.
+- Start with EXACTLY this configuration block:
   direction: right
-- Add a title using this format:
-  title: "Short Title Derived From Meeting"
-- ICON USAGE: You MUST use icons for major technical components.
-  Available Icon URLs:
-  - Google Meet: https://www.gstatic.com/images/branding/product/2x/meet_2020q4_48dp.png
-  - Cloud Run: https://raw.githubusercontent.com/mingrammer/diagrams/master/resources/gcp/compute/run.png
-  - Vertex AI: https://raw.githubusercontent.com/mingrammer/diagrams/master/resources/gcp/ml/vertex-ai.png
-  - FastAPI: https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png
-  - Gemini: https://www.gstatic.com/lamda/images/gemini_sparkle_v2_60b73b22b163d0434.svg
-  Usage syntax: Node Name.icon: https://path/to/icon.png
-- STYLE:
-  - Keep it focused: max 15 nodes.
-  - ONLY use these shapes: rectangle, oval, circle, cylinder, cloud, queue, person.
-  - DO NOT add comments (//) on the same line as code.
-  - If the transcript is non-technical, use oval shapes.
+  vars: { d2-config: { layout-engine: elk; sketch: true } }
+- FLAT STRUCTURE: Do NOT use nested containers or curly braces {}. Define all nodes and connections at the top level.
+- SEQUENTIAL FLOW: Define nodes and connections in the order of the data flow or processing steps described.
+- Add a Title at the top-center using this format:
+  title: "Short Meeting Title"
+- Define classes on ONE LINE:
+  classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud}}
+- CRITICAL: EVERY node name and EVERY edge label MUST be wrapped in double quotes.
+- NO RESERVED WORDS: Do NOT use D2 keywords (style, vars, classes, direction, layout) as node names or edge labels.
+- Use DOT SYNTAX for attributes: "Node Name".class: infra
+- Use ABSOLUTE PATHS for icons: "Node Name".icon: "/app/assets/icons/<name>.svg"
+- Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
+
+Example:
+"User".class: user
+"Web App".icon: "/app/assets/icons/cloud.svg"
+"User" -> "Web App": "Interacts"
+
+STRICT: If the "Meeting context" below says "No meeting context available" or is empty, output ONLY this:
+"Waiting for architecture description...".shape: rectangle
 
 Meeting context:
 {context}
@@ -223,6 +236,7 @@ Meeting context:
 
 async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", access_token: str = "", meeting_name: str = "", session_id: str = "") -> tuple[str, bytes, str]:
     """Returns (diagram_id, svg_bytes, title). Raises on failure."""
+    print(f"[diagram] generate: space={space_id} session={session_id}", flush=True)
     diagram_text_client = genai.Client(vertexai=True, project=PROJECT_ID, location=REGION)
     context_parts = []
     if transcript:
@@ -234,45 +248,69 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     response = await asyncio.to_thread(
         lambda: diagram_text_client.models.generate_content(
             model=DIAGRAM_MODEL,
-            contents=D2_PROMPT.format(context=context),
+            contents=D2_PROMPT.replace("{context}", context),
         )
     )
-    d2_code = response.text.strip()
-    # Strip markdown fences
-    d2_code = re.sub(r'^```[a-z]*\n?', '', d2_code, flags=re.MULTILINE)
-    d2_code = re.sub(r'```$', '', d2_code, flags=re.MULTILINE).strip()
+    raw_text = response.text.strip()
     
+    # Clean up markdown and common errors
+    # Try to extract content between triple backticks
+    match = re.search(r'```(?:d2)?\s*\n?(.*?)```', raw_text, re.DOTALL)
+    if match:
+        d2_code = match.group(1).strip()
+    else:
+        # If no backticks, find the first line that looks like D2
+        lines = raw_text.splitlines()
+        start_idx = -1
+        for i, l in enumerate(lines):
+            l_clean = l.strip()
+            if any(l_clean.startswith(x) for x in ["direction:", "vars:", "classes:", "title:", '"']):
+                start_idx = i
+                break
+        if start_idx != -1:
+            # Take from start_idx and try to find the end of D2 content
+            valid_lines = []
+            for l in lines[start_idx:]:
+                l_clean = l.strip()
+                if not l_clean: continue
+                # If we hit conversational text (no symbols, starts with capital, etc.), stop
+                if len(valid_lines) > 5 and not any(x in l_clean for x in ["->", ":", "{", "}"]) and not l_clean.startswith('"'):
+                    break
+                valid_lines.append(l_clean)
+            d2_code = "\n".join(valid_lines)
+        else:
+            d2_code = raw_text
+    
+    # Final sanitisation: strip any line that is JUST a node name in quotes with no colon or arrow
+    lines = d2_code.splitlines()
+    clean_lines = []
+    for line in lines:
+        l = line.strip()
+        if not l: continue
+        # If it's a quoted string but has no relationship or attribute, ignore it
+        if l.startswith('"') and l.endswith('"') and '->' not in l and ':' not in l:
+            continue
+        # Strip any trailing colons that aren't part of an attribute
+        if l.endswith(':'): continue
+        clean_lines.append(l)
+    
+    d2_code = "\n".join(clean_lines)
     print(f"[diagram] raw D2 produced:\n{d2_code}", flush=True)
-
-    # Custom post-processing to ensure compatibility
-    d2_code = re.sub(r'shape\s*:\s*mindmap', 'shape: oval', d2_code)
-    d2_code = re.sub(r'shape\s*:\s*sequence_diagram', '', d2_code)
-    d2_code = re.sub(r'shape\s*:\s*component', 'shape: rectangle', d2_code)
-    # Remove inline comments that break D2 attributes
-    d2_code = re.sub(r'shape\s*:\s*([a-z]+)\s*//.*$', r'shape: \1', d2_code, flags=re.MULTILINE)
-    # Collapse runs of blank lines
-    d2_code = re.sub(r'\n{3,}', '\n\n', d2_code).strip()
-
-    print(f"[diagram] final D2 ({len(d2_code)} chars)", flush=True)
-
-    def strip_icons(code: str) -> str:
-        # Robustly remove any line containing the word 'icon' followed by a colon
-        # Handles: 'node.icon: ...', '  icon: ...', 'icon: ...'
-        lines = code.splitlines()
-        clean = [l for l in lines if not re.search(r'\bicon\s*:', l, re.IGNORECASE)]
-        return "\n".join(clean).strip()
 
     async def render_d2(code: str) -> bytes:
         with tempfile.TemporaryDirectory() as tmpdir:
-            d2_path = f"{tmpdir}/diagram.d2"
-            svg_path = f"{tmpdir}/diagram.svg"
+            d2_path = os.path.join(tmpdir, "diagram.d2")
+            svg_path = os.path.join(tmpdir, "diagram.svg")
             with open(d2_path, "w") as f:
                 f.write(code)
+            # Run from project root so 'assets/icons/...' relative paths resolve
             result = subprocess.run(
-                ["d2", "-t", "0", "--sketch", d2_path, svg_path],
-                capture_output=True, text=True, timeout=30
+                ["d2", "--bundle", "-t", "0", d2_path, svg_path],
+                cwd=os.getcwd(),
+                capture_output=True, text=True, timeout=20
             )
             if result.returncode != 0:
+                print(f"[d2] error detail: {result.stderr}", flush=True)
                 raise RuntimeError(result.stderr)
             with open(svg_path, "rb") as f:
                 return f.read()
@@ -280,17 +318,16 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     try:
         svg_bytes = await render_d2(d2_code)
     except Exception as e:
-        print(f"[diagram] first render failed: {e}", flush=True)
-        # Fallback: strip ALL icon definitions and retry
-        d2_code_no_icons = strip_icons(d2_code)
-        print(f"[diagram] retrying without icons. code size: {len(d2_code_no_icons)}", flush=True)
-        try:
-            svg_bytes = await render_d2(d2_code_no_icons)
-        except Exception as e2:
-            print(f"[diagram] fallback render failed: {e2}", flush=True)
-            raise RuntimeError(f"d2 render failed: {str(e2)[:200]}")
+        print(f"[diagram] render failed: {e}", flush=True)
+        # Final emergency fallback: extremely simple diagram
+        fallback_code = 'direction: right\ntitle: "Meeting Diagram"\n"User" -> "Concierge"'
+        svg_bytes = await render_d2(fallback_code)
 
-    title_match = re.search(r'title:\s*"([^"]+)"', d2_code)
+    # Try to extract title from Markdown block or standard title attribute
+    title_match = re.search(r'title:.*#\s*([^\n|]+)', d2_code, re.DOTALL)
+    if not title_match:
+        title_match = re.search(r'title:\s*"([^"]+)"', d2_code)
+    
     diagram_title = title_match.group(1).strip()[:20] if title_match else "Meeting Diagram"
 
     # Use session_id if provided by frontend so main stage can find it
@@ -541,6 +578,28 @@ WORKSPACE_TOOL = types.Tool(
 )
 
 
+async def broadcast_to_stage(meeting_id: str, message: dict):
+    """Send a JSON message to all Main Stage listeners for this meeting."""
+    if not meeting_id:
+        return
+    
+    # Persist view changes for new joiners
+    if message.get("type") == "view_change":
+        _current_view[meeting_id] = message
+
+    if meeting_id not in _stage_listeners:
+        return
+    
+    payload = json.dumps(message)
+    # Iterate over a copy to allow removal during iteration if needed
+    for ws in list(_stage_listeners[meeting_id]):
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            # Stale listener, will be cleaned up by its own handler
+            pass
+
+
 async def live_session(websocket: WebSocket, meeting_id: str):
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
@@ -564,6 +623,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
         session_token: list[str] = [""]    # user OAuth token (for Drive)
         session_space: list[str] = [meeting_id]  # meeting space_id
         diagram_mode: list[bool] = [False]  # suppress tool calls while diagramming
+        current_turn: dict = {"id": str(uuid_lib.uuid4()), "role": None}
 
         async def browser_to_gemini():
             try:
@@ -592,6 +652,12 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 await session.send_realtime_input(
                                     video=types.Blob(data=jpeg, mime_type="image/jpeg")
                                 )
+                            elif data.get("type") == "broadcast_view":
+                                # Relay to all stage listeners as 'view_change'
+                                print(f"[broadcast] relaying view change: {data.get('mode')}", flush=True)
+                                relay_msg = data.copy()
+                                relay_msg["type"] = "view_change"
+                                await broadcast_to_stage(session_space[0], relay_msg)
                         except Exception:
                             pass
             except WebSocketDisconnect:
@@ -694,30 +760,53 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     input_trans = getattr(sc, "input_transcription", None)
                     if input_trans:
                         text = getattr(input_trans, "text", "")
-                        print(f"[debug] input_transcription: '{text}' final={getattr(input_trans, 'final', False)}", flush=True)
+                        is_final = getattr(input_trans, "final", False)
                         if text:
-                            await websocket.send_text(
-                                json.dumps({"type": "transcript", "role": "user", "text": text})
-                            )
+                            # Bump turn ID if the role changed
+                            if current_turn["role"] != "user":
+                                current_turn["id"] = str(uuid_lib.uuid4())
+                                current_turn["role"] = "user"
+                            
+                            msg_payload = {
+                                    "type": "transcript", 
+                                    "role": "user", 
+                                    "text": text,
+                                    "turn_id": current_turn["id"],
+                                    "is_final": is_final
+                                }
+                            await websocket.send_text(json.dumps(msg_payload))
+                            await broadcast_to_stage(session_space[0], msg_payload)
+
+                            # If final, prepare for next role change
+                            if is_final:
+                                current_turn["role"] = None 
 
                     if sc.model_turn:
                         for part in sc.model_turn.parts:
                             if part.inline_data:
                                 await websocket.send_bytes(part.inline_data.data)
                             if part.text:
-                                print(f"[debug] agent_transcript: '{part.text}'", flush=True)
-                                await websocket.send_text(
-                                    json.dumps({"type": "transcript", "role": "agent", "text": part.text})
-                                )
+                                # Bump turn ID if the role changed
+                                if current_turn["role"] != "agent":
+                                    current_turn["id"] = str(uuid_lib.uuid4())
+                                    current_turn["role"] = "agent"
+                                
+                                msg_payload = {
+                                        "type": "transcript", 
+                                        "role": "agent", 
+                                        "text": part.text,
+                                        "turn_id": current_turn["id"],
+                                        "is_final": False # Agent chunks are streaming
+                                    }
+                                await websocket.send_text(json.dumps(msg_payload))
+                                await broadcast_to_stage(session_space[0], msg_payload)
+
+
         except Exception as e:
             print(f"[g2b] {type(e).__name__}: {e}", flush=True)
         finally:
             recv_task.cancel()
             timeout_task.cancel()
-
-
-from fastapi import Body
-from fastapi.responses import Response as FastAPIResponse
 
 
 @app.post("/api/diagram")
@@ -732,7 +821,7 @@ async def api_diagram(payload: dict = Body(...)):
     if not chat and access_token and space_id:
         chat = await fetch_meeting_chat(space_id, access_token)
     
-    print(f"[diagram] request: transcript={len(transcript)}c session={session_id} auth={'yes' if access_token else 'no'}", flush=True)
+    print(f"[diagram] request: transcript={len(transcript)}c space={space_id} session={session_id} auth={'yes' if access_token else 'no'}", flush=True)
     
     try:
         diagram_id, svg_bytes, title = await generate_diagram(
@@ -793,6 +882,40 @@ async def get_diagram_svg(diagram_id: str):
     return FastAPIResponse(content=svg, media_type="image/svg+xml")
 
 
+@app.websocket("/ws/stage")
+async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = ""):
+    """Subscriber endpoint for Main Stage clients to receive meeting-wide broadcasts."""
+    if not meeting_id:
+        await websocket.close(code=1008)
+        return
+    
+    await websocket.accept()
+    if meeting_id not in _stage_listeners:
+        _stage_listeners[meeting_id] = set()
+    
+    _stage_listeners[meeting_id].add(websocket)
+    print(f"[stage_ws] NEW listener for {meeting_id}. Total: {len(_stage_listeners[meeting_id])}", flush=True)
+    
+    # Immediately sync current state if available
+    if meeting_id in _current_view:
+        await websocket.send_text(json.dumps(_current_view[meeting_id]))
+
+    try:
+        # Keep-alive loop: wait for close or explicit messages
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[stage_ws] error: {e}", flush=True)
+    finally:
+        if meeting_id in _stage_listeners:
+            _stage_listeners[meeting_id].discard(websocket)
+            if not _stage_listeners[meeting_id]:
+                del _stage_listeners[meeting_id]
+        print(f"[stage_ws] REMOVED listener for {meeting_id}", flush=True)
+
+
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket, meeting_id: str = ""):
     await websocket.accept()
@@ -808,8 +931,6 @@ async def ws_endpoint(websocket: WebSocket, meeting_id: str = ""):
             pass
 
 
-from fastapi.responses import FileResponse
-
 @app.get("/", include_in_schema=False)
 @app.get("/index.html", include_in_schema=False)
 async def serve_index():
@@ -821,6 +942,13 @@ async def serve_index():
 @app.get("/diagram_stage.html", include_in_schema=False)
 async def serve_diagram_stage():
     response = FileResponse("dist/diagram_stage.html", media_type="text/html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+@app.get("/transcript_stage.html", include_in_schema=False)
+async def serve_transcript_stage():
+    response = FileResponse("dist/transcript_stage.html", media_type="text/html")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     return response

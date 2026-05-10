@@ -18,7 +18,18 @@ _Last updated: 2026-05-08_
 | GitHub repo | ✅ Pushed | `curtiskrygier/google-meet-live-architect-add-on-` (private) |
 | workspace-subagent (GE04) | ✅ Redeployed | `projects/828378723395/.../2432159852814925824` |
 | Shared drive move fix | ✅ Deployed | `supportsAllDrives=True` added to move + create tools |
+| Branding | ✅ Updated | Renamed to Gemini Agent Architect |
 | Save to Drive | ⚠️ Broken | Investigating: token scopes vs shared drive visibility |
+
+---
+
+## Technical Snag List & Feature Backlog
+
+### Backlog
+- [ ] **Brainstorming Mode**: Implement Mindmap/Word-cloud style visualization of meeting themes. (Note: Initial implementation rolled back due to context hallucination and UI sync issues).
+- [ ] **Multi-stage Sync**: Improve bi-directional communication between Main Stage and Side Panel for complex view states.
+
+
 
 ---
 
