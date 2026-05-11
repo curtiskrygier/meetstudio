@@ -11,7 +11,7 @@
   "runtimeVersion": "V8",
   "addOns": {
     "common": {
-      "name": "Meet Live Concierge",
+      "name": "Gemini Agent Architect",
       "logoUrl": "https://www.gstatic.com/images/branding/product/1x/diagram_48dp.png",
       "useLocaleFromApp": true
     },
