@@ -356,14 +356,6 @@ export class GdmArchitectAgent extends LitElement {
       });
 
       this.status = 'Ready — click Connect to start';
-
-      // Auto-reconnect if we have a session in this meeting
-      const saved = sessionStorage.getItem(`meet_live_connected_${this.meetingId}`);
-      if (saved === 'true') {
-        console.log('[concierge] Auto-reconnecting saved session...');
-        this.connect();
-      }
-
     } catch (e: any) {
       this.error = `Add-on init failed: ${e.message || e}`;
     }
@@ -561,7 +553,6 @@ export class GdmArchitectAgent extends LitElement {
           this.connecting = false;
           this.status = 'Listening — Assistant is ready';
           this.startVolumeAnalysis();
-          sessionStorage.setItem(`meet_live_connected_${this.meetingId}`, 'true');
         }
       });
 
@@ -637,7 +628,6 @@ export class GdmArchitectAgent extends LitElement {
   }
 
   private async disconnect() {
-    sessionStorage.removeItem(`meet_live_connected_${this.meetingId}`);
     if (this.animationFrameId) { cancelAnimationFrame(this.animationFrameId); this.animationFrameId = null; }
     if (this.speechRecognition) { try { this.speechRecognition.stop(); } catch {} this.speechRecognition = null; }
     if (this.wakeTimeout) { clearTimeout(this.wakeTimeout); this.wakeTimeout = null; }
@@ -872,17 +862,20 @@ export class GdmArchitectAgent extends LitElement {
       if (data.error) throw new Error(data.error);
       if (data.file_id) {
         this.lastSavedFileId = data.file_id;
+        const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Transcript exported to Drive ✓';
+        // Attempt to auto-open, but browsers might block after await
+        window.open(driveUrl, '_blank');
       }
     } catch (e: any) {
       this.status = `Export failed: ${e.message || e}`;
     }
   }
 
-  private async saveDiagramToDrive() {
+  private async saveDiagramToDrive(): Promise<boolean> {
     if (!this.diagramSessionId || !this.accessToken || !this.meetingId) {
       this.status = 'Cannot save — no active diagram session';
-      return;
+      return false;
     }
     this.status = 'Saving diagram to Drive…';
     try {
@@ -895,15 +888,25 @@ export class GdmArchitectAgent extends LitElement {
       if (data.error) throw new Error(data.error);
       if (data.file_id) {
         this.lastSavedFileId = data.file_id;
+        const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
+        this.status = 'Diagram saved to Drive ✓';
+        window.open(driveUrl, '_blank');
+        return true;
       }
-      this.status = 'Diagram saved to Drive ✓';
+      return false;
     } catch (e: any) {
       this.status = `Drive save failed: ${(e as any).message || e}`;
+      return false;
     }
   }
 
   private async saveAndNewDiagram() {
-    await this.saveDiagramToDrive();
+    const success = await this.saveDiagramToDrive();
+    if (!success) {
+      // Don't wipe if save failed
+      return;
+    }
+    
     this.diagramContext = '';
     this.actionLinks = [];
     this.transcriptStartIndex = this.transcript.length;

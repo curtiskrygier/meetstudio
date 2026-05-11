@@ -1,6 +1,7 @@
 import pytest
 import httpx
-from main import validate_google_token, CLIENT_ID
+from app.auth import validate_google_token
+import app.config as config
 from unittest.mock import AsyncMock, patch
 
 @pytest.mark.asyncio
@@ -10,9 +11,21 @@ async def test_validate_token_missing():
 
 @pytest.mark.asyncio
 async def test_validate_token_success():
+    # Patch the value where it's used
     mock_resp = AsyncMock(spec=httpx.Response)
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {"aud": CLIENT_ID} if CLIENT_ID else {"aud": "some-id"}
+    mock_resp.json.return_value = {"aud": "test-client-id"}
+    
+    with patch("app.auth.CLIENT_ID", "test-client-id"):
+        with patch("httpx.AsyncClient.get", return_value=mock_resp):
+            result = await validate_google_token("valid-token")
+            assert result is True
+
+@pytest.mark.asyncio
+async def test_validate_token_marketplace_success():
+    mock_resp = AsyncMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"aud": config.MARKETPLACE_CLIENT_ID}
     
     with patch("httpx.AsyncClient.get", return_value=mock_resp):
         result = await validate_google_token("valid-token")
@@ -29,15 +42,13 @@ async def test_validate_token_failure():
 
 @pytest.mark.asyncio
 async def test_validate_token_audience_mismatch():
-    if not CLIENT_ID:
-        pytest.skip("CLIENT_ID not set for this test")
-        
-    mock_resp = AsyncMock()
+    mock_resp = AsyncMock(spec=httpx.Response)
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"aud": "wrong-client-id"}
     
-    with patch("httpx.AsyncClient.get", return_value=mock_resp):
-        assert await validate_google_token("valid-token-wrong-aud") is False
+    with patch("app.auth.CLIENT_ID", "test-client-id"):
+        with patch("httpx.AsyncClient.get", return_value=mock_resp):
+            assert await validate_google_token("valid-token-wrong-aud") is False
 
 @pytest.mark.asyncio
 async def test_validate_token_exception():

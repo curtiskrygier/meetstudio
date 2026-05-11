@@ -203,8 +203,16 @@
 
     function renderPng(version) {
       const wrap = document.getElementById('wrap');
-      wrap.innerHTML = `<img src="/api/diagram/${diagramId}.png?v=${version}" alt="Architecture Diagram">`;
-      svgLoaded = true;
+      const imgUrl = `/api/diagram/${diagramId}.png?v=${version}`;
+      
+      const img = new Image();
+      img.onload = () => {
+        wrap.innerHTML = '';
+        img.alt = "Architecture Diagram";
+        wrap.appendChild(img);
+        svgLoaded = true;
+      };
+      img.src = imgUrl;
     }
 
     async function loadDiagram() {
@@ -236,6 +244,8 @@
         if (!resp.ok) return;
         const { version } = await resp.json();
         if (version > knownVersion) {
+          // If we have NO diagram yet, show generating. 
+          // If we have an OLD diagram, keep it visible while preloading new one.
           if (!svgLoaded) showGenerating();
           knownVersion = version;
           renderPng(version);
