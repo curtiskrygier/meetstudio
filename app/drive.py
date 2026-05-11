@@ -63,6 +63,7 @@ async def _drive_get_or_create_folder(name: str, parent: str, access_token: str)
         # Create it
         resp = await client.post(
             "https://www.googleapis.com/drive/v3/files",
+            params={"supportsAllDrives": "true"},
             json={
                 "name": name,
                 "mimeType": "application/vnd.google-apps.folder",
@@ -125,6 +126,7 @@ async def save_diagram_to_drive(svg_bytes: bytes, title: str, space_id: str, acc
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+            params={"supportsAllDrives": "true"},
             content=body,
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -138,6 +140,38 @@ async def save_diagram_to_drive(svg_bytes: bytes, title: str, space_id: str, acc
     else:
         print(f"[drive] upload failed: {resp.status_code} {resp.text}", flush=True)
         return None
+
+async def save_doc_shortcut_to_drive(doc_url: str, doc_title: str, space_id: str, access_token: str):
+    """Create a Drive shortcut to a workspace doc in the meeting folder."""
+    if not access_token or not space_id:
+        return
+    file_id_match = re.search(r'/d/([a-zA-Z0-9_-]+)', doc_url)
+    if not file_id_match:
+        return
+    file_id = file_id_match.group(1)
+    try:
+        meeting_folder_id = await get_or_create_meeting_folder(space_id, access_token)
+        if not meeting_folder_id:
+            return
+        safe_name = re.sub(r'[^\w\s-]', '', doc_title or "Document").strip()[:40] or "Document"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://www.googleapis.com/drive/v3/files",
+                params={"supportsAllDrives": "true"},
+                json={
+                    "name": safe_name,
+                    "mimeType": "application/vnd.google-apps.shortcut",
+                    "parents": [meeting_folder_id],
+                    "shortcutDetails": {"targetId": file_id},
+                },
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        if resp.status_code in (200, 201):
+            print(f"[drive] shortcut '{safe_name}' created", flush=True)
+        else:
+            print(f"[drive] shortcut {resp.status_code}: {resp.text[:200]}", flush=True)
+    except Exception as e:
+        print(f"[drive] shortcut {type(e).__name__}: {e}", flush=True)
 
 async def fetch_meeting_chat(space_id: str, access_token: str) -> str:
     if not space_id or not access_token:

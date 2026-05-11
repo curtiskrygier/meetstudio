@@ -207,8 +207,10 @@
     <!-- View 2: Document Card -->
     <div id="view-doc" class="doc-card hidden">
       <h1 id="doc-title" style="font-size:24px; margin-bottom:12px">Document Ready</h1>
-      <p style="color:rgba(255,255,255,0.6); line-height:1.5">Your Concierge has prepared a new file for this meeting.</p>
-      <a id="doc-link" href="#" target="_blank" class="doc-btn">Open Document</a>
+      <p style="color:rgba(255,255,255,0.6); line-height:1.5; margin-bottom:16px">Your Concierge has prepared a new file for this meeting.</p>
+      <div id="doc-preview" class="hidden" style="text-align:left; font-size:14px; color:rgba(255,255,255,0.8); background:rgba(0,0,0,0.25); padding:20px; border-radius:12px; margin-bottom:24px; max-height:400px; overflow-y:auto; border:1px solid rgba(255,255,255,0.1); white-space:pre-wrap; font-family:'Roboto Mono', monospace;">
+      </div>
+      <a id="doc-link" href="#" target="_blank" class="doc-btn">Open Full Document</a>
     </div>
 
     <!-- View 3: Diagram -->
@@ -249,6 +251,15 @@
       document.querySelectorAll('#content-layer > div').forEach(div => div.classList.add('hidden'));
       const active = document.getElementById(`view-${mode}`);
       if (active) active.classList.remove('hidden');
+      
+      // Reset preview if moving away from doc
+      if (mode !== 'doc') {
+        const previewEl = document.getElementById('doc-preview');
+        if (previewEl) {
+          previewEl.textContent = '';
+          previewEl.classList.add('hidden');
+        }
+      }
       currentMode = mode;
     }
 
@@ -333,6 +344,13 @@
             if (msg.mode === 'doc') {
               document.getElementById('doc-link').href = msg.url;
               document.getElementById('doc-title').textContent = msg.label;
+              if (msg.content) {
+                const previewEl = document.getElementById('doc-preview');
+                if (previewEl) {
+                  previewEl.textContent = msg.content;
+                  previewEl.classList.remove('hidden');
+                }
+              }
             } else if (msg.mode === 'diagram') {
               pollDiagram(msg.version);
             }
@@ -348,6 +366,13 @@
       setView('doc');
       document.getElementById('doc-link').href = params.get('doc');
       document.getElementById('doc-title').textContent = params.get('label') || 'Document Ready';
+      if (params.get('content')) {
+        const previewEl = document.getElementById('doc-preview');
+        if (previewEl) {
+          previewEl.textContent = params.get('content');
+          previewEl.classList.remove('hidden');
+        }
+      }
     } else if (diagramId || params.get('mode') === 'diagram') {
       showDiagramPlaceholder();
       setView('diagram');
@@ -379,6 +404,13 @@
               if (msg.mode === 'doc') {
                 document.getElementById('doc-link').href = msg.url;
                 document.getElementById('doc-title').textContent = msg.label;
+                if (msg.content) {
+                  const previewEl = document.getElementById('doc-preview');
+                  if (previewEl) {
+                    previewEl.textContent = msg.content;
+                    previewEl.classList.remove('hidden');
+                  }
+                }
               } else if (msg.mode === 'diagram') {
                 pollDiagram(msg.version);
               }

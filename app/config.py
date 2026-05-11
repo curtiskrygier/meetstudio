@@ -15,14 +15,14 @@ MARKETPLACE_CLIENT_ID = "649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.goog
 
 SYSTEM_PROMPT = os.environ.get(
     "SYSTEM_PROMPT",
-    "You are an AI meeting concierge in Google Meet. Be concise and conversational. "
-    "You can create/find Workspace files (use workspace_agent) and search the web (built-in). "
-    "When a doc is created, say it's ready and the link is in the panel.\n\n"
-    "Rules:\n"
-    "- For current events or news, always search first — do not rely on training data.\n"
-    "- To research AND create a doc: search → synthesise into Markdown → pass full Markdown to "
-    "workspace_agent in one call ('Create a Google Doc titled X with this content: ...').\n"
-    "- When asked to fetch or look up a specific URL, use fetch_url with that URL.",
+    "You are an AI meeting concierge in Google Meet. Be concise and conversational.\n\n"
+    "Mandatory Rules:\n"
+    "- ARCHITECT MODE: When the user says 'start diagramming', 'let's draw', or 'architect mode', you MUST immediately call activate_architect_mode. Once active, listen and generate D2 diagrams based on their descriptions.\n"
+    "- PRESENTING: When you create or find a Google Doc/Sheet/Slide that the user wants to see, use the present_on_main_stage tool to push it to the Meet main stage.\n"
+    "- WORKSPACE: Use workspace_agent for all file operations (Docs, Drive, Sheets).\n"
+    "- SEARCH: For current events, search first. Synthesise results before creating documents.\n"
+    "- URLS: Use fetch_url for specific web content.\n\n"
+    "Default to BLUEPRINT visual style for diagrams unless the user requests otherwise."
 )
 
 if not PROJECT_ID:
@@ -58,18 +58,33 @@ Rules:
 - Define classes on ONE LINE:
   classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud}}
 - CRITICAL: EVERY node name and EVERY edge label MUST be wrapped in double quotes.
-- ICONS: Assign icons based on node type. 
-  - Use ABSOLUTE PATHS for icons: "Node Name".icon: "/app/assets/icons/<name>.svg"
-  - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
+- NO RESERVED WORDS: Do NOT use D2 keywords (style, vars, classes, direction, layout) as node names or edge labels.
+- Use DOT SYNTAX for attributes: "Node Name".class: infra
+- Use ABSOLUTE PATHS for icons: "Node Name".icon: "/app/assets/icons/<name>.svg"
+- Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
+- Icon Rules:
   - "Main Stage" or "Google Meet": Use "meet.svg"
-  - "Gemini", "AI", "Agent": Use "gemini.svg"
-  - "Database", "Firestore", "SQL": Use "sql.svg" or "storage.svg"
-  - "Cloud Run", "Function", "Server": Use "cloud_run.svg"
-  - "Storage", "Bucket", "S3", "Drive": Use "drive.svg" or "storage.svg"
-  - "Vertex AI", "LLM", "Model": Use "vertex_ai.svg"
-  - "User", "Client", "Browser": Use class "user" (no icon needed)
+  - "Gemini" or "Virtual Architect": Use "gemini.svg"
+  - "Database": Use "sql.svg" or "storage.svg"
+  - "Reasoning Engine": Use "vertex_ai.svg"
 
-Context follows.
+Example:
+"Client Tier": {
+  "User".class: user
+  "Browser".icon: "/app/assets/icons/cloud.svg"
+}
+"Cloud Infrastructure": {
+  "Web App".icon: "/app/assets/icons/cloud_run.svg"
+  "Database".class: storage
+}
+"User" -> "Web App": "Requests"
+"Web App" -> "Database": "Queries"
+
+STRICT: If the "Meeting context" below says "No meeting context available" or is empty, output ONLY this:
+"Waiting for architecture description...".shape: rectangle
+
+Meeting context:
+{context}
 """
 
 DIAGRAM_MODEL = "gemini-2.5-flash"

@@ -36,7 +36,7 @@ export class GdmArchitectAgent extends LitElement {
   @state() audioEnabled = true;
   @state() videoEnabled = false;
   @state() wakeActive = false;
-  @state() actionLinks: Array<{url: string; label: string}> = [];
+  @state() actionLinks: Array<{url: string; label: string; content?: string}> = [];
   @state() diagramMode = false;
   @state() diagramming = false;
   @state() diagramContext = '';
@@ -436,8 +436,8 @@ export class GdmArchitectAgent extends LitElement {
         } else if (msg.type === 'status') {
           this.status = msg.text;
         } else if (msg.type === 'action_link') {
-          this.actionLinks = [...this.actionLinks, {url: msg.url, label: msg.label || 'Open Document'}];
-          this.openInMainStage(msg.url, msg.label || 'Open Document');
+          this.actionLinks = [...this.actionLinks, {url: msg.url, label: msg.label || 'Open Document', content: msg.content}];
+          this.openInMainStage(msg.url, msg.label || 'Open Document', msg.content || '');
         }
       } catch { }
     };
@@ -752,10 +752,10 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
-  private async openInMainStage(url: string, label: string) {
+  private async openInMainStage(url: string, label: string, content: string = '') {
     if (this.sidePanelClient && url.includes('docs.google.com')) {
       if (!this.isActivityStarted) {
-        const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}&meeting=${encodeURIComponent(this.meetingId)}`;
+        const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}&meeting=${encodeURIComponent(this.meetingId)}${content ? `&content=${encodeURIComponent(content)}` : ''}`;
         try {
           await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
           this.isActivityStarted = true;
@@ -770,7 +770,8 @@ export class GdmArchitectAgent extends LitElement {
             type: 'broadcast_view',
             mode: 'doc',
             url,
-            label
+            label,
+            content
           }));
         }
       }
@@ -838,6 +839,7 @@ export class GdmArchitectAgent extends LitElement {
       console.error('[concierge] diagram error:', e);
       this.status = `Diagram failed: ${(e as any).message || e}`;
     } finally {
+      this.lastGenerationTime = Date.now();
       this.diagramming = false;
     }
   }
@@ -864,7 +866,6 @@ export class GdmArchitectAgent extends LitElement {
         this.lastSavedFileId = data.file_id;
         const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Transcript exported to Drive ✓';
-        // Attempt to auto-open, but browsers might block after await
         window.open(driveUrl, '_blank');
       }
     } catch (e: any) {
@@ -988,7 +989,7 @@ export class GdmArchitectAgent extends LitElement {
             const isImg = link.url.includes('diagram');
             const isSheet = link.url.includes('/spreadsheets/');
             return html`
-            <div class="action" @click=${() => this.openInMainStage(link.url, link.label)}>
+            <div class="action" @click=${() => this.openInMainStage(link.url, link.label, link.content)}>
               <div class="action-ico ${isImg ? 'img' : (isSheet ? 'sheet' : 'doc')}">${isImg ? imgLinksSvg : docLinksSvg}</div>
               <div class="action-body">
                 <div class="action-title">${link.label}</div>
@@ -1000,20 +1001,6 @@ export class GdmArchitectAgent extends LitElement {
         </div>
       </div>
     ` : html``;
-
-    const helpSection = html`
-      <div class="section">
-        <div class="section-head"><span class="section-title">What can I say?</span></div>
-        <div class="action-list" style="gap:8px">
-          <div class="action-sub" style="font-size:11px;padding:0 4px;margin-bottom:4px">Ask Gemini to help with your workspace:</div>
-          <div class="turn-text" style="font-size:11px;opacity:0.8;padding:4px;background:rgba(255,255,255,0.03);border-radius:6px">
-            • "Create a document about our project plan"<br>
-            • "Search for the latest architectural review"<br>
-            • "Save this transcript to my Drive"
-          </div>
-        </div>
-      </div>
-    `;
 
     if (!this.initialized || (!this.connected && !this.connecting)) {
       this.setAttribute('data-state', 'disconnected');
@@ -1118,9 +1105,9 @@ export class GdmArchitectAgent extends LitElement {
         </div>
 
         ${actionCards}
-        ${helpSection}
 
-        <div class="section">          <div class="controls-row" style="grid-template-columns:repeat(5, 1fr)">
+        <div class="section">
+          <div class="controls-row" style="grid-template-columns:repeat(5, 1fr)">
             <div class="ctrl" data-active="${this.audioEnabled}" @click=${() => this.toggleAudio()}>
               <div class="ctrl-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
@@ -1197,7 +1184,6 @@ export class GdmArchitectAgent extends LitElement {
             <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.2"
               ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
               @click=${() => this.saveDiagramToDrive()}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               Save
             </button>
             ${this.lastSavedFileId ? html`
@@ -1218,10 +1204,7 @@ export class GdmArchitectAgent extends LitElement {
         <div class="section">
           <div class="section-head">
             <span class="section-title">Transcript</span>
-            <button class="mode-toggle" @click=${() => this.exportTranscript()}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export
-            </button>
+            <button class="mode-toggle" @click=${() => this.exportTranscript()}>Export</button>
           </div>
           ${transcriptLines.length > 0 ? html`
             <div class="transcript">
