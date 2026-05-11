@@ -30,7 +30,7 @@ export class GdmArchitectAgent extends LitElement {
   @state() initialized = false;
   @state() error = '';
   @state() volume = 0;
-  @state() transcript = '';
+  @state() transcript: Array<{id: string; role: string; text: string}> = [];
   @state() status = 'Initialising...';
   @state() trackCount = 0;
   @state() audioEnabled = true;
@@ -39,6 +39,7 @@ export class GdmArchitectAgent extends LitElement {
   @state() actionLinks: Array<{url: string; label: string; content?: string}> = [];
   @state() diagramMode = false;
   @state() diagramming = false;
+  @state() diagramStyle: 'cyber' | 'blueprint' | 'sketch' = 'cyber';
   @state() diagramContext = '';
   @state() transcriptMode = false;
   @state() lastTranscriptFileId = '';
@@ -305,6 +306,25 @@ export class GdmArchitectAgent extends LitElement {
     .tip { display: flex; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg-1); border: 1px solid var(--line-soft); font-size: 12px; color: var(--fg-2); line-height: 1.4; }
     .tip-num { width: 18px; height: 18px; border-radius: 50%; background: var(--bg-3); border: 1px solid var(--line); display: grid; place-items: center; font-size: 10.5px; font-weight: 600; color: var(--fg-3); flex-shrink: 0; margin-top: 1px; }
     .error-bar { margin: 8px 16px; padding: 8px 12px; background: rgba(244,67,54,0.10); border: 1px solid rgba(244,67,54,0.28); border-radius: 10px; font-size: 12px; color: #f3a59f; }
+    
+    .layout-switcher { display: flex; gap: 6px; margin: 8px 0 12px; }
+    .style-btn { 
+      flex: 1; height: 28px; border-radius: 6px; border: 1px solid var(--line); 
+      background: var(--bg-1); color: var(--fg-3); font-size: 10px; font-weight: 600; 
+      cursor: pointer; transition: all 120ms;
+    }
+    .style-btn[data-active] { background: var(--gem-1); border-color: var(--gem-1); color: white; }
+    .style-btn:hover:not([data-active]) { background: var(--bg-2); border-color: var(--line-soft); }
+
+    .transcript { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; overflow-y: auto; flex: 1; }
+    .turn { display: flex; gap: 12px; animation: fade-in 200ms ease-out; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .avatar { width: 24px; height: 24px; border-radius: 6px; background: var(--bg-3); flex-shrink: 0; display: grid; place-items: center; margin-top: 2px; }
+    .avatar.gem { background: linear-gradient(135deg, var(--gem-1), var(--gem-2)); }
+    .turn-body { flex: 1; min-width: 0; }
+    .turn-role { font-size: 10px; font-weight: 700; color: var(--fg-4); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .turn-role.gem { color: var(--gem-2); }
+    .turn-text { font-size: 12.5px; line-height: 1.5; color: var(--fg-2); white-space: pre-wrap; }
   `;
 
 
@@ -412,12 +432,26 @@ export class GdmArchitectAgent extends LitElement {
       try {
         const msg = JSON.parse(e.data as string);
         if (msg.type === 'transcript') {
-          console.log('[concierge] backend transcript:', msg.text);
-          const roleLabel = msg.role === 'agent' ? 'Gemini Architect' : 'User';
-          // Only de-dupe user messages against local SR. Agent messages always get appended.
-          if (msg.role === 'agent' || !this.transcript.toLowerCase().includes(msg.text.toLowerCase().substring(0, 20))) {
-             this.transcript = (this.transcript + `\n[${roleLabel}] ${msg.text}`).trimStart();
+          const { turn_id, role, text } = msg;
+          const roleLabel = role === 'agent' ? 'Gemini Architect' : 'User';
+          
+          let updated = false;
+          const newTranscript = this.transcript.map(t => {
+            if (t.id === turn_id) {
+              updated = true;
+              return { ...t, text: role === 'agent' ? (t.text + text) : text };
+            }
+            return t;
+          });
+
+          if (!updated) {
+            // Simple de-dupe for new user turns against local recognition
+            const existingText = this.transcript.map(t => t.text).join(' ').toLowerCase();
+            if (role === 'agent' || !existingText.includes(text.toLowerCase().substring(0, 20))) {
+              newTranscript.push({ id: turn_id, role: roleLabel, text: text });
+            }
           }
+          this.transcript = [...newTranscript];
 
           // Broadcast to Main Stage if in transcript mode
           if (this.transcriptMode && this.sidePanelClient) {
@@ -425,8 +459,7 @@ export class GdmArchitectAgent extends LitElement {
           }
 
           // In diagramming mode: when user speaks, clear the text box and arm silence timer
-          if (this.diagramMode && msg.role === 'user' && msg.text?.trim()) {
-
+          if (this.diagramMode && role === 'user' && text?.trim()) {
             this.diagramContext = '';
             this.lastTranscriptTime = Date.now();
             if (this.speechSilenceTimer) clearTimeout(this.speechSilenceTimer);
@@ -708,7 +741,7 @@ export class GdmArchitectAgent extends LitElement {
       this.diagramMode = true;
       this.transcriptMode = true; // Auto-activate captions when diagrams start
       this.actionLinks = [];
-      this.transcriptStartIndex = this.transcript.length;
+      this.transcriptStartIndex = this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').length;
       this.diagramSessionStartTime = new Date().toISOString();
       this.diagramSessionId = crypto.randomUUID();
       this.status = 'Gemini Agent Architect — speak your architecture description';
@@ -816,7 +849,7 @@ export class GdmArchitectAgent extends LitElement {
   private async generateDiagram() {
     if (this.diagramming) return;
     this.diagramming = true;
-    const transcript = this.diagramContext.trim() || this.transcript.substring(this.transcriptStartIndex).trim() || '';
+    const transcript = this.diagramContext.trim() || this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').substring(this.transcriptStartIndex).trim() || '';
     const chat = await this.fetchChatMessages();
     try {
       const resp = await fetch('/api/diagram', {
@@ -828,6 +861,7 @@ export class GdmArchitectAgent extends LitElement {
           access_token: this.accessToken,
           space_id: this.meetingId,
           session_id: this.diagramSessionId,
+          style: this.diagramStyle,
         }),
       });
       const data = await resp.json();
@@ -847,7 +881,8 @@ export class GdmArchitectAgent extends LitElement {
   }
 
   private async exportTranscript() {
-    if (!this.transcript.trim()) {
+    const fullTranscript = this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n');
+    if (!fullTranscript.trim()) {
       this.status = 'Nothing to export — speak first';
       return;
     }
@@ -857,7 +892,7 @@ export class GdmArchitectAgent extends LitElement {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          transcript: this.transcript,
+          transcript: fullTranscript,
           access_token: this.accessToken,
           space_id: this.meetingId
         }),
@@ -912,7 +947,7 @@ export class GdmArchitectAgent extends LitElement {
     
     this.diagramContext = '';
     this.actionLinks = [];
-    this.transcriptStartIndex = this.transcript.length;
+    this.transcriptStartIndex = this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').length;
     this.diagramSessionStartTime = new Date().toISOString();
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
@@ -946,7 +981,7 @@ export class GdmArchitectAgent extends LitElement {
   private async resetDiagram() {
     this.diagramContext = '';
     this.actionLinks = [];
-    this.transcriptStartIndex = this.transcript.length;
+    this.transcriptStartIndex = this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').length;
     this.diagramSessionStartTime = new Date().toISOString();
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
@@ -978,9 +1013,7 @@ export class GdmArchitectAgent extends LitElement {
   }
 
   render() {
-    const transcriptLines = this.transcript
-      ? this.transcript.split('\n').filter(l => l.trim())
-      : [];
+    const transcriptLines = this.transcript;
 
     const docLinksSvg = html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v23a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8zm0-4h8v2H8z"/></svg>`;
     const imgLinksSvg = html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 5H5l3.5-3.5z"/></svg>`;
@@ -999,8 +1032,7 @@ export class GdmArchitectAgent extends LitElement {
                 <div class="action-title">${link.label}</div>
                 <div class="action-sub">${link.url}</div>
               </div>
-            </div>
-          `;
+            </div>`;
           })}
         </div>
       </div>
@@ -1016,34 +1048,17 @@ export class GdmArchitectAgent extends LitElement {
           </div>
           <div style="font-size:9px;color:var(--fg-4)">v17</div>
         </div>
-        <div class="body">
-          <div class="hero">
-            <div class="orb-wrap">
-              <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
-              <div class="orb-ring"></div><div class="orb"></div>
-            </div>
-            <div class="status-pill"><div class="status-dot"></div>Offline</div>
-            <div class="hero-title gem">Your AI Concierge</div>
-            <div class="hero-sub">Voice-powered workspace assistant embedded in this meeting.</div>
+        <div class="hero">
+          <div class="orb-wrap">
+            <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
+            <div class="orb-ring"></div><div class="orb"></div>
           </div>
-          ${this.error ? html`<div class="error-bar">⚠ ${this.error}</div>` : ''}
-          <div class="section">
-            <button class="cta" ?disabled=${!this.initialized} @click=${() => this.connect()}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
-              ${this.initialized ? 'Connect to Meeting' : 'Initialising…'}
-            </button>
-          </div>
-          ${actionCards}
-          ${this.actionLinks.length === 0 ? html`
-            <div class="section">
-              <div class="section-head"><span class="section-title">How it works</span></div>
-              <div class="tips">
-                <div class="tip"><div class="tip-num">1</div><span>Say <kbd>Hey Gemini</kbd> to activate, then speak your request</span></div>
-                <div class="tip"><div class="tip-num">2</div><span>Create docs, search the web live, or summarise the meeting</span></div>
-                <div class="tip"><div class="tip-num">3</div><span>New documents appear here and launch on the main stage for everyone</span></div>
-              </div>
-            </div>
-          ` : html``}
+          <div class="status-pill disconnected">Disconnected</div>
+          <div class="hero-sub">${this.status}</div>
+          <button class="connect-btn" @click=${this.connect} ?disabled=${this.connecting}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z\"/><path d=\"M19 10v2a7 7 0 0 1-14 0v-2\"/><line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"23\"/></svg>
+            ${this.initialized ? 'Connect to Meeting' : 'Initialising…'}
+          </button>
         </div>
       `;
     }
@@ -1064,23 +1079,13 @@ export class GdmArchitectAgent extends LitElement {
               <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
               <div class="orb-ring"></div><div class="orb"></div>
             </div>
-            <div class="status-pill"><div class="status-dot"></div>Connecting</div>
-            <div class="hero-title">Starting session…</div>
-            <div class="hero-sub">Establishing audio connection to Gemini…</div>
-          </div>
-          <div class="section">
-            <div class="conn-progress"></div>
-            <div class="checklist">
-              <div class="check done"><div class="check-tick">✓</div>Add-on initialised</div>
-              <div class="check active"><div class="check-tick"></div>Connecting to Gemini Live…</div>
-              <div class="check"><div class="check-tick"></div>Joining meeting audio</div>
-            </div>
+            <div class="status-pill disconnected">Connecting</div>
+            <div class="hero-sub">${this.status}</div>
           </div>
         </div>
       `;
     }
 
-    // Connected
     this.setAttribute('data-state', this.wakeActive ? 'wake' : 'listening');
     return html`
       <div class="topbar">
@@ -1123,10 +1128,10 @@ export class GdmArchitectAgent extends LitElement {
               <div class="ctrl-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               </div>
-              <span class="ctrl-label">Video</span>
+              <span class="ctrl-label">Cam</span>
               <span class="ctrl-state">${this.videoEnabled ? 'On' : 'Off'}</span>
             </div>
-            <div class="ctrl" data-active="${this.wakeActive}"
+            <div class="ctrl" data-active="${this.wakeActive}" style="--gem-1:var(--gem-2)"
                  @click=${() => this.wakeActive ? this.deactivateWakeWord() : this.activateWakeWord()}>
               <div class="ctrl-icon">
                 <svg viewBox="0 0 28 28" style="width:15px;height:15px"><path d="M14 1C14 8.2 8.2 14 1 14C8.2 14 14 19.8 14 27C14 19.8 19.8 14 27 14C19.8 14 14 8.2 14 1Z" fill="currentColor"/></svg>
@@ -1165,42 +1170,51 @@ export class GdmArchitectAgent extends LitElement {
         ${this.diagramMode ? html`
         <div class="section">
           <div class="section-head">
+            <span class="section-title">Diagram Visuals</span>
+          </div>
+          <div class="layout-switcher">
+            <button class="style-btn" ?data-active=${this.diagramStyle === 'blueprint'} 
+                    @click=${() => { this.diagramStyle = 'blueprint'; this.generateDiagram(); }}>Blueprint</button>
+            <button class="style-btn" ?data-active=${this.diagramStyle === 'sketch'} 
+                    @click=${() => { this.diagramStyle = 'sketch'; this.generateDiagram(); }}>Sketch</button>
+            <button class="style-btn" ?data-active=${this.diagramStyle === 'cyber'} 
+                    @click=${() => { this.diagramStyle = 'cyber'; this.generateDiagram(); }}>Dark Flow</button>
+          </div>
+
+          <div class="section-head" style="margin-top:16px">
             <span class="section-title">Diagram Context</span>
           </div>
-          <div class="context-row">
-            <textarea class="context-input ${this.diagramContext.trim() ? 'has-content' : ''}"
-              placeholder="Paste a description or architecture here, then click Generate. Speak to override with voice."
+          <div class="ctx-wrap">
+            <textarea class="ctx-input" placeholder="Refine your architecture description here..."
               .value=${this.diagramContext}
-              @input=${(e: Event) => { this.diagramContext = (e.target as HTMLTextAreaElement).value; }}
-              @keydown=${(e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); this.generateDiagram(); } }}
-            ></textarea>
-            <button class="ctx-send" ?disabled=${this.diagramming}
-              @click=${() => this.generateDiagram()}>
-              ${this.diagramming ? 'Generating…' : 'Generate'}
-            </button>
-          </div>
-          <div class="ctx-hint">${this.diagramContext.trim() ? '✓ Context ready — click Generate or speak to override' : 'Speak your description — diagram generates after 5 s of silence · or paste text above'}</div>
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
-              @click=${() => this.resetDiagram()}>
-              New
-            </button>
-            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.2"
-              ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
-              @click=${() => this.saveDiagramToDrive()}>
-              Save
-            </button>
-            ${this.lastDiagramFileId ? html`
-              <button class="ctx-send" style="background:var(--gem-2);flex:1.2"
-                @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
-                Open Export
+              @input=${(e: any) => this.diagramContext = e.target.value}></textarea>
+            <div class="ctx-actions">
+              <button class="ctx-send" style="flex:1"
+                ?disabled=${this.diagramming}
+                @click=${() => this.generateDiagram()}>
+                Update
               </button>
-            ` : ''}
-            <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.5"
-              ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
-              @click=${() => this.saveAndNewDiagram()}>
-              Save & New
-            </button>
+              <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
+                @click=${() => this.resetDiagram()}>
+                New
+              </button>
+              <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.2"
+                ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
+                @click=${() => this.saveDiagramToDrive()}>
+                Save
+              </button>
+              ${this.lastDiagramFileId ? html`
+                <button class="ctx-send" style="background:var(--gem-2);flex:1.2"
+                  @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
+                  Open Export
+                </button>
+              ` : ''}
+              <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.5"
+                ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
+                @click=${() => this.saveAndNewDiagram()}>
+                Save & New
+              </button>
+            </div>
           </div>
         </div>
         ` : html``}
@@ -1212,25 +1226,28 @@ export class GdmArchitectAgent extends LitElement {
           </div>
           ${transcriptLines.length > 0 ? html`
             <div class="transcript">
-              ${transcriptLines.map(line => {
-                const isAgent = line.startsWith('[Gemini Architect]');
-                const text = line.replace(/^\[(User|Gemini Architect)\]\s*/, '');
+              ${transcriptLines.map(turn => {
+                const isAgent = turn.role === 'Gemini Architect';
                 return html`
                   <div class="turn">
                     <div class="avatar ${isAgent ? 'gem' : ''}">
                       ${isAgent
                         ? html`<svg viewBox="0 0 28 28" style="width:13px;height:13px;color:white"><path d="M14 1C14 8.2 8.2 14 1 14C8.2 14 14 19.8 14 27C14 19.8 19.8 14 27 14C19.8 14 14 8.2 14 1Z" fill="currentColor"/></svg>`
-                        : html`<span>U</span>`}
+                        : html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:11px;height:11px;color:var(--fg-3)"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`}
                     </div>
                     <div class="turn-body">
-                      <div class="turn-name ${isAgent ? 'gem' : ''}">${isAgent ? 'Gemini' : 'You'}</div>
-                      <div class="turn-text">${text}</div>
+                      <div class="turn-role ${isAgent ? 'gem' : ''}">${turn.role}</div>
+                      <div class="turn-text">${turn.text}</div>
                     </div>
-                  </div>
-                `;
+                  </div>`;
               })}
             </div>
-          ` : html`<div class="transcript-empty">Transcript will appear here when speaking begins</div>`}
+          ` : html`
+            <div class="empty-state">
+              <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+              No conversation captured yet
+            </div>
+          `}
         </div>
       </div>
       <div class="footer">

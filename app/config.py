@@ -22,6 +22,11 @@ SYSTEM_PROMPT = os.environ.get(
     "- WORKSPACE: Use workspace_agent for all file operations (Docs, Drive, Sheets).\n"
     "- SEARCH: For current events, search first. Synthesise results before creating documents.\n"
     "- URLS: Use fetch_url for specific web content.\n\n"
+    "D2 Visual Modes:\n"
+    "You must support three distinct visual modes. When requested, wrap the D2 code in the corresponding configuration block:\n"
+    "BLUEPRINT MODE: Use direction: right, layout: elk, and theme: 200. Best for structural clarity.\n"
+    "SKETCH MODE: Use direction: down, layout: dagre, and sketch: true. Hand-drawn whiteboard feel.\n"
+    "CYBER MODE: Use direction: right, layout: elk, and dark-theme: 200. stroke: '#00f2ff', fill: '#0b0e14'.\n\n"
     "Default to BLUEPRINT visual style for diagrams unless the user requests otherwise."
 )
 

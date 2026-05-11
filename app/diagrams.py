@@ -37,13 +37,28 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     match = re.search(r'```(?:d2)?\s*\n?(.*?)```', raw_text, re.DOTALL)
     d2_code = match.group(1).strip() if match else raw_text.strip()
     
-    # Ensure standard configuration is present if Gemini missed it
-    if "vars: {" not in d2_code:
-        d2_code = (
+    # PREPEND STYLE WRAPPER (Overrides anything the model produced)
+    style_header = ""
+    if style == "blueprint":
+        style_header = (
             "direction: right\n"
-            "vars: { d2-config: { layout-engine: elk; sketch: true; theme: 200 } }\n"
-            + d2_code
+            "vars: {\n  d2-config: {\n    layout-engine: elk\n    theme: 200\n  }\n}\n"
         )
+    elif style == "sketch":
+        style_header = (
+            "direction: down\n"
+            "vars: {\n  d2-config: {\n    layout-engine: dagre\n    theme: 100\n    sketch: true\n  }\n}\n"
+        )
+    else: # cyber (default)
+        style_header = (
+            "direction: right\n"
+            "vars: {\n  d2-config: {\n    layout-engine: elk\n    theme: 200\n    dark-theme: 200\n  }\n}\n"
+            "style: {\n  stroke: \"#00f2ff\"\n  fill: \"#0b0e14\"\n  stroke-width: 2\n}\n"
+        )
+    
+    # Remove any existing vars or direction from model to avoid conflicts
+    d2_code = re.sub(r'^(direction|vars|style|classes).*?(\n\n|\n[a-z])', '', d2_code, flags=re.DOTALL | re.MULTILINE)
+    d2_code = style_header + "\n" + d2_code
 
     # Extract title from D2 code for storage/Drive
     title_match = re.search(r'title:\s*"([^"]+)"', d2_code)
@@ -57,10 +72,9 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
             f.write(d2_code)
         
         try:
-            # Layout is controlled via the vars in the code
-            # We MUST use --bundle to include icons and -t 0 for default theme
+            # We MUST use --bundle to include icons
             process = await asyncio.create_subprocess_exec(
-                "d2", "--bundle", "-t", "200", d2_path, svg_path,
+                "d2", "--bundle", d2_path, svg_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
