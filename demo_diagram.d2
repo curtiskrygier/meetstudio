@@ -1,0 +1,19 @@
+direction: right
+vars: { d2-config: { layout-engine: elk; sketch: true } }
+title: "Gemini Agent Architect Concept"
+classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud}}
+
+"Meeting Participants".class: user
+"Google Meet".icon: "assets/icons/meet.svg"
+"Side Panel".class: infra
+"Main Stage".class: infra
+"Virtual Architect".icon: "assets/icons/gemini.svg"
+"Diagram Storage".icon: "assets/icons/drive.svg"
+"Image File".class: storage
+
+"Meeting Participants" -> "Google Meet": "Joins Meeting"
+"Google Meet" -> "Side Panel": "Hosts Add-on"
+"Side Panel" -> "Virtual Architect": "Captures Transcript"
+"Virtual Architect" -> "Main Stage": "Updates Diagram (Real-time)"
+"Virtual Architect" -> "Diagram Storage": "Generates Final Image"
+"Diagram Storage" -> "Image File": "Persists for Review"

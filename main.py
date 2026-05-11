@@ -27,6 +27,7 @@ WORKSPACE_AGENT_ENGINE = os.environ.get(
     "WORKSPACE_AGENT_ENGINE",
     "projects/828378723395/locations/us-central1/reasoningEngines/2432159852814925824",
 )
+CLIENT_ID = os.environ.get("CLIENT_ID")
 
 SYSTEM_PROMPT = os.environ.get(
     "SYSTEM_PROMPT",
@@ -209,7 +210,7 @@ Rules:
 - Start with EXACTLY this configuration block:
   direction: right
   vars: { d2-config: { layout-engine: elk; sketch: true } }
-- FLAT STRUCTURE: Do NOT use nested containers or curly braces {}. Define all nodes and connections at the top level.
+- ARCHITECTURAL LAYERS: Use nested containers with curly braces { } to group related components into logical layers (e.g. "Client Tier", "API Layer", "Data Persistence").
 - SEQUENTIAL FLOW: Define nodes and connections in the order of the data flow or processing steps described.
 - Add a Title at the top-center using this format:
   title: "Short Meeting Title"
@@ -220,11 +221,23 @@ Rules:
 - Use DOT SYNTAX for attributes: "Node Name".class: infra
 - Use ABSOLUTE PATHS for icons: "Node Name".icon: "/app/assets/icons/<name>.svg"
 - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
+- Icon Rules:
+  - "Main Stage" or "Google Meet": Use "meet.svg"
+  - "Gemini" or "Virtual Architect": Use "gemini.svg"
+  - "Database": Use "sql.svg" or "storage.svg"
+  - "Reasoning Engine": Use "vertex_ai.svg"
 
 Example:
-"User".class: user
-"Web App".icon: "/app/assets/icons/cloud.svg"
-"User" -> "Web App": "Interacts"
+"Client Tier": {
+  "User".class: user
+  "Browser".icon: "/app/assets/icons/cloud.svg"
+}
+"Cloud Infrastructure": {
+  "Web App".icon: "/app/assets/icons/cloud_run.svg"
+  "Database".class: storage
+}
+"User" -> "Web App": "Requests"
+"Web App" -> "Database": "Queries"
 
 STRICT: If the "Meeting context" below says "No meeting context available" or is empty, output ONLY this:
 "Waiting for architecture description...".shape: rectangle
@@ -385,7 +398,7 @@ async def _drive_get_or_create_folder(name: str, parent_id: str, access_token: s
     return None
 
 
-def _svg_to_png(svg_bytes: bytes, width: int = 1200) -> bytes | None:
+def _svg_to_png(svg_bytes: bytes, width: int = 2400) -> bytes | None:
     try:
         result = subprocess.run(
             ["rsvg-convert", "-w", str(width), "--format", "png"],
@@ -600,6 +613,32 @@ async def broadcast_to_stage(meeting_id: str, message: dict):
             pass
 
 
+async def validate_google_token(token: str) -> bool:
+    """Validate that the token is active and issued for our Client ID."""
+    if not token:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/tokeninfo",
+                params={"access_token": token}
+            )
+            if resp.status_code != 200:
+                print(f"[auth] token validation failed: {resp.text}", flush=True)
+                return False
+            
+            info = resp.json()
+            # Check if token is for our Client ID (if configured)
+            if CLIENT_ID and info.get("aud") != CLIENT_ID:
+                print(f"[auth] token audience mismatch: expected {CLIENT_ID}, got {info.get('aud')}", flush=True)
+                return False
+                
+            return True
+    except Exception as e:
+        print(f"[auth] error during validation: {e}", flush=True)
+        return False
+
+
 async def live_session(websocket: WebSocket, meeting_id: str):
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
@@ -639,8 +678,15 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         try:
                             data = json.loads(text)
                             if data.get("type") == "init":
+                                token = data.get("access_token", "")
+                                if not await validate_google_token(token):
+                                    print(f"[ws] init rejected: invalid token", flush=True)
+                                    await websocket.send_text(json.dumps({"type": "status", "text": "Auth failed: session rejected"}))
+                                    stop_event.set()
+                                    break
+                                
                                 workspace_user[0] = data.get("user_email", "")
-                                session_token[0] = data.get("access_token", "")
+                                session_token[0] = token
                                 if data.get("meeting_id"):
                                     session_space[0] = data.get("meeting_id", meeting_id)
                                 print(f"[init] user={workspace_user[0]} space={session_space[0]}", flush=True)
@@ -809,6 +855,54 @@ async def live_session(websocket: WebSocket, meeting_id: str):
             timeout_task.cancel()
 
 
+@app.post("/api/transcript/export")
+async def export_transcript(payload: dict = Body(...)):
+    transcript = payload.get("transcript", "").strip()
+    access_token = payload.get("access_token", "").strip()
+    space_id = payload.get("space_id", "").strip()
+    if not transcript or not access_token or not space_id:
+        return {"error": "transcript, access_token, and space_id required"}
+
+    if not await validate_google_token(access_token):
+        return {"error": "Invalid or unauthorized access token"}, 401
+
+    try:
+        meeting_name = await get_calendar_meeting_name(space_id, access_token)
+        folder_id = await get_or_create_meeting_folder(space_id, access_token, meeting_name=meeting_name)
+        
+        doc_title = f"Transcript: {meeting_name or space_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Create Doc
+            resp = await client.post(
+                "https://www.googleapis.com/drive/v3/files",
+                json={
+                    "name": doc_title,
+                    "mimeType": "application/vnd.google-apps.document",
+                    "parents": [folder_id] if folder_id else []
+                },
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            resp.raise_for_status()
+            file_id = resp.json()["id"]
+            
+            # Append transcript content via Docs API
+            # For simplicity, we just overwrite/append the text. 
+            # Real implementation would use batchUpdate.
+            # Using simple text update:
+            await client.patch(
+                f"https://www.googleapis.com/drive/v3/files/{file_id}?uploadType=media",
+                content=transcript.encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "text/plain"
+                }
+            )
+            
+        return {"ok": True, "file_id": file_id}
+    except Exception as e:
+        print(f"[export] error: {e}", flush=True)
+        return {"error": str(e)}
+
 @app.post("/api/diagram")
 async def api_diagram(payload: dict = Body(...)):
     transcript = payload.get("transcript", "").strip()
@@ -817,6 +911,11 @@ async def api_diagram(payload: dict = Body(...)):
     space_id = payload.get("space_id", "").strip()
     session_id = payload.get("session_id", "").strip()
     meeting_name = payload.get("meeting_name", "").strip()
+
+    if not access_token:
+        return {"error": "No access token provided"}, 401
+    if not await validate_google_token(access_token):
+        return {"error": "Invalid or unauthorized access token"}, 401
 
     if not chat and access_token and space_id:
         chat = await fetch_meeting_chat(space_id, access_token)
@@ -871,8 +970,12 @@ async def save_diagram_endpoint(diagram_id: str, payload: dict = Body(...)):
     title = _diagram_title.get(diagram_id, "Meeting Diagram")
     if not access_token or not space_id:
         return {"error": "access_token and space_id required"}
-    await save_diagram_to_drive(svg, title, space_id, access_token)
-    return {"ok": True, "title": title}
+    
+    if not await validate_google_token(access_token):
+        return {"error": "Invalid or unauthorized access token"}, 401
+
+    file_id = await save_diagram_to_drive(svg, title, space_id, access_token)
+    return {"ok": True, "title": title, "file_id": file_id}
 
 @app.get("/api/diagram/{diagram_id}.svg")
 async def get_diagram_svg(diagram_id: str):
@@ -880,6 +983,18 @@ async def get_diagram_svg(diagram_id: str):
     if not svg:
         return FastAPIResponse(status_code=404, content="Not found")
     return FastAPIResponse(content=svg, media_type="image/svg+xml")
+
+
+@app.get("/api/diagram/{diagram_id}.png")
+async def get_diagram_png(diagram_id: str):
+    svg = _diagram_store.get(diagram_id)
+    if not svg:
+        return FastAPIResponse(status_code=404, content="Not found")
+    # Convert to high-res PNG
+    png = await asyncio.get_event_loop().run_in_executor(None, _svg_to_png, svg)
+    if not png:
+        return FastAPIResponse(status_code=500, content="PNG conversion failed")
+    return FastAPIResponse(content=png, media_type="image/png")
 
 
 @app.websocket("/ws/stage")

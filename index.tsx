@@ -41,6 +41,7 @@ export class GdmArchitectAgent extends LitElement {
   @state() diagramming = false;
   @state() diagramContext = '';
   @state() transcriptMode = false;
+  @state() lastSavedFileId = '';
 
   private diagramInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -277,6 +278,7 @@ export class GdmArchitectAgent extends LitElement {
     .action-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; color: white; }
     .action-ico.doc { background: #2b6cb0; }
     .action-ico.sheet { background: #2f855a; }
+    .action-ico.img { background: #6b46c1; }
     .action-ico svg { width: 14px; height: 14px; }
     .action-body { flex: 1; min-width: 0; }
     .action-title { font-size: 12.5px; font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -370,7 +372,7 @@ export class GdmArchitectAgent extends LitElement {
           'https://www.googleapis.com/auth/meetings.conference.media.readonly',
           'https://www.googleapis.com/auth/meetings.space.readonly',
           'https://www.googleapis.com/auth/chat.messages.readonly',
-          'https://www.googleapis.com/auth/drive',
+          'https://www.googleapis.com/auth/drive.file',
           'https://www.googleapis.com/auth/calendar.readonly',
           'openid',
           'email',
@@ -435,13 +437,7 @@ export class GdmArchitectAgent extends LitElement {
           this.status = msg.text;
         } else if (msg.type === 'action_link') {
           this.actionLinks = [...this.actionLinks, {url: msg.url, label: msg.label || 'Open Document'}];
-          if (this.sidePanelClient && msg.url.includes('docs.google.com')) {
-            const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(msg.url)}&label=${encodeURIComponent(msg.label || 'New Document')}`;
-            console.log('[concierge] Auto-starting main stage activity:', stageUrl);
-            this.sidePanelClient.startActivity({ mainStageUrl: stageUrl }).catch((e: any) => {
-              console.error('[concierge] Failed to auto-start activity:', e);
-            });
-          }
+          this.openInMainStage(msg.url, msg.label || 'Open Document');
         }
       } catch { }
     };
@@ -704,6 +700,7 @@ export class GdmArchitectAgent extends LitElement {
       this.status = 'Kore connected — listening';
     } else {
       this.diagramMode = true;
+      this.transcriptMode = true; // Auto-activate captions when diagrams start
       this.actionLinks = [];
       this.transcriptStartIndex = this.transcript.length;
       this.diagramSessionStartTime = new Date().toISOString();
@@ -825,12 +822,42 @@ export class GdmArchitectAgent extends LitElement {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       this.lastGenerationTime = Date.now();
+      if (data.drive_file_id) {
+        this.lastSavedFileId = data.drive_file_id;
+      }
       if (this.diagramMode) this.status = 'Gemini Agent Architect — diagram updated';
     } catch (e: any) {
       console.error('[concierge] diagram error:', e);
       this.status = `Diagram failed: ${(e as any).message || e}`;
     } finally {
       this.diagramming = false;
+    }
+  }
+
+  private async exportTranscript() {
+    if (!this.transcript.trim()) {
+      this.status = 'Nothing to export — speak first';
+      return;
+    }
+    this.status = 'Exporting transcript to Doc…';
+    try {
+      const resp = await fetch('/api/transcript/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: this.transcript,
+          access_token: this.accessToken,
+          space_id: this.meetingId
+        }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      if (data.file_id) {
+        this.lastSavedFileId = data.file_id;
+        this.status = 'Transcript exported to Drive ✓';
+      }
+    } catch (e: any) {
+      this.status = `Export failed: ${e.message || e}`;
     }
   }
 
@@ -848,6 +875,9 @@ export class GdmArchitectAgent extends LitElement {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
+      if (data.file_id) {
+        this.lastSavedFileId = data.file_id;
+      }
       this.status = 'Diagram saved to Drive ✓';
     } catch (e: any) {
       this.status = `Drive save failed: ${(e as any).message || e}`;
@@ -863,6 +893,7 @@ export class GdmArchitectAgent extends LitElement {
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
+    this.lastSavedFileId = '';
     
     // Register session server-side
     try {
@@ -895,6 +926,7 @@ export class GdmArchitectAgent extends LitElement {
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
+    this.lastSavedFileId = '';
     
     // Register session server-side
     try {
@@ -925,20 +957,25 @@ export class GdmArchitectAgent extends LitElement {
       : [];
 
     const docLinksSvg = html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v23a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8zm0-4h8v2H8z"/></svg>`;
+    const imgLinksSvg = html`<svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 5H5l3.5-3.5z"/></svg>`;
 
     const actionCards = this.actionLinks.length > 0 ? html`
       <div class="section">
         <div class="section-head"><span class="section-title">Workspace Actions</span></div>
         <div class="action-list">
-          ${this.actionLinks.map(link => html`
+          ${this.actionLinks.map(link => {
+            const isImg = link.url.includes('diagram');
+            const isSheet = link.url.includes('/spreadsheets/');
+            return html`
             <div class="action" @click=${() => this.openInMainStage(link.url, link.label)}>
-              <div class="action-ico ${link.url.includes('/spreadsheets/') ? 'sheet' : 'doc'}">${docLinksSvg}</div>
+              <div class="action-ico ${isImg ? 'img' : (isSheet ? 'sheet' : 'doc')}">${isImg ? imgLinksSvg : docLinksSvg}</div>
               <div class="action-body">
                 <div class="action-title">${link.label}</div>
                 <div class="action-sub">${link.url}</div>
               </div>
             </div>
-          `)}
+          `;
+          })}
         </div>
       </div>
     ` : html``;
@@ -1025,7 +1062,15 @@ export class GdmArchitectAgent extends LitElement {
           <div class="brand-mark">${GEMINI_LOGO}</div>
           <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
         </div>
-        <div style="font-size:9px;color:var(--fg-4)">v16</div>
+        <div class="topbar-actions">
+          ${this.lastSavedFileId ? html`
+            <button class="icon-btn" title="Open latest export"
+              @click=${() => window.open(`https://drive.google.com/file/d/${this.lastSavedFileId}/view`, '_blank')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </button>
+          ` : ''}
+          <div style="font-size:9px;color:var(--fg-4)">v16</div>
+        </div>
       </div>
       <div class="body">
         <div class="hero" style="padding-bottom:12px">
@@ -1119,6 +1164,12 @@ export class GdmArchitectAgent extends LitElement {
               @click=${() => this.saveDiagramToDrive()}>
               Save
             </button>
+            ${this.lastSavedFileId ? html`
+              <button class="ctx-send" style="background:var(--gem-2);flex:1.2"
+                @click=${() => window.open(`https://drive.google.com/file/d/${this.lastSavedFileId}/view`, '_blank')}>
+                Open Export
+              </button>
+            ` : ''}
             <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.5"
               ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
               @click=${() => this.saveAndNewDiagram()}>
@@ -1129,7 +1180,10 @@ export class GdmArchitectAgent extends LitElement {
         ` : html``}
 
         <div class="section">
-          <div class="section-head"><span class="section-title">Transcript</span></div>
+          <div class="section-head">
+            <span class="section-title">Transcript</span>
+            <button class="mode-toggle" @click=${() => this.exportTranscript()}>Export</button>
+          </div>
           ${transcriptLines.length > 0 ? html`
             <div class="transcript">
               ${transcriptLines.map(line => {

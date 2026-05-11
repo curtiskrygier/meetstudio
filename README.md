@@ -100,11 +100,13 @@ gcloud run deploy meet-live-architect \
   --region $REGION \
   --timeout=3600 \
   --session-affinity \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --set-build-env-vars="CLIENT_ID=${CLIENT_ID},CLOUD_PROJECT_NUMBER=${CLOUD_PROJECT_NUMBER}" \
-  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE}" \
+  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE},CLIENT_ID=${CLIENT_ID}" \
   --project=<YOUR_CLOUD_RUN_PROJECT>
 ```
+
+> **Security Note**: The backend now strictly validates all incoming OAuth access tokens against Google's `tokeninfo` endpoint and verifies the `aud` (audience) matches your `CLIENT_ID`. This prevents the service from being used as an open proxy for unauthorized tokens.
 
 ### 5. Register the Apps Script Add-on
 

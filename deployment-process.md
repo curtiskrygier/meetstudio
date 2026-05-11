@@ -73,9 +73,9 @@ gcloud run deploy $SERVICE_NAME \
   --region $REGION \
   --timeout=3600 \
   --session-affinity \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --set-build-env-vars="CLIENT_ID=${CLIENT_ID},CLOUD_PROJECT_NUMBER=${GCP_PROJECT_NUMBER}" \
-  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE}" \
+  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE},CLIENT_ID=${CLIENT_ID}" \
   --project=$GCP_PROJECT
 ```
 
@@ -112,9 +112,9 @@ gcloud run deploy $SERVICE_NAME \
   --region $REGION \
   --timeout=3600 \
   --session-affinity \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --set-build-env-vars="CLIENT_ID=${CLIENT_ID},CLOUD_PROJECT_NUMBER=${GCP_PROJECT_NUMBER}" \
-  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE}" \
+  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE},CLIENT_ID=${CLIENT_ID}" \
   --project=$GCP_PROJECT
 ```
 

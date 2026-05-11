@@ -26,6 +26,8 @@ _Last updated: 2026-05-08_
 ## Technical Snag List & Feature Backlog
 
 ### Backlog
+- [x] **Security Hardening**: Implemented backend-side OAuth token validation and narrowed Drive scopes to `drive.file`. Removed unauthenticated Cloud Run access in deployment guides.
+- [ ] **Activity Conflict**: "Another activity running" error when enabling captions or diagrams. Likely due to `isActivityStarted` getting out of sync with Meet SDK state or missing `endActivity()` calls when switching modes.
 - [ ] **Brainstorming Mode**: Implement Mindmap/Word-cloud style visualization of meeting themes. (Note: Initial implementation rolled back due to context hallucination and UI sync issues).
 - [ ] **Multi-stage Sync**: Improve bi-directional communication between Main Stage and Side Panel for complex view states.
 
