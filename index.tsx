@@ -41,7 +41,8 @@ export class GdmArchitectAgent extends LitElement {
   @state() diagramming = false;
   @state() diagramContext = '';
   @state() transcriptMode = false;
-  @state() lastSavedFileId = '';
+  @state() lastTranscriptFileId = '';
+  @state() lastDiagramFileId = '';
 
   private diagramInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -412,9 +413,10 @@ export class GdmArchitectAgent extends LitElement {
         const msg = JSON.parse(e.data as string);
         if (msg.type === 'transcript') {
           console.log('[concierge] backend transcript:', msg.text);
-          // Only append if we didn't get it from local SR (simple de-dupe)
-          if (!this.transcript.toLowerCase().includes(msg.text.toLowerCase().substring(0, 20))) {
-             this.transcript = (this.transcript + `\n[${msg.role}] ${msg.text}`).trimStart();
+          const roleLabel = msg.role === 'agent' ? 'Gemini Architect' : 'User';
+          // Only de-dupe user messages against local SR. Agent messages always get appended.
+          if (msg.role === 'agent' || !this.transcript.toLowerCase().includes(msg.text.toLowerCase().substring(0, 20))) {
+             this.transcript = (this.transcript + `\n[${roleLabel}] ${msg.text}`).trimStart();
           }
 
           // Broadcast to Main Stage if in transcript mode
@@ -832,7 +834,7 @@ export class GdmArchitectAgent extends LitElement {
       if (data.error) throw new Error(data.error);
       this.lastGenerationTime = Date.now();
       if (data.drive_file_id) {
-        this.lastSavedFileId = data.drive_file_id;
+        this.lastDiagramFileId = data.drive_file_id;
       }
       if (this.diagramMode) this.status = 'Gemini Agent Architect — diagram updated';
     } catch (e: any) {
@@ -863,7 +865,7 @@ export class GdmArchitectAgent extends LitElement {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       if (data.file_id) {
-        this.lastSavedFileId = data.file_id;
+        this.lastTranscriptFileId = data.file_id;
         const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Transcript exported to Drive ✓';
         window.open(driveUrl, '_blank');
@@ -888,7 +890,7 @@ export class GdmArchitectAgent extends LitElement {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       if (data.file_id) {
-        this.lastSavedFileId = data.file_id;
+        this.lastDiagramFileId = data.file_id;
         const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Diagram saved to Drive ✓';
         window.open(driveUrl, '_blank');
@@ -915,7 +917,8 @@ export class GdmArchitectAgent extends LitElement {
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
-    this.lastSavedFileId = '';
+    this.lastTranscriptFileId = '';
+    this.lastDiagramFileId = '';
     
     // Register session server-side
     try {
@@ -948,7 +951,8 @@ export class GdmArchitectAgent extends LitElement {
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
-    this.lastSavedFileId = '';
+    this.lastTranscriptFileId = '';
+    this.lastDiagramFileId = '';
     
     // Register session server-side
     try {
@@ -1085,10 +1089,10 @@ export class GdmArchitectAgent extends LitElement {
           <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
         </div>
         <div class="topbar-actions">
-          ${this.lastSavedFileId ? html`
-            <button class="icon-btn" title="Open latest export"
-              @click=${() => window.open(`https://drive.google.com/file/d/${this.lastSavedFileId}/view`, '_blank')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          ${this.lastDiagramFileId ? html`
+            <button class="icon-btn" title="Open latest diagram"
+              @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             </button>
           ` : ''}
           <div style="font-size:9px;color:var(--fg-4)">v17</div>
@@ -1186,9 +1190,9 @@ export class GdmArchitectAgent extends LitElement {
               @click=${() => this.saveDiagramToDrive()}>
               Save
             </button>
-            ${this.lastSavedFileId ? html`
+            ${this.lastDiagramFileId ? html`
               <button class="ctx-send" style="background:var(--gem-2);flex:1.2"
-                @click=${() => window.open(`https://drive.google.com/file/d/${this.lastSavedFileId}/view`, '_blank')}>
+                @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
                 Open Export
               </button>
             ` : ''}
@@ -1209,8 +1213,8 @@ export class GdmArchitectAgent extends LitElement {
           ${transcriptLines.length > 0 ? html`
             <div class="transcript">
               ${transcriptLines.map(line => {
-                const isAgent = line.startsWith('[agent]');
-                const text = line.replace(/^\[(user|agent)\]\s*/, '');
+                const isAgent = line.startsWith('[Gemini Architect]');
+                const text = line.replace(/^\[(User|Gemini Architect)\]\s*/, '');
                 return html`
                   <div class="turn">
                     <div class="avatar ${isAgent ? 'gem' : ''}">

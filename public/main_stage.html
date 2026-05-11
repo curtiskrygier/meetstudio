@@ -271,7 +271,7 @@
       if (!existing) {
         const el = document.createElement('div');
         el.className = `turn active ${role}`;
-        el.innerHTML = `<span class="role-label">${role === 'agent' ? 'Gemini' : 'You'}</span><span class="content"></span>`;
+        el.innerHTML = `<span class="role-label">${role === 'agent' ? 'Gemini Architect' : 'You'}</span><span class="content"></span>`;
         
         turns.forEach(t => {
           if (t.element.classList.contains('active')) { t.element.classList.replace('active', 'prev-1'); }

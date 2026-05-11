@@ -118,7 +118,7 @@ async def save_diagram_to_drive(svg_bytes: bytes, title: str, space_id: str, acc
     body = (
         f"--{boundary}\n"
         f"Content-Type: application/json; charset=UTF-8\n\n"
-        f"{httpx.utils.json.dumps(metadata)}\n"
+        f"{json.dumps(metadata)}\n"
         f"--{boundary}\n"
         f"Content-Type: image/png\n\n"
     ).encode("utf-8") + png + f"\n--{boundary}--".encode("utf-8")
