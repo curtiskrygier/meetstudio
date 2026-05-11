@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y curl tar librsvg2-bin && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY assets ./assets
+COPY app ./app
 COPY main.py .
 COPY --from=frontend /app/dist ./dist
 ENV PORT=8080
