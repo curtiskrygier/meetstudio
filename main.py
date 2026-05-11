@@ -80,6 +80,9 @@ _diagram_version: dict[str, int] = {}
 _meeting_name_cache: dict[str, str] = {}   # space_id → calendar event title
 _meeting_folder_cache: dict[str, str] = {} # space_id → Drive folder ID
 
+# SVG processing limits
+MAX_SVG_SIZE = 5 * 1024 * 1024  # 5MB safety limit
+
 # Diagram title store
 _diagram_title: dict[str, str] = {}        # diagram_id → title
 
@@ -400,6 +403,9 @@ async def _drive_get_or_create_folder(name: str, parent_id: str, access_token: s
 
 
 def _svg_to_png(svg_bytes: bytes, width: int = 2400) -> bytes | None:
+    if len(svg_bytes) > MAX_SVG_SIZE:
+        print(f"[drive] SVG too large for conversion: {len(svg_bytes)} bytes", flush=True)
+        return None
     try:
         result = subprocess.run(
             ["rsvg-convert", "-w", str(width), "--format", "png"],

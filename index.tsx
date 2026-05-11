@@ -324,7 +324,7 @@ export class GdmArchitectAgent extends LitElement {
   private unloadHandler = () => { this.disconnect(); };
 
   firstUpdated() {
-    console.log('[concierge] build v16 — backend transcription, shared drive support');
+    console.log('[concierge] build v17 — backend transcription, shared drive support');
     this.initializeAddon();
   }
 
@@ -551,7 +551,7 @@ export class GdmArchitectAgent extends LitElement {
         if (status.connectionState === MeetConnectionState.JOINED) {
           this.connected = true;
           this.connecting = false;
-          this.status = 'Listening — Kore is ready';
+          this.status = 'Listening — Assistant is ready';
           this.startVolumeAnalysis();
         }
       });
@@ -678,6 +678,10 @@ export class GdmArchitectAgent extends LitElement {
           this.isActivityStarted = true;
         } catch (e: any) {
           console.warn('[concierge] startActivity (transcript):', e?.message || e);
+          if (String(e).toLowerCase().includes('activity') || e?.name === 'ActivityIsOngoing') {
+            this.error = 'Stage occupied: Close the active item (Doc/Sheet) to show captions.';
+            this.transcriptMode = false;
+          }
         }
       }
     }
@@ -697,7 +701,7 @@ export class GdmArchitectAgent extends LitElement {
         // Tell everyone to clear the stage
         this.ws.send(JSON.stringify({ type: 'broadcast_view', mode: 'placeholder' }));
       }
-      this.status = 'Kore connected — listening';
+      this.status = 'Assistant connected — listening';
     } else {
       this.diagramMode = true;
       this.transcriptMode = true; // Auto-activate captions when diagrams start
@@ -724,6 +728,10 @@ export class GdmArchitectAgent extends LitElement {
             this.isActivityStarted = true;
           } catch (e: any) {
             console.warn('[concierge] startActivity (diagram):', e?.message || e);
+            if (String(e).toLowerCase().includes('activity') || e?.name === 'ActivityIsOngoing') {
+              this.error = 'Stage occupied: Close the active item (Doc/Sheet) to show diagram.';
+              this.diagramMode = false;
+            }
           }
         } else {
           // Tell everyone's stage to switch to diagram view (listening state)
@@ -988,7 +996,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
-          <div style="font-size:9px;color:var(--fg-4)">v16</div>
+          <div style="font-size:9px;color:var(--fg-4)">v17</div>
         </div>
         <div class="body">
           <div class="hero">
@@ -1030,7 +1038,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
-          <div style="font-size:9px;color:var(--fg-4)">v16</div>
+          <div style="font-size:9px;color:var(--fg-4)">v17</div>
         </div>
         <div class="body">
           <div class="hero">
@@ -1040,7 +1048,7 @@ export class GdmArchitectAgent extends LitElement {
             </div>
             <div class="status-pill"><div class="status-dot"></div>Connecting</div>
             <div class="hero-title">Starting session…</div>
-            <div class="hero-sub">Establishing audio connection to Kore…</div>
+            <div class="hero-sub">Establishing audio connection to Gemini…</div>
           </div>
           <div class="section">
             <div class="conn-progress"></div>
@@ -1069,7 +1077,7 @@ export class GdmArchitectAgent extends LitElement {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             </button>
           ` : ''}
-          <div style="font-size:9px;color:var(--fg-4)">v16</div>
+          <div style="font-size:9px;color:var(--fg-4)">v17</div>
         </div>
       </div>
       <div class="body">

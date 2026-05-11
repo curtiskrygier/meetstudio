@@ -29,7 +29,7 @@ Google Meet participants
 ## Features
 
 - 🎙 Hears all meeting participants (including the add-on user) via the Meet Media API
-- 🔊 Responds by voice using Gemini Live native audio (`Kore` voice by default)
+- 🔊 Responds by voice using Gemini Live native audio
 - 📹 Optional 1fps video feed sent to Gemini for visual context
 - 🔇 Audio and video send toggles in the side panel UI
 - 💸 Gemini API calls billed to a configurable GCP project (separate from the Cloud Run host)
@@ -159,7 +159,7 @@ npm run dev
 | `CLIENT_ID` | Yes (build) | OAuth 2.0 client ID for the Meet scopes |
 | `GEMINI_PROJECT` | Yes (runtime) | GCP project ID billed for Gemini Live API usage |
 | `REGION` | No | Cloud Run / Vertex AI region (default: `us-central1`) |
-| `KORE_VOICE` | No | Gemini Live voice name (default: `Kore`) |
+| `KORE_VOICE` | No | Gemini Live voice name (default: `Charon`) |
 | `SYSTEM_PROMPT` | No | Override the agent's system instruction |
 
 ## Architecture notes
@@ -174,9 +174,9 @@ npm run dev
 
 | Voice | Character |
 |---|---|
+| Charon | Informative, neutral (Default) |
 | Kore | Firm, clear |
 | Puck | Upbeat, expressive |
 | Aoede | Breezy, easy |
 | Fenrir | Excitable |
-| Charon | Informative, neutral |
 | Zephyr | Light, positive |

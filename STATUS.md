@@ -8,7 +8,7 @@ _Last updated: 2026-05-08_
 | Component | Status | Notes |
 |---|---|---|
 | Meet Web Add-on (side panel) | ✅ Live | Deployed to Cloud Run |
-| Gemini Live voice (Kore) | ✅ Working | gemini-live-2.5-flash-native-audio via Vertex AI |
+| Gemini Live voice (Charon) | ✅ Working | gemini-live-2.5-flash-native-audio via Vertex AI |
 | Audio in from Meet participants | ✅ Working | Hidden audio element fix (Opus decoder activation) |
 | Audio playback in side panel | ✅ Working | Both AudioContexts created before any `await` |
 | PCM batching (100ms) | ✅ Working | Prevents Gemini Live RPM quota breach |

@@ -93,13 +93,15 @@
       padding: 20px;
       position: relative;
     }
-    #diagram-container svg {
+    #diagram-container img {
       width: 100%;
       height: 100%;
       display: block;
+      object-fit: contain;
       background: #fff;
       border-radius: 12px;
       padding: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     }
 
     /* Internal Placeholder (for listening state) */
@@ -280,20 +282,13 @@
         if (!vResp.ok) return;
         const { version } = await vResp.json();
         if (version > knownVersion) {
-          const sResp = await fetch(`/api/diagram/${diagramId}.svg`);
-          if (!sResp.ok) return;
-          const svg = await sResp.text();
           const container = document.getElementById('diagram-container');
-          container.innerHTML = svg;
-          const svgEl = container.querySelector('svg');
-          if (svgEl) {
-            svgEl.removeAttribute('width');
-            svgEl.removeAttribute('height');
-            svgEl.style.width = '100%';
-            svgEl.style.height = '100%';
-          }
+          // Use PNG instead of SVG for better performance and consistency
+          const imgUrl = `/api/diagram/${diagramId}.png?v=${version}`;
+          container.innerHTML = `<img src="${imgUrl}" alt="Architecture Diagram">`;
+          
           knownVersion = version;
-          console.log('[stage] Diagram updated to v' + version);
+          console.log('[stage] Diagram updated to v' + version + ' (PNG)');
         }
       } catch (e) {
         console.warn('[stage] pollDiagram error:', e);
