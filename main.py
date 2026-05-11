@@ -59,10 +59,11 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "ALLOWALL"
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
-            "default-src * 'unsafe-inline' 'unsafe-eval'; "
-            "script-src * 'unsafe-inline' 'unsafe-eval'; "
-            "connect-src * 'unsafe-inline'; "
-            "img-src * data: blob: 'unsafe-inline';"
+            "default-src 'self' https://*.google.com https://*.googleusercontent.com; "
+            "script-src 'self' https://*.google.com https://accounts.google.com 'unsafe-inline' 'unsafe-eval'; "
+            "connect-src 'self' https://*.google.com wss://*.run.app ws://localhost:* https://*.googleapis.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' data: blob: https://*.googleusercontent.com https://*.google.com;"
         )
         return response
 
@@ -624,7 +625,7 @@ async def validate_google_token(token: str) -> bool:
                 params={"access_token": token}
             )
             if resp.status_code != 200:
-                print(f"[auth] token validation failed: {resp.text}", flush=True)
+                print(f"[auth] token validation failed: {resp.status_code}", flush=True)
                 return False
             
             info = resp.json()
