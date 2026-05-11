@@ -411,7 +411,7 @@ Then test by:
 
 - The `d2` binary tar structure changed between versions. For v0.7.1, the binary is at `d2-v0.7.1-linux-amd64/bin/d2` inside the tarball. The `--strip-components=2` and path `d2-v0.7.1-linux-amd64/bin/d2` in the tar extract command must match exactly. Verify with: `tar -tzf d2-v0.7.1-linux-amd64.tar.gz | grep bin/d2`
 - `diagram_stage.html` uses `cloudProjectNumber: '649226456677'` (the Marketplace project, NOT the Cloud Run project `633006702698`).
-- The `/api/diagram` and `/api/diagram/{id}.svg` endpoints must be registered **before** the static files mount (`app.mount("/", StaticFiles(...))`) otherwise FastAPI won't route to them.
+- The `/api/diagram` and `/api/diagram/{id}.png` endpoints must be registered **before** the static files mount (`app.mount("/", StaticFiles(...))`) otherwise FastAPI won't route to them.
 - `_diagram_store` is in-memory — diagrams are lost on Cloud Run instance restart. Fine for demo; not persistent.
 - The Gemini call in `generate_diagram()` uses `asyncio.to_thread()` to avoid blocking the event loop since the `google-genai` SDK's non-Live calls are synchronous.
 - `generate_diagram` uses `genai.Client` directly (not the Live client) — same `PROJECT_ID` and `REGION` config applies.

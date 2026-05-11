@@ -275,12 +275,17 @@
       existing.element.querySelector('.content').textContent = text;
     }
 
-    async function pollDiagram() {
+    async function pollDiagram(pushedVersion = null) {
       if (currentMode !== 'diagram' || !diagramId) return;
       try {
-        const vResp = await fetch(`/api/diagram/${diagramId}/version`);
-        if (!vResp.ok) return;
-        const { version } = await vResp.json();
+        let version = pushedVersion;
+        if (!version) {
+          const vResp = await fetch(`/api/diagram/${diagramId}/version`);
+          if (!vResp.ok) return;
+          const data = await vResp.json();
+          version = data.version;
+        }
+
         if (version > knownVersion) {
           const container = document.getElementById('diagram-container');
           // Use PNG instead of SVG for better performance and consistency
@@ -319,7 +324,7 @@
               document.getElementById('doc-link').href = msg.url;
               document.getElementById('doc-title').textContent = msg.label;
             } else if (msg.mode === 'diagram') {
-              pollDiagram();
+              pollDiagram(msg.version);
             }
           }
         } catch (err) {}
@@ -365,7 +370,7 @@
                 document.getElementById('doc-link').href = msg.url;
                 document.getElementById('doc-title').textContent = msg.label;
               } else if (msg.mode === 'diagram') {
-                pollDiagram();
+                pollDiagram(msg.version);
               }
             }
           } catch (e) {}

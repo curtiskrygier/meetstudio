@@ -941,6 +941,15 @@ async def api_diagram(payload: dict = Body(...)):
             drive_file_id = await save_diagram_to_drive(svg_bytes, title, space_id, access_token, meeting_name=meeting_name)
             drive_folder_id = await get_or_create_meeting_folder(space_id, access_token, meeting_name=meeting_name)
 
+        # Broadcast update immediately to all Main Stage listeners (Push vs Poll optimization)
+        if space_id:
+            await broadcast_to_stage(space_id, {
+                "type": "view_change",
+                "mode": "diagram",
+                "diag_id": diagram_id,
+                "version": _diagram_version.get(diagram_id, 1)
+            })
+
         return {
             "id": diagram_id, 
             "title": title, 
@@ -983,13 +992,6 @@ async def save_diagram_endpoint(diagram_id: str, payload: dict = Body(...)):
 
     file_id = await save_diagram_to_drive(svg, title, space_id, access_token)
     return {"ok": True, "title": title, "file_id": file_id}
-
-@app.get("/api/diagram/{diagram_id}.svg")
-async def get_diagram_svg(diagram_id: str):
-    svg = _diagram_store.get(diagram_id)
-    if not svg:
-        return FastAPIResponse(status_code=404, content="Not found")
-    return FastAPIResponse(content=svg, media_type="image/svg+xml")
 
 
 @app.get("/api/diagram/{diagram_id}.png")

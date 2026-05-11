@@ -61,12 +61,13 @@
       padding: 24px;
       overflow: auto;
     }
-    .diagram-wrap svg {
+    .diagram-wrap img {
       max-width: 100%;
       max-height: 100%;
       border-radius: 12px;
       background: #fff;
       padding: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     }
     .placeholder {
       display: flex;
@@ -200,18 +201,10 @@
         </div>`;
     }
 
-    function renderSvg(svg) {
+    function renderPng(version) {
       const wrap = document.getElementById('wrap');
-      wrap.innerHTML = svg;
-      const svgEl = wrap.querySelector('svg');
-      if (svgEl) {
-        svgEl.removeAttribute('width');
-        svgEl.removeAttribute('height');
-        svgEl.style.maxWidth = '100%';
-        svgEl.style.maxHeight = 'calc(100vh - 80px)';
-      }
+      wrap.innerHTML = `<img src="/api/diagram/${diagramId}.png?v=${version}" alt="Architecture Diagram">`;
       svgLoaded = true;
-      document.getElementById('save-btn').disabled = false;
     }
 
     async function loadDiagram() {
@@ -220,14 +213,15 @@
         return false;
       }
       try {
-        const resp = await fetch(`/api/diagram/${diagramId}.svg`);
-        if (resp.status === 404) {
-          // Not yet generated — keep the listening placeholder
-          if (!svgLoaded) showPlaceholder();
-          return false;
+        const vResp = await fetch(`/api/diagram/${diagramId}/version`);
+        if (!vResp.ok) return false;
+        const { version } = await vResp.json();
+        if (version === 0) {
+           if (!svgLoaded) showPlaceholder();
+           return false;
         }
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        renderSvg(await resp.text());
+        renderPng(version);
+        knownVersion = version;
         return true;
       } catch (e) {
         if (!svgLoaded) showPlaceholder();
@@ -244,7 +238,7 @@
         if (version > knownVersion) {
           if (!svgLoaded) showGenerating();
           knownVersion = version;
-          await loadDiagram();
+          renderPng(version);
         }
       } catch (_) {}
     }
@@ -252,7 +246,6 @@
 
     // Initial load then poll for diagram updates every 8 seconds
     loadDiagram().then(ok => {
-      if (ok) knownVersion = 1;
       setInterval(pollVersion, 8000);
     });
 
