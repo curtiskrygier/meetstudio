@@ -40,19 +40,26 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     # PREPEND STYLE WRAPPER (Overrides anything the model produced)
     classes = "classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud};app:{shape:rectangle}}\n"
     style_header = "direction: right\n"
+    global_style = "style: {\n  font-size: 14\n  stroke-width: 2\n}\n"
     d2_args = ["d2", "--bundle"]
 
     if style == "blueprint":
+        # Professional architectural blueprint
         d2_args.extend(["-l", "elk", "-t", "200"])
+        style_header += global_style
     elif style == "sketch":
+        # Creative whiteboard sketch
         style_header = "direction: down\n"
+        style_header += global_style
         d2_args.extend(["-l", "dagre", "-t", "100", "--sketch"])
     elif style == "google":
+        # Google-branded 'Corporate' aesthetic
         d2_args.extend(["-l", "elk", "-t", "200"])
-        style_header += "style: {\n  stroke: \"#4285F4\"\n  stroke-width: 2\n}\n"
+        style_header += "style: {\n  font-size: 14\n  stroke: \"#4285F4\"\n  stroke-width: 2\n}\n"
     else: # cyber (default)
+        # High-tech 'Dark Flow' aesthetic
         d2_args.extend(["-l", "elk", "-t", "200"])
-        style_header += "style: {\n  stroke: \"#00f2ff\"\n  fill: \"#0b0e14\"\n  stroke-width: 2\n}\n"
+        style_header += "style: {\n  font-size: 14\n  stroke: \"#00f2ff\"\n  fill: \"#0b0e14\"\n  stroke-width: 2\n}\n"
     
     # Remove any existing vars, direction, or theme from model to avoid conflicts
     d2_code = re.sub(r'^(direction|vars|style|classes|theme).*?(\n\n|\n[a-z])', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
