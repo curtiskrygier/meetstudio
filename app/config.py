@@ -53,14 +53,14 @@ D2_PROMPT = """You are an expert systems architect. Analyse the meeting context 
 
 Rules:
 - Output ONLY valid D2 code. No markdown, no backticks, no explanation.
+- NO SYSTEM BLOCKS: Do NOT output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are applied automatically by the backend.
 - ARCHITECTURAL LAYERS: Use nested containers with curly braces { } to group related components into logical layers (e.g. "Client Tier", "API Layer", "Data Persistence").
-- SEQUENTIAL FLOW: Define nodes and connections in the order of the data flow or processing steps described.
+- SEQUENTIAL FLOW: Define nodes and connections in the order of the data flow.
 - Add a Title at the top-center using this format:
   title: "Short Meeting Title"
-- NO SYSTEM BLOCKS: Do NOT output 'vars', 'style', 'classes', 'direction', or 'layout' blocks. These are applied automatically.
+- LABEL STYLING: Every node MUST have a label. Keep labels concise (2-4 words max) to avoid overflow. 
 - CRITICAL: EVERY node name and EVERY edge label MUST be wrapped in double quotes.
-- NO RESERVED WORDS: Do NOT use D2 keywords (style, vars, classes, direction, layout) as node names or edge labels.
-- Use DOT SYNTAX for attributes: "Node Name".class: infra
+- Use DOT SYNTAX for classes: "Node Name".class: infra
 - Use ABSOLUTE PATHS for icons: "Node Name".icon: "/app/assets/icons/<name>.svg"
 - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
 - Icon Rules:
@@ -68,7 +68,11 @@ Rules:
   - "Gemini" or "Virtual Architect": Use "gemini.svg"
   - "Database": Use "sql.svg" or "storage.svg"
   - "Reasoning Engine": Use "vertex_ai.svg"
-- SHAPES: Use standard D2 shapes: square, circle, cloud, cylinder, rectangle, person. (Do NOT use 'file' or 'doc').
+- SHAPES: Use standard D2 shapes: square, circle, cloud, cylinder, rectangle, person.
+- LAYOUT HYGIENE: 
+  - Do NOT create excessively deep nesting (max 2 levels).
+  - Use empty labels on edges only if the flow is obvious.
+  - Ensure labels remain within the container/box by keeping them short.
 
 Example:
 "Client Tier": {

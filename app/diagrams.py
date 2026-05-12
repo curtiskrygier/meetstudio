@@ -39,33 +39,20 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     
     # PREPEND STYLE WRAPPER (Overrides anything the model produced)
     classes = "classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud};app:{shape:rectangle}}\n"
-    style_header = ""
+    style_header = "direction: right\n"
+    d2_args = ["d2", "--bundle"]
+
     if style == "blueprint":
-        style_header = (
-            "direction: right\n"
-            "vars: { d2-config: { layout-engine: elk; sketch: false } }\n"
-            "theme: 200\n"
-        )
+        d2_args.extend(["-l", "elk", "-t", "200"])
     elif style == "sketch":
-        style_header = (
-            "direction: down\n"
-            "vars: { d2-config: { layout-engine: dagre; sketch: true } }\n"
-            "theme: 100\n"
-        )
+        style_header = "direction: down\n"
+        d2_args.extend(["-l", "dagre", "-t", "100", "--sketch"])
     elif style == "google":
-        style_header = (
-            "direction: right\n"
-            "vars: { d2-config: { layout-engine: elk; sketch: false } }\n"
-            "theme: 200\n"
-            "style: {\n  stroke: \"#4285F4\"\n  stroke-width: 2\n}\n"
-        )
+        d2_args.extend(["-l", "elk", "-t", "200"])
+        style_header += "style: {\n  stroke: \"#4285F4\"\n  stroke-width: 2\n}\n"
     else: # cyber (default)
-        style_header = (
-            "direction: right\n"
-            "vars: { d2-config: { layout-engine: elk; sketch: false } }\n"
-            "theme: 200\n"
-            "style: {\n  stroke: \"#00f2ff\"\n  fill: \"#0b0e14\"\n  stroke-width: 2\n}\n"
-        )
+        d2_args.extend(["-l", "elk", "-t", "200"])
+        style_header += "style: {\n  stroke: \"#00f2ff\"\n  fill: \"#0b0e14\"\n  stroke-width: 2\n}\n"
     
     # Remove any existing vars, direction, or theme from model to avoid conflicts
     d2_code = re.sub(r'^(direction|vars|style|classes|theme).*?(\n\n|\n[a-z])', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
@@ -84,8 +71,9 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
         
         try:
             # We MUST use --bundle to include icons
+            # Args are built based on the selected style
             process = await asyncio.create_subprocess_exec(
-                "d2", "--bundle", d2_path, svg_path,
+                *d2_args, d2_path, svg_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
