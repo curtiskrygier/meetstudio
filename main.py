@@ -27,7 +27,7 @@ from app.drive import (
     get_calendar_meeting_name, get_or_create_meeting_folder,
     save_diagram_to_drive, fetch_meeting_chat, save_doc_shortcut_to_drive
 )
-from app.diagrams import generate_diagram
+from app.diagrams import generate_diagram, render_d2
 
 from google.genai import types
 
@@ -311,6 +311,14 @@ async def get_png(diagram_id: str):
     if not svg: return FastAPIResponse(status_code=404)
     png = await asyncio.get_event_loop().run_in_executor(None, svg_to_png, svg)
     return FastAPIResponse(content=png, media_type="image/png")
+
+@app.post("/api/render")
+async def api_render_d2(payload: dict):
+    d2_code = payload.get("d2", "")
+    style = payload.get("style", "cyber")
+    if not d2_code: return FastAPIResponse(status_code=400)
+    svg = await render_d2(d2_code, style=style)
+    return FastAPIResponse(content=svg, media_type="image/svg+xml")
 
 @app.post("/api/transcript/export")
 async def export_transcript(payload: dict = Body(...)):
