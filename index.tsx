@@ -353,6 +353,17 @@ export class GdmArchitectAgent extends LitElement {
 
   private async initializeAddon() {
     try {
+      // Check for OAuth token in URL fragment (Redirect Flow)
+      if (window.location.hash) {
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const token = params.get('access_token');
+        if (token) {
+          this.accessToken = token;
+          window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+          console.log('[concierge] Auth token restored from redirect');
+        }
+      }
+
       const session = await meet.addon.createAddonSession({
         cloudProjectNumber: CLOUD_PROJECT_NUMBER,
       });
@@ -374,43 +385,42 @@ export class GdmArchitectAgent extends LitElement {
       });
 
       this.status = this.accessToken ? 'Authenticated — click Connect' : 'Ready — click Connect to start';
+      
+      // Auto-connect if we have a token (returned from redirect)
+      if (this.accessToken) {
+        this.connect();
+      }
+
     } catch (e: any) {
       this.error = `Add-on init failed: ${e.message || e}`;
     }
   }
 
   private requestOAuthToken(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const google = (window as any).google;
-      if (!google) { reject(new Error('Google Identity Services not loaded')); return; }
-      
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: [
-          'https://www.googleapis.com/auth/meetings.space.created',
-          'https://www.googleapis.com/auth/meetings.conference.media.readonly',
-          'https://www.googleapis.com/auth/meetings.space.readonly',
-          'https://www.googleapis.com/auth/chat.messages.readonly',
-          'https://www.googleapis.com/auth/drive.file',
-          'https://www.googleapis.com/auth/calendar.readonly',
-          'openid',
-          'email',
-        ].join(' '),
-        callback: (tokenResponse: any) => {
-          if (tokenResponse.error) {
-            reject(new Error(tokenResponse.error_description || tokenResponse.error));
-            return;
-          }
-          this.accessToken = tokenResponse.access_token;
-          resolve();
-        },
-        error_callback: (err: any) => {
-          reject(new Error(err.message || 'Authentication failed'));
-        },
-      });
-      
-      client.requestAccessToken({ prompt: 'consent' });
-    });
+    const SCOPES = [
+      'https://www.googleapis.com/auth/meetings.space.created',
+      'https://www.googleapis.com/auth/meetings.conference.media.readonly',
+      'https://www.googleapis.com/auth/meetings.space.readonly',
+      'https://www.googleapis.com/auth/chat.messages.readonly',
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'openid',
+      'email',
+    ].join(' ');
+
+    // Static project-number URL for the redirect
+    const redirectUri = 'https://meet-live-concierge-649226456677.us-central1.run.app/';
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+      `client_id=${encodeURIComponent(CLIENT_ID)}&` +
+      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+      `response_type=token&` +
+      `scope=${encodeURIComponent(SCOPES)}&` +
+      `prompt=select_account`;
+
+    console.log('[concierge] Redirecting to OAuth:', redirectUri);
+    window.location.replace(authUrl);
+    
+    return new Promise(() => {}); // Page will redirect
   }
 
   private connectWebSocket() {
