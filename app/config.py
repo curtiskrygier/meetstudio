@@ -61,7 +61,7 @@ Only include components, actors, and interactions that were EXPLICITLY discussed
 Rules:
 - Output ONLY valid D2 code. No markdown, no backticks, no explanation.
 - NO SYSTEM BLOCKS: Never output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are managed by the system.
-- 16:9 LAYOUT: Design for a wide horizontal flow. Use three horizontal tiers: [Ingestion/Source] -> [AI Reasoning] -> [Storage/Output].
+- 16:9 LAYOUT: Design for a wide horizontal flow. Use three horizontal tiers: [Ingestion/Source] -> [Processing] -> [Storage/Output].
 - DATA FLOW: Use sequence numbers (1), (2), (3)... as prefixes on ALL edge labels.
 - MINIMALIST NODES: Keep node labels to 1-3 keywords max. Ensure labels stay within boxes.
 - ICONS: Assign icons using absolute paths: "Node Name".icon: "/app/assets/icons/<name>.svg"

@@ -164,29 +164,43 @@
     }
 
     .turn {
-      padding: 10px 20px;
-      border-radius: 16px;
-      background: rgba(12, 13, 16, 0.75);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 12px 24px;
+      border-radius: 12px;
+      background: rgba(15, 15, 20, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(0, 242, 255, 0.3);
       color: #fff;
       text-align: center;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-      transition: all var(--transition-duration) var(--transition-timing);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
       max-width: 100%;
       word-wrap: break-word;
-      opacity: 0;
-      transform: translateY(15px) scale(0.98);
+      animation: slideUp 0.3s ease-out forwards;
     }
 
-    .turn.active { font-size: var(--active-font-size); font-weight: 500; opacity: 1; transform: translateY(0) scale(1); }
-    .turn.agent { border-color: rgba(155, 109, 255, 0.4); background: rgba(26, 21, 44, 0.8); }
-    .turn.prev-1 { font-size: var(--prev-font-size); opacity: 0.6; transform: translateY(-8px) scale(0.88); }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .turn.active { font-size: var(--active-font-size); font-weight: 500; }
+    .turn.agent { border-color: rgba(0, 242, 255, 0.5); }
+    .turn.prev-1 { font-size: var(--prev-font-size); opacity: 0.6; transform: scale(0.92); animation: none; }
     .turn.prev-2, .turn.old { display: none !important; }
 
-    .role-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 2px; opacity: 0.5; display: block; }
-    .agent .role-label { color: #c5a9ff; opacity: 0.8; }
+    .role-label { 
+      font-size: 11px; 
+      text-transform: uppercase; 
+      letter-spacing: 0.12em; 
+      margin-bottom: 4px; 
+      display: block; 
+      color: #00f2ff;
+      font-weight: 700;
+    }
+    
+    .content {
+      text-shadow: 0 0 8px rgba(0, 242, 255, 0.6);
+    }
 
     .hidden { display: none !important; }
   </style>
