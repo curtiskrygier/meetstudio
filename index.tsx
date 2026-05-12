@@ -370,7 +370,7 @@ export class GdmArchitectAgent extends LitElement {
       this.sidePanelClient.on('frameToFrameMessage', (arg: any) => {
         try {
           const msg = JSON.parse(arg.payload);
-          if (msg.type === 'broadcast_view') {
+          if (msg.type === 'view_change') {
             if (msg.mode === 'doc') {
               this.openInMainStage(msg.url, msg.label, msg.content);
             }
@@ -747,7 +747,7 @@ export class GdmArchitectAgent extends LitElement {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: 'diagram_mode', active: false }));
         // Tell everyone to clear the stage
-        this.ws.send(JSON.stringify({ type: 'broadcast_view', mode: 'placeholder' }));
+        this.ws.send(JSON.stringify({ type: 'view_change', mode: 'placeholder' }));
       }
       this.status = 'Assistant connected — listening';
     } else {
@@ -785,7 +785,7 @@ export class GdmArchitectAgent extends LitElement {
           // Tell everyone's stage to switch to diagram view (listening state)
           if (this.ws?.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
-              type: 'broadcast_view',
+              type: 'view_change',
               mode: 'diagram',
               diag_id: this.diagramSessionId
             }));
@@ -815,7 +815,7 @@ export class GdmArchitectAgent extends LitElement {
         // Tell everyone's stage to switch to doc view
         if (this.ws?.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({
-            type: 'broadcast_view',
+            type: 'view_change',
             mode: 'doc',
             url,
             label,
@@ -990,7 +990,7 @@ export class GdmArchitectAgent extends LitElement {
     // Broadcast reset immediately
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
-        type: 'broadcast_view',
+        type: 'view_change',
         mode: 'diagram',
         diag_id: this.diagramSessionId
       }));
@@ -1021,7 +1021,7 @@ export class GdmArchitectAgent extends LitElement {
     this.lastDiagramFileId = '';
     
     const broadcastMsg = {
-      type: 'broadcast_view',
+      type: 'view_change',
       mode: 'diagram',
       diag_id: this.diagramSessionId
     };

@@ -169,7 +169,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             print(f"[ws] init {workspace_user[0]}", flush=True)
                         elif data.get("type") == "diagram_mode":
                             diagram_mode[0] = bool(data.get("active", False))
-                        elif data.get("type") == "broadcast_view":
+                        elif data.get("type") == "view_change":
                             await broadcast_to_stage(session_space[0], data)
             except Exception: stop_event.set()
 
