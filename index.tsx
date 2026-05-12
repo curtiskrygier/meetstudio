@@ -352,7 +352,7 @@ export class GdmArchitectAgent extends LitElement {
   private unloadHandler = () => { this.disconnect(); };
 
   firstUpdated() {
-    console.log('[concierge] build v17 — backend transcription, shared drive support');
+    console.log('[concierge] build v18.0 — modular backend, layout switcher, doc previews');
     this.initializeAddon();
   }
 
@@ -1068,7 +1068,30 @@ export class GdmArchitectAgent extends LitElement {
       </div>
     ` : html``;
 
-    if (!this.initialized || (!this.connected && !this.connecting)) {
+    if (!this.initialized) {
+      return html`
+        <div class="topbar">
+          <div class="brand">
+            <div class="brand-mark">${GEMINI_LOGO}</div>
+            <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
+          </div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
+        </div>
+        <div class="body">
+          <div class="hero" style="padding:40px 18px">
+            <div class="orb-wrap">
+              <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
+              <div class="orb-ring"></div><div class="orb"></div>
+            </div>
+            <div class="status-pill"><div class="status-dot"></div>Starting…</div>
+            <div class="hero-title gem">Gemini Agent Architect</div>
+            <div class="hero-sub">Initialising Google Meet Add-on SDK…</div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (!this.connected && !this.connecting) {
       this.setAttribute('data-state', 'disconnected');
       return html`
         <div class="topbar">
@@ -1076,10 +1099,10 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
-          <div style="font-size:9px;color:var(--fg-4)">v17</div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
         </div>
         <div class="body">
-          <div class="hero">
+          <div class="hero" style="padding:40px 18px 24px">
             <div class="orb-wrap">
               <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
               <div class="orb-ring"></div><div class="orb"></div>
@@ -1098,7 +1121,7 @@ export class GdmArchitectAgent extends LitElement {
                 Sign in with Google
               </button>
             ` : html`
-              <button class="cta" @click=${() => this.connect()} ?disabled=${!this.initialized}>
+              <button class="cta" @click=${() => this.connect()}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
                 Connect to Meeting
               </button>
@@ -1127,7 +1150,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
-          <div style="font-size:9px;color:var(--fg-4)">v17</div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
         </div>
         <div class="body">
           <div class="hero">
@@ -1165,7 +1188,7 @@ export class GdmArchitectAgent extends LitElement {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             </button>
           ` : ''}
-          <div style="font-size:9px;color:var(--fg-4)">v17</div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
         </div>
       </div>
       <div class="body">
