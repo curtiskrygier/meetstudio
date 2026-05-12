@@ -1,5 +1,6 @@
 import { LitElement, css, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { meet } from '@googleworkspace/meet-addons';
 import { MeetMediaApiClientImpl } from './internal/meetmediaapiclient_impl';
 import { MeetConnectionState } from './types/enums';
@@ -13,6 +14,7 @@ import './internal/components/gdm_transcript_view';
 import './internal/components/gdm_actions_view';
 import './internal/components/gdm_controls_view';
 import './internal/components/gdm_status_view';
+import './internal/components/gdm_doc_view';
 
 import { mainStyles } from './internal/styles';
 
@@ -767,6 +769,8 @@ export class GdmArchitectAgent extends LitElement {
         return html`<gdm-controls-view .audioEnabled=${comp.props.audioEnabled} .videoEnabled=${comp.props.videoEnabled} .diagramMode=${comp.props.diagramMode} .transcriptMode=${comp.props.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()}></gdm-controls-view>`;
       case 'gdm-actions-view':
         return html`<gdm-actions-view .actions=${comp.props.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`;
+      case 'gdm-doc-view':
+        return html`<gdm-doc-view .title=${comp.props.title} .htmlContent=${comp.props.htmlContent}></gdm-doc-view>`;
       default:
         return html``;
     }

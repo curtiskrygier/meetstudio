@@ -14,7 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 import httpx
 import traceback
-
+import markdown
 import logging
 
 # Basic logging setup to replace prints
@@ -175,7 +175,16 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         "properties": {
                             "diagram_mode": {"type": "boolean", "description": "Set to true if generating or discussing a diagram."},
                             "main_stage_view": {"type": "string", "enum": ["diagram", "doc", "placeholder"], "description": "What to show on the main stage."},
-                            "status_text": {"type": "string", "description": "A short status message to display to the user in the side panel."}
+                            "status_text": {"type": "string", "description": "A short status message to display to the user in the side panel."},
+                            "doc_data": {
+                                "type": "OBJECT",
+                                "description": "If the user asks to read or display a specific document, provide the title and its raw markdown content here.",
+                                "properties": {
+                                    "title": {"type": "string"},
+                                    "content": {"type": "string", "description": "The raw Markdown content of the document."}
+                                },
+                                "required": ["title", "content"]
+                            }
                         }
                     }
                 ),
@@ -196,41 +205,46 @@ async def live_session(websocket: WebSocket, meeting_id: str):
         "videoEnabled": False,
         "diagramMode": False,
         "transcriptMode": False,
-        "actionLinks": []
+        "actionLinks": [],
+        "extra_components": []
     }
 
     async def broadcast_a2ui():
         """Generates the A2UI payload and sends it to the frontend."""
+        components = [
+            {
+                "id": "hero_status",
+                "element": "gdm-status-view",
+                "props": {
+                    "state": ui_state["status_state"],
+                    "status": ui_state["status_text"],
+                    "authenticated": ui_state["authenticated"]
+                }
+            },
+            {
+                "id": "control_bar",
+                "element": "gdm-controls-view",
+                "props": {
+                    "audioEnabled": ui_state["audioEnabled"],
+                    "videoEnabled": ui_state["videoEnabled"],
+                    "diagramMode": ui_state["diagramMode"],
+                    "transcriptMode": ui_state["transcriptMode"]
+                }
+            },
+            {
+                "id": "workspace_links",
+                "element": "gdm-actions-view",
+                "props": {
+                    "actions": ui_state["actionLinks"]
+                }
+            }
+        ]
+        # Append server-injected extra components
+        components.extend(ui_state.get("extra_components", []))
+
         payload = {
             "type": "A2UI_STATE",
-            "components": [
-                {
-                    "id": "hero_status",
-                    "element": "gdm-status-view",
-                    "props": {
-                        "state": ui_state["status_state"],
-                        "status": ui_state["status_text"],
-                        "authenticated": ui_state["authenticated"]
-                    }
-                },
-                {
-                    "id": "control_bar",
-                    "element": "gdm-controls-view",
-                    "props": {
-                        "audioEnabled": ui_state["audioEnabled"],
-                        "videoEnabled": ui_state["videoEnabled"],
-                        "diagramMode": ui_state["diagramMode"],
-                        "transcriptMode": ui_state["transcriptMode"]
-                    }
-                },
-                {
-                    "id": "workspace_links",
-                    "element": "gdm-actions-view",
-                    "props": {
-                        "actions": ui_state["actionLinks"]
-                    }
-                }
-            ]
+            "components": components
         }
         try:
             await websocket.send_text(json.dumps(payload))
@@ -347,13 +361,37 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 if "status_text" in fc.args:
                                     ui_state["status_text"] = fc.args["status_text"]
                                 
+                                if "doc_data" in fc.args:
+                                    raw_md = fc.args["doc_data"]["content"]
+                                    # Convert Markdown to HTML on the server
+                                    html_content = markdown.markdown(raw_md, extensions=['extra'])
+                                    
+                                    # Use ui_state['actionLinks'] as the place for extra components or separate array
+                                    # Brief says: ui_state.setdefault("extra_components", [])
+                                    # But broadcast_a2ui doesn't have extra_components yet.
+                                    # I will update ui_state and broadcast_a2ui as well.
+                                    ui_state.setdefault("extra_components", [])
+                                    ui_state["extra_components"].append({
+                                        "id": f"doc_{uuid_lib.uuid4().hex[:6]}",
+                                        "element": "gdm-doc-view",
+                                        "props": {
+                                            "title": fc.args["doc_data"]["title"],
+                                            "htmlContent": html_content
+                                        }
+                                    })
+                                
                                 # 2. Broadcast Side Panel State
                                 await broadcast_a2ui()
                                 
                                 # 3. Broadcast Main Stage State
                                 stage_view = fc.args.get("main_stage_view")
                                 if stage_view:
-                                    await broadcast_to_stage(session_space[0], {"type": "view_change", "mode": stage_view})
+                                    # If it's a doc, we might need to send htmlContent to the stage too
+                                    msg = {"type": "view_change", "mode": stage_view}
+                                    if stage_view == "doc" and "doc_data" in fc.args:
+                                        msg["label"] = fc.args["doc_data"]["title"]
+                                        msg["htmlContent"] = markdown.markdown(fc.args["doc_data"]["content"], extensions=['extra'])
+                                    await broadcast_to_stage(session_space[0], msg)
                                     
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "UI updated successfully."}))
                             
