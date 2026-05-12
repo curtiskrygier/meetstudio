@@ -178,21 +178,25 @@ export class GdmArchitectAgent extends LitElement {
     .status-pill.disconnected { background: rgba(244,67,54,0.08); border-color: rgba(244,67,54,0.15); color: #f3a59f; }
     .status-pill.disconnected .status-dot { background: #f44336; opacity: 0.6; }
     @keyframes blink { 50% { opacity: 0.5; } }
-    .hero-title { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; margin: 2px 0 -2px; }
+    .hero-title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin: 4px 0 -2px; }
     .hero-title.gem { background: linear-gradient(135deg, var(--gem-1), var(--gem-2), var(--gem-3)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-    .hero-sub { font-size: 13px; color: var(--fg-3); line-height: 1.45; max-width: 280px; }
+    .hero-sub { font-size: 13.5px; color: var(--fg-3); line-height: 1.5; max-width: 260px; }
     kbd { display: inline-block; padding: 1px 6px; margin: 0 1px; font: 500 11px sans-serif; color: var(--fg-2); background: var(--bg-3); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; }
     /* CTA */
     .cta {
-      width: 100%; height: 44px; border: 0; cursor: pointer; border-radius: 12px;
+      width: 100%; height: 46px; border: 0; cursor: pointer; border-radius: 13px;
       background: linear-gradient(180deg, #4f8cff, #2c6df1); color: white;
-      font-size: 14px; font-weight: 600; letter-spacing: -0.005em;
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset, 0 8px 20px -8px rgba(44,109,241,0.6);
-      transition: transform 80ms;
+      font-size: 14.5px; font-weight: 600; letter-spacing: -0.005em;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      box-shadow: 0 4px 12px rgba(44,109,241,0.25);
+      transition: all 150ms;
     }
-    .cta:hover { transform: translateY(-1px); }
-    .cta svg { width: 16px; height: 16px; }
+    .cta:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(44,109,241,0.35); filter: brightness(1.05); }
+    .cta:active { transform: translateY(0); box-shadow: 0 2px 8px rgba(44,109,241,0.2); }
+    .cta:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+    .cta.google { background: white; color: #3c4043; border: 1px solid #dadce0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .cta.google:hover { background: #f8f9fa; border-color: #d2d4d7; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+    .cta svg { width: 18px; height: 18px; }
     /* Sections */
     .section { padding: 0 16px 14px; }
     .section + .section { padding-top: 4px; }
@@ -357,10 +361,13 @@ export class GdmArchitectAgent extends LitElement {
       if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
+        const stateMeetingId = params.get('state');
+        
         if (token) {
           this.accessToken = token;
+          if (stateMeetingId) this.meetingId = stateMeetingId;
           window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-          console.log('[concierge] Auth token restored from redirect');
+          console.log('[concierge] Auth token restored from redirect. meetingId:', this.meetingId);
         }
       }
 
@@ -369,7 +376,10 @@ export class GdmArchitectAgent extends LitElement {
       });
       this.sidePanelClient = await session.createSidePanelClient();
       const meetingInfo = await this.sidePanelClient.getMeetingInfo();
-      this.meetingId = meetingInfo.meetingId;
+      
+      // Prefer meeting ID from state if we just returned from redirect
+      if (!this.meetingId) this.meetingId = meetingInfo.meetingId;
+      
       this.isAddonInitialized = true;
       this.initialized = true;
 
@@ -415,6 +425,7 @@ export class GdmArchitectAgent extends LitElement {
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
       `response_type=token&` +
       `scope=${encodeURIComponent(SCOPES)}&` +
+      `state=${encodeURIComponent(this.meetingId)}&` +
       `prompt=select_account`;
 
     console.log('[concierge] Redirecting to OAuth:', redirectUri);
@@ -1064,7 +1075,7 @@ export class GdmArchitectAgent extends LitElement {
           <div style="font-size:9px;color:var(--fg-4)">v17</div>
         </div>
         <div class="body">
-          <div class="hero" style="padding:40px 18px 24px">
+          <div class="hero">
             <div class="orb-wrap">
               <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
               <div class="orb-ring"></div><div class="orb"></div>
@@ -1073,10 +1084,12 @@ export class GdmArchitectAgent extends LitElement {
             <div class="hero-title gem">Your AI Concierge</div>
             <div class="hero-sub">Voice-powered workspace assistant embedded in this meeting.</div>
           </div>
+
           ${this.error ? html`<div class="error-bar" style="margin-top:0">⚠ ${this.error}</div>` : ''}
+
           <div class="section" style="padding-top:0">
             ${!this.accessToken ? html`
-              <button class="cta" @click=${() => this.connect()} style="background:linear-gradient(135deg, #4285F4, #34a853)">
+              <button class="cta google" @click=${() => this.requestOAuthToken()}>
                 <svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:8px"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
                 Sign in with Google
               </button>
@@ -1087,7 +1100,9 @@ export class GdmArchitectAgent extends LitElement {
               </button>
             `}
           </div>
+
           ${actionCards}
+
           <div class="section">
             <div class="section-head"><span class="section-title">How it works</span></div>
             <div class="tips">
