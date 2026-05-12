@@ -43,19 +43,22 @@ export class GdmArchitectAgent extends LitElement {
   @state() error = '';
   @state() volume = 0;
   @state() transcript: Array<{id: string; role: string; text: string}> = [];
-  @state() status = 'Initialising...';
-  @state() trackCount = 0;
-  @state() audioEnabled = true;
-  @state() videoEnabled = false;
-  @state() wakeActive = false;
-  @state() actionLinks: Array<{url: string; label: string; content?: string}> = [];
-  @state() diagramMode = false;
-  @state() diagramming = false;
-  @state() diagramStyle: 'cyber' | 'blueprint' | 'sketch' | 'google' = 'sketch';
-  @state() diagramContext = '';
-  @state() transcriptMode = false;
+  @state() components: Array<{id: string; element: string; props: any}> = [];
   @state() lastTranscriptFileId = '';
   @state() lastDiagramFileId = '';
+  @state() diagramStyle: 'cyber' | 'blueprint' | 'sketch' | 'google' = 'sketch';
+  @state() diagramContext = '';
+  @state() diagramming = false;
+  @state() status = 'Initialising...';
+  @state() authenticated = false;
+
+  private audioEnabled = true;
+  private videoEnabled = false;
+  private diagramMode = false;
+  private transcriptMode = false;
+  private actionLinks: Array<{url: string; label: string; content?: string}> = [];
+  private trackCount = 0;
+  private wakeActive = false;
 
   private diagramInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -310,7 +313,33 @@ export class GdmArchitectAgent extends LitElement {
 
   private handleWebSocketMessage(msg: WebSocketMessage | ArrayBuffer) {
     if (msg instanceof ArrayBuffer) {
-      if (!this.diagramMode) this.audioService.playChunk(msg);
+      const diagramMode = this.components.find(c => c.id === 'control_bar')?.props.diagramMode;
+      if (!diagramMode) this.audioService.playChunk(msg);
+      return;
+    }
+
+    if (msg.type === 'A2UI_STATE') {
+      this.components = (msg as any).components;
+      // Extract status text for local status property (fallback)
+      const hero = this.components.find(c => c.id === 'hero_status');
+      if (hero) {
+        this.status = hero.props.status;
+        this.authenticated = hero.props.authenticated;
+      }
+      
+      const ctrl = this.components.find(c => c.id === 'control_bar');
+      if (ctrl) {
+        this.audioEnabled = ctrl.props.audioEnabled;
+        this.videoEnabled = ctrl.props.videoEnabled;
+        this.diagramMode = ctrl.props.diagramMode;
+        this.transcriptMode = ctrl.props.transcriptMode;
+      }
+
+      const links = this.components.find(c => c.id === 'workspace_links');
+      if (links) {
+        this.actionLinks = links.props.actions;
+      }
+
       return;
     }
 
@@ -376,7 +405,7 @@ export class GdmArchitectAgent extends LitElement {
     if (this.speechSilenceTimer) clearTimeout(this.speechSilenceTimer);
     if (this.diagramInterval) clearInterval(this.diagramInterval);
     
-    this.diagramMode = false;
+    this.components = [];
     this.wsService?.disconnect();
     this.audioService.disconnect();
     
@@ -730,6 +759,19 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
+  private renderComponent(comp: any) {
+    switch(comp.element) {
+      case 'gdm-status-view':
+        return html`<gdm-status-view .state=${comp.props.state} .status=${comp.props.status} .authenticated=${comp.props.authenticated}></gdm-status-view>`;
+      case 'gdm-controls-view':
+        return html`<gdm-controls-view .audioEnabled=${comp.props.audioEnabled} .videoEnabled=${comp.props.videoEnabled} .diagramMode=${comp.props.diagramMode} .transcriptMode=${comp.props.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()}></gdm-controls-view>`;
+      case 'gdm-actions-view':
+        return html`<gdm-actions-view .actions=${comp.props.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`;
+      default:
+        return html``;
+    }
+  }
+
   render() {
     const state = this.connecting ? 'connecting' : (this.connected ? (this.wakeActive ? 'wake' : 'listening') : 'disconnected');
 
@@ -751,14 +793,14 @@ export class GdmArchitectAgent extends LitElement {
       </div>
 
       <div class="body">
-        <gdm-status-view 
-          .state=${state} 
-          .status=${this.status} 
-          .error=${this.error}
-          .authenticated=${!!this.accessToken}>
-        </gdm-status-view>
-
         ${!this.connected && !this.connecting ? html`
+          <gdm-status-view 
+            .state=${state} 
+            .status=${this.status} 
+            .error=${this.error}
+            .authenticated=${!!this.accessToken}>
+          </gdm-status-view>
+          
           <div class="section" style="padding-top:0">
             ${!this.accessToken ? html`
               <button class="cta google" @click=${() => this.requestOAuthToken().catch(e => console.error('[concierge] click-auth error:', e))}>
@@ -772,9 +814,24 @@ export class GdmArchitectAgent extends LitElement {
               </button>
             `}
           </div>
+
+          <div class="section">
+            <div class="section-head"><span class="section-title">How it works</span></div>
+            <div class="tips">
+              <div class="tip"><div class="tip-num">1</div><span>Say <kbd>Hey Gemini</kbd> to activate, then speak your request</span></div>
+              <div class="tip"><div class="tip-num">2</div><span>Create docs, search the web live, or summarise the meeting</span></div>
+              <div class="tip"><div class="tip-num">3</div><span>New documents appear here and launch on the main stage for everyone</span></div>
+            </div>
+          </div>
         ` : ''}
 
         ${this.connecting ? html`
+          <gdm-status-view 
+            .state=${state} 
+            .status=${this.status} 
+            .error=${this.error}
+            .authenticated=${!!this.accessToken}>
+          </gdm-status-view>
           <div class="section">
             <div class="conn-progress"></div>
             <div class="checklist">
@@ -786,30 +843,9 @@ export class GdmArchitectAgent extends LitElement {
         ` : ''}
 
         ${this.connected ? html`
-          <div class="section">
-            <gdm-controls-view
-              .audioEnabled=${this.audioEnabled}
-              .videoEnabled=${this.videoEnabled}
-              .diagramMode=${this.diagramMode}
-              .transcriptMode=${this.transcriptMode}
-              @toggle-audio=${() => this.toggleAudio()}
-              @toggle-video=${() => this.toggleVideo()}
-              @toggle-diagram=${() => this.toggleDiagramMode()}
-              @toggle-transcript=${() => this.toggleTranscriptMode()}>
-            </gdm-controls-view>
-          </div>
+          ${this.components.map(comp => html`<div class="section">${this.renderComponent(comp)}</div>`)}
 
-          ${this.actionLinks.length > 0 ? html`
-            <div class="section">
-              <div class="section-head"><span class="section-title">Workspace Actions</span></div>
-              <gdm-actions-view 
-                .actions=${this.actionLinks}
-                @action-click=${(e: any) => this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}>
-              </gdm-actions-view>
-            </div>
-          ` : ''}
-
-          ${this.diagramMode ? html`
+          ${this.components.find(c => c.id === 'control_bar')?.props.diagramMode ? html`
             <div class="section">
               <div class="section-head"><span class="section-title">Diagram Visuals</span></div>
               <div class="layout-switcher">
@@ -853,17 +889,6 @@ export class GdmArchitectAgent extends LitElement {
               `}
             </div>
             <gdm-transcript-view .transcript=${this.transcript}></gdm-transcript-view>
-          </div>
-        ` : ''}
-
-        ${!this.connected && !this.connecting ? html`
-          <div class="section">
-            <div class="section-head"><span class="section-title">How it works</span></div>
-            <div class="tips">
-              <div class="tip"><div class="tip-num">1</div><span>Say <kbd>Hey Gemini</kbd> to activate, then speak your request</span></div>
-              <div class="tip"><div class="tip-num">2</div><span>Create docs, search the web live, or summarise the meeting</span></div>
-              <div class="tip"><div class="tip-num">3</div><span>New documents appear here and launch on the main stage for everyone</span></div>
-            </div>
           </div>
         ` : ''}
       </div>
