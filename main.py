@@ -164,8 +164,18 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         "required": ["url", "label"]
                     }
                 ),
-                types.FunctionDeclaration(name="activate_architect_mode", description="Turn on diagramming mode.", parameters={"type": "OBJECT", "properties": {}}),
-                types.FunctionDeclaration(name="deactivate_architect_mode", description="Turn off diagramming mode.", parameters={"type": "OBJECT", "properties": {}}),
+                types.FunctionDeclaration(
+                    name="update_interface",
+                    description="Update the user interface of the add-on side panel and the Meet Main Stage.",
+                    parameters={
+                        "type": "OBJECT",
+                        "properties": {
+                            "diagram_mode": {"type": "boolean", "description": "Set to true if generating or discussing a diagram."},
+                            "main_stage_view": {"type": "string", "enum": ["diagram", "doc", "placeholder"], "description": "What to show on the main stage."},
+                            "status_text": {"type": "string", "description": "A short status message to display to the user in the side panel."}
+                        }
+                    }
+                ),
                 types.FunctionDeclaration(name="fetch_url", description="Get content of a URL.", parameters={
                     "type": "OBJECT", "properties": {"url": {"type": "string"}}, "required": ["url"]
                 }),
@@ -327,23 +337,22 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 })
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "Presented."}))
                             
-                            elif fc.name == "activate_architect_mode":
-                                # A2UI STATE UPDATE
-                                ui_state["diagramMode"] = True
-                                ui_state["status_text"] = "Gemini Agent Architect — speak your architecture description"
+                            elif fc.name == "update_interface":
+                                # 1. Update Backend UI State
+                                if "diagram_mode" in fc.args:
+                                    ui_state["diagramMode"] = fc.args["diagram_mode"]
+                                if "status_text" in fc.args:
+                                    ui_state["status_text"] = fc.args["status_text"]
+                                
+                                # 2. Broadcast Side Panel State
                                 await broadcast_a2ui()
                                 
-                                await broadcast_to_stage(session_space[0], {"type": "view_change", "mode": "diagram"})
-                                responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
-                            
-                            elif fc.name == "deactivate_architect_mode":
-                                # A2UI STATE UPDATE
-                                ui_state["diagramMode"] = False
-                                ui_state["status_text"] = "Assistant connected — listening"
-                                await broadcast_a2ui()
-                                
-                                await broadcast_to_stage(session_space[0], {"type": "view_change", "mode": "placeholder"})
-                                responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
+                                # 3. Broadcast Main Stage State
+                                stage_view = fc.args.get("main_stage_view")
+                                if stage_view:
+                                    await broadcast_to_stage(session_space[0], {"type": "view_change", "mode": stage_view})
+                                    
+                                responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "UI updated successfully."}))
                             
                             elif fc.name == "fetch_url":
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": await fetch_url(fc.args.get("url", ""))}))

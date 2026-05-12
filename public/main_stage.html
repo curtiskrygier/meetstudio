@@ -49,8 +49,12 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      padding: 20px;
       width: 100%;
+      /* Force the container to respect a maximum 16:9 cinematic ratio to prevent vertical stretching */
+      aspect-ratio: 16 / 9;
+      max-height: calc(100vh - 48px - 140px); /* Account for topbar and transcript overlay */
+      margin: 0 auto;
+      background: #0c0d10;
     }
 
     /* Document View */
@@ -91,16 +95,16 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 0;
+      padding: 24px;
       position: relative;
     }
-    #diagram-container svg {
-      max-width: 100%;
-      max-height: 100%;
-      width: auto;
-      height: auto;
+    #diagram-container svg, #diagram-container img {
+      width: 100%;
+      height: 100%;
       display: block;
-      filter: drop-shadow(0 10px 40px rgba(0,0,0,0.5));
+      object-fit: contain; /* Ensures the diagram scales proportionally within the 16:9 bounds */
+      background: transparent;
+      border-radius: 12px;
     }
 
     /* Internal Placeholder (for listening state) */
