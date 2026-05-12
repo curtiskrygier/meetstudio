@@ -15,11 +15,20 @@ from starlette.requests import Request
 import httpx
 import traceback
 
+import logging
+
+# Basic logging setup to replace prints
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("concierge")
+
 # Modular imports
 from app.config import (
     PROJECT_ID, REGION, MODEL, VOICE, SYSTEM_PROMPT,
     gemini_client, diagram_store, diagram_version, diagram_title,
-    current_session, current_view, stage_listeners
+    current_session, current_view, stage_listeners, WORKSPACE_AGENT_ENGINE
 )
 from app.auth import validate_google_token
 from app.utils import fetch_url, svg_to_png
@@ -30,11 +39,6 @@ from app.drive import (
 from app.diagrams import generate_diagram, render_d2
 
 from google.genai import types
-
-WORKSPACE_AGENT_ENGINE = os.environ.get(
-    "WORKSPACE_AGENT_ENGINE",
-    "projects/828378723395/locations/us-central1/reasoningEngines/2432159852814925824",
-)
 
 @asynccontextmanager
 async def lifespan(app):
@@ -50,9 +54,9 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
             "default-src 'self' https://*.google.com; "
-            "script-src 'self' 'unsafe-inline' https://*.google.com https://*.gstatic.com; "
+            "script-src 'self' 'unsafe-inline' https://*.google.com https://*.gstatic.com https://*.googleapis.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "connect-src 'self' https://*.google.com wss://* ws://*; "
+            "connect-src 'self' https://*.google.com https://*.googleapis.com wss://* ws://* *; "
             "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gstatic.com; "
             "font-src 'self' https://fonts.gstatic.com;"
         )
@@ -325,7 +329,9 @@ async def api_render_d2(payload: dict):
     d2_code = payload.get("d2", "")
     style = payload.get("style", "cyber")
     if not d2_code: return FastAPIResponse(status_code=400)
-    svg = await render_d2(d2_code, style=style)
+    svg, err = await render_d2(d2_code, style=style)
+    if err:
+        return FastAPIResponse(content=err, status_code=400, media_type="text/plain")
     return FastAPIResponse(content=svg, media_type="image/svg+xml")
 
 @app.post("/api/transcript/export")

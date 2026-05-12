@@ -1,13 +1,15 @@
 import asyncio
 import os
 import re
-import subprocess
 import tempfile
 import uuid as uuid_lib
+import logging
 from google.genai import types
 from app.config import PROJECT_ID, REGION, DIAGRAM_MODEL, D2_PROMPT, diagram_store, diagram_version, diagram_title
 
-async def render_d2(d2_code: str, style: str = "cyber") -> bytes:
+logger = logging.getLogger("concierge")
+
+async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
     """Renders raw D2 code to SVG bytes using the local d2 binary and system style headers."""
     # SYSTEM BLOCK REMOVAL: Model occasionally outputs direction or vars even when forbidden
     d2_code = re.sub(r'^(direction|vars|style|classes|theme|layout):\s*.*$', '', d2_code, flags=re.MULTILINE | re.IGNORECASE)
@@ -48,34 +50,33 @@ async def render_d2(d2_code: str, style: str = "cyber") -> bytes:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15.0)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.communicate()
+                return b"", "D2 compilation timed out."
             
             if process.returncode != 0:
-                err_msg = stderr.decode()
-                print(f"[d2] error: {err_msg}", flush=True)
-                # Simple fallback
-                fallback_code = 'direction: right\n"User" -> "System": "Architecting..."'
-                with open(d2_path, "w") as f:
-                    f.write(fallback_code)
-                process = await asyncio.create_subprocess_exec(
-                    "d2", d2_path, svg_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await process.communicate()
+                err_msg = stderr.decode().strip()
+                return b"", err_msg
 
             if os.path.exists(svg_path):
                 with open(svg_path, "rb") as f:
-                    return f.read()
+                    return f.read(), ""
         except Exception as e:
-            print(f"[d2] render exception: {e}", flush=True)
-    return b""
+            return b"", str(e)
+            
+    return b"", "Unknown error"
 
 async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", access_token: str = "", meeting_name: str = "", session_id: str = "", style: str = "cyber") -> tuple[str, bytes, str]:
-    """Uses Vertex AI to generate D2 code from a meeting context, then renders to SVG."""
+    """Uses Vertex AI to generate D2 code from a meeting context, then renders to SVG with an auto-correction loop."""
     context_parts = []
-    if transcript: context_parts.append(f"## Voice Transcript\n{transcript[:6000]}")
-    if chat: context_parts.append(f"## Chat Messages\n{chat[:4000]}")
+    # Replace simple truncation with a more robust context window
+    # By taking the LAST N characters instead of the FIRST N, we capture the most recent context
+    # where the actual diagram request usually happens.
+    if transcript: context_parts.append(f"## Voice Transcript\n{transcript[-8000:]}")
+    if chat: context_parts.append(f"## Chat Messages\n{chat[-4000:]}")
     if meeting_name: context_parts.append(f"## Meeting Topic\n{meeting_name}")
 
     full_context = "\n\n".join(context_parts)
@@ -93,9 +94,29 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     match = re.search(r'```(?:d2)?\s*\n?(.*?)```', raw_text, re.DOTALL)
     d2_code = match.group(1).strip() if match else raw_text.strip()
     
-    print(f"[d2] generating style={style}...", flush=True)
-    svg_bytes = await render_d2(d2_code, style=style)
+    logger.info(f"Generating diagram (style={style})...")
+    svg_bytes, err = await render_d2(d2_code, style=style)
     
+    if err:
+        logger.warning(f"D2 render failed: {err}. Attempting auto-correction.")
+        retry_prompt = f"The D2 code you generated produced this error:\n{err}\n\nPlease correct the syntax and output ONLY the corrected D2 code."
+        
+        response = await gemini_client.aio.models.generate_content(
+            model=DIAGRAM_MODEL,
+            contents=[formatted_prompt, raw_text, retry_prompt],
+            config=types.GenerateContentConfig(temperature=0.1)
+        )
+        raw_text = response.text or ""
+        match = re.search(r'```(?:d2)?\s*\n?(.*?)```', raw_text, re.DOTALL)
+        d2_code = match.group(1).strip() if match else raw_text.strip()
+        svg_bytes, err = await render_d2(d2_code, style=style)
+        
+        if err:
+            logger.error(f"D2 auto-correction failed: {err}")
+            # Fallback
+            fallback_code = 'direction: right\n"Error" -> "Fallback": "Failed to parse architecture"'
+            svg_bytes, _ = await render_d2(fallback_code, style=style)
+
     # Extract title
     title_match = re.search(r'title:\s*"([^"]+)"', d2_code)
     title = title_match.group(1) if title_match else "Architecture Diagram"

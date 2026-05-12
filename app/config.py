@@ -6,10 +6,8 @@ PROJECT_ID = os.environ.get("GEMINI_PROJECT")
 REGION = os.environ.get("REGION", "us-central1")
 MODEL = "gemini-live-2.5-flash-native-audio"
 VOICE = os.environ.get("KORE_VOICE", "Charon")
-WORKSPACE_AGENT_ENGINE = os.environ.get(
-    "WORKSPACE_AGENT_ENGINE",
-    "projects/828378723395/locations/us-central1/reasoningEngines/2432159852814925824",
-)
+WORKSPACE_AGENT_ENGINE = os.environ.get("WORKSPACE_AGENT_ENGINE", "")
+
 CLIENT_ID = os.environ.get("CLIENT_ID")
 MARKETPLACE_CLIENT_ID = "649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com"
 
