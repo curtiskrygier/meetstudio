@@ -147,7 +147,7 @@ clasp deploy --description "v1"
 In the OAuth client `$CLIENT_ID`:
 - Go to: GCP Console → **APIs & Services → Credentials** → edit the client
 - Under **Authorised JavaScript origins** add:
-  - `${CLOUD_RUN_URL}` (e.g. `https://meet-live-concierge-633006702698.us-central1.run.app`)
+  - `${CLOUD_RUN_URL}` (e.g. `https://meet-live-concierge-649226456677.us-central1.run.app`)
   - `https://meet.google.com` (the parent frame that embeds the side panel)
 
 > No redirect URI is required — the add-on uses the GIS implicit/token flow, not a server-side callback.
