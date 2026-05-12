@@ -95,15 +95,16 @@ gcloud projects add-iam-policy-binding <GEMINI_PROJECT> \
 
 ```bash
 source .env
-gcloud run deploy meet-live-architect \
+gcloud run deploy meet-live-concierge \
   --source . \
   --region $REGION \
   --timeout=3600 \
   --session-affinity \
   --no-allow-unauthenticated \
   --set-build-env-vars="CLIENT_ID=${CLIENT_ID},CLOUD_PROJECT_NUMBER=${CLOUD_PROJECT_NUMBER}" \
-  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE},CLIENT_ID=${CLIENT_ID}" \
+  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE},CLIENT_ID=${CLIENT_ID},WORKSPACE_AGENT_ENGINE=${WORKSPACE_AGENT_ENGINE}" \
   --project=<YOUR_CLOUD_RUN_PROJECT>
+
 ```
 
 > **Security Note**: The backend now strictly validates all incoming OAuth access tokens against Google's `tokeninfo` endpoint and verifies the `aud` (audience) matches your `CLIENT_ID`. This prevents the service from being used as an open proxy for unauthorized tokens.
@@ -160,6 +161,7 @@ npm run dev
 | `GEMINI_PROJECT` | Yes (runtime) | GCP project ID billed for Gemini Live API usage |
 | `REGION` | No | Cloud Run / Vertex AI region (default: `us-central1`) |
 | `KORE_VOICE` | No | Gemini Live voice name (default: `Charon`) |
+| `WORKSPACE_AGENT_ENGINE` | No | Resource ID of the Vertex AI Reasoning Engine (e.g. `projects/.../reasoningEngines/...`) |
 | `SYSTEM_PROMPT` | No | Override the agent's system instruction |
 
 ## Architecture notes

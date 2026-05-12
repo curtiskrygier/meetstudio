@@ -49,11 +49,15 @@ To redeploy the current stable state:
 
 2. **Deploy to Cloud Run**:
    ```bash
+   # Set the reasoning engine ID
+   ENGINE="projects/828378723395/locations/us-central1/reasoningEngines/2432159852814925824"
+
    gcloud run deploy meet-live-concierge \
      --source . \
      --region us-central1 \
      --project agent-archi \
-     --allow-unauthenticated
+     --allow-unauthenticated \
+     --set-env-vars="GEMINI_PROJECT=agent-archi,CLIENT_ID=649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com,WORKSPACE_AGENT_ENGINE=$ENGINE"
    ```
 
 3. **Update Apps Script**:

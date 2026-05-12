@@ -193,9 +193,10 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
                                 continue
                             
-                            if fc.name == "workspace_agent":
-                                print(f"[tool] workspace: {fc.args}", flush=True)
+                            elif fc.name == "workspace_agent":
+                                logger.info(f"[tool] workspace: {fc.args}")
                                 res = await call_workspace_agent(fc.args.get("query", ""), user_id=workspace_user[0])
+
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": res}))
                                 for url in re.findall(r'https?://(?:docs|drive|sheets|slides)\.google\.com/[^\s)]+', res):
                                     clean_url = url.rstrip('.,)')
