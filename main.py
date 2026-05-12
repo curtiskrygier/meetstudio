@@ -172,7 +172,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             workspace_user[0] = data.get("user_email", "")
                             session_token[0] = data.get("access_token", "")
                             if data.get("meeting_id"): session_space[0] = data.get("meeting_id")
-                            print(f"[ws] init {workspace_user[0]}", flush=True)
+                            logger.info(f"[ws] init user={workspace_user[0]} space={session_space[0]}")
                         elif data.get("type") == "diagram_mode":
                             diagram_mode[0] = bool(data.get("active", False))
                         elif data.get("type") == "view_change":
@@ -265,7 +265,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 await broadcast_to_stage(session_space[0], msg)
                     
                     if sc.turn_complete: current_turn["role"] = None
-        except Exception as e: print(f"[ws] error: {e}", flush=True)
+        except Exception as e:
+            logger.error(f"[ws] error: {e}")
+            logger.debug(traceback.format_exc())
         finally:
             stop_event.set()
             recv_task.cancel()
@@ -273,6 +275,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
     if not await validate_google_token(token):
+        logger.warning(f"[ws] handshake rejected: invalid token for meeting {meeting_id}")
         await websocket.close(code=1008) # Policy Violation
         return
     await websocket.accept()
@@ -282,18 +285,21 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", token: 
 @app.websocket("/ws/stage")
 async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
     if not await validate_google_token(token):
+        logger.warning(f"[ws/stage] handshake rejected: invalid token for meeting {meeting_id}")
         await websocket.close(code=1008) # Policy Violation
         return
     await websocket.accept()
     if not meeting_id: await websocket.close(); return
     if meeting_id not in stage_listeners: stage_listeners[meeting_id] = set()
     stage_listeners[meeting_id].add(websocket)
+    logger.info(f"[stage_ws] NEW listener for {meeting_id}. Total: {len(stage_listeners[meeting_id])}")
     if meeting_id in current_view: await websocket.send_text(json.dumps(current_view[meeting_id]))
     try:
         while True: await websocket.receive_text()
     except WebSocketDisconnect:
         if meeting_id in stage_listeners:
             stage_listeners[meeting_id].discard(websocket)
+            logger.info(f"[stage_ws] REMOVED listener for {meeting_id}")
             if not stage_listeners[meeting_id]: del stage_listeners[meeting_id]
 
 @app.get("/api/session/{meeting_id:path}")
@@ -309,7 +315,7 @@ async def set_session(meeting_id: str, data: dict):
         diagram_store.pop(purge_old, None)
         diagram_version.pop(purge_old, None)
         diagram_title.pop(purge_old, None)
-        print(f"[session] Purged old session: {purge_old}", flush=True)
+        logger.info(f"[session] Purged old session: {purge_old}")
 
     # Clear stale view and notify all listeners to show placeholder
     reset_msg = {"type": "view_change", "mode": "diagram", "diag_id": session_id, "version": 0}
@@ -332,6 +338,7 @@ async def api_render_d2(payload: dict):
     if not d2_code: return FastAPIResponse(status_code=400)
     svg, err = await render_d2(d2_code, style=style)
     if err:
+        logger.warning(f"[api_render] D2 error: {err}")
         return FastAPIResponse(content=err, status_code=400, media_type="text/plain")
     return FastAPIResponse(content=svg, media_type="image/svg+xml")
 
@@ -348,8 +355,11 @@ async def export_transcript(payload: dict = Body(...)):
             file_id = resp.json()["id"]
             await client.patch(f"https://www.googleapis.com/drive/v3/files/{file_id}?uploadType=media", params={"supportsAllDrives": "true"},
                 content=payload["transcript"].encode("utf-8"), headers={"Authorization": f"Bearer {payload['access_token']}", "Content-Type": "text/plain"})
+        logger.info(f"[export] Created document {file_id}")
         return {"ok": True, "file_id": file_id}
-    except Exception as e: return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"[export] error: {e}")
+        return {"error": str(e)}
 
 @app.post("/api/diagram")
 async def api_diagram(payload: dict = Body(...)):
@@ -368,8 +378,8 @@ async def api_diagram(payload: dict = Body(...)):
         await broadcast_to_stage(payload["space_id"], {"type": "view_change", "mode": "diagram", "diag_id": diag_id, "version": diagram_version.get(diag_id, 1)})
         return {"id": diag_id, "title": title, "drive_file_id": drive_file_id}
     except Exception as e:
-        print(f"[api_diagram] error: {e}", flush=True)
-        traceback.print_exc()
+        logger.error(f"[api_diagram] error: {e}")
+        logger.debug(traceback.format_exc())
         return {"error": str(e)}
 
 @app.post("/api/diagram/{diagram_id}/save")

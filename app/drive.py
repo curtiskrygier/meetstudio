@@ -2,9 +2,12 @@ import httpx
 import re
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone, timedelta
 from app.config import meeting_name_cache, meeting_folder_cache
 from app.utils import svg_to_png
+
+logger = logging.getLogger("concierge")
 
 async def get_calendar_meeting_name(space_id: str, access_token: str) -> str:
     """Return the Calendar event title for this Meet space, '' if not found."""
@@ -26,19 +29,19 @@ async def get_calendar_meeting_name(space_id: str, access_token: str) -> str:
                 headers={"Authorization": f"Bearer {access_token}"},
             )
         if resp.status_code != 200:
-            print(f"[calendar] {resp.status_code}: {resp.text[:200]}", flush=True)
+            logger.warning(f"[calendar] {resp.status_code}: {resp.text[:200]}")
             return ""
         for event in resp.json().get("items", []):
             hangout = event.get("hangoutLink", "")
             conf_id = (event.get("conferenceData") or {}).get("conferenceId", "")
             if bare and (bare in hangout or bare in conf_id):
                 name = event.get("summary", "").strip()
-                print(f"[calendar] matched '{name}' for {bare}", flush=True)
+                logger.info(f"[calendar] matched '{name}' for {bare}")
                 meeting_name_cache[space_id] = name
                 return name
-        print(f"[calendar] no event matched for {bare}", flush=True)
+        logger.info(f"[calendar] no event matched for {bare}")
     except Exception as e:
-        print(f"[calendar] {type(e).__name__}: {e}", flush=True)
+        logger.error(f"[calendar] {type(e).__name__}: {e}")
     return ""
 
 async def _drive_get_or_create_folder(name: str, parent: str, access_token: str) -> str | None:
@@ -75,7 +78,7 @@ async def _drive_get_or_create_folder(name: str, parent: str, access_token: str)
         if resp.status_code in (200, 201):
             return resp.json()["id"]
         else:
-            print(f"[drive] folder create failed: {resp.status_code} {resp.text}", flush=True)
+            logger.error(f"[drive] folder create failed: {resp.status_code} {resp.text}")
     return None
 
 async def get_or_create_meeting_folder(space_id: str, access_token: str, meeting_name: str = "") -> str | None:
@@ -97,7 +100,7 @@ async def get_or_create_meeting_folder(space_id: str, access_token: str, meeting
     if folder_id and not meeting_name:
         meeting_folder_cache[space_id] = folder_id
 
-    print(f"[drive] using folder '{folder_name}' id={folder_id}", flush=True)
+    logger.info(f"[drive] using folder '{folder_name}' id={folder_id}")
     return folder_id
 
 async def save_diagram_to_drive(svg_bytes: bytes, title: str, space_id: str, access_token: str, meeting_name: str = "") -> str | None:
@@ -106,7 +109,7 @@ async def save_diagram_to_drive(svg_bytes: bytes, title: str, space_id: str, acc
     # Convert to PNG for high-quality preview in Drive
     png = await asyncio.get_event_loop().run_in_executor(None, svg_to_png, svg_bytes)
     if not png:
-        print("[drive] PNG conversion failed, cannot save to Drive", flush=True)
+        logger.error("[drive] PNG conversion failed, cannot save to Drive")
         return None
 
     filename = f"{title}.png"
@@ -136,10 +139,10 @@ async def save_diagram_to_drive(svg_bytes: bytes, title: str, space_id: str, acc
         )
     if resp.status_code in (200, 201):
         file_id = resp.json().get("id")
-        print(f"[drive] saved '{filename}' id={file_id}", flush=True)
+        logger.info(f"[drive] saved '{filename}' id={file_id}")
         return file_id
     else:
-        print(f"[drive] upload failed: {resp.status_code} {resp.text}", flush=True)
+        logger.error(f"[drive] upload failed: {resp.status_code} {resp.text}")
         return None
 
 async def save_doc_shortcut_to_drive(doc_url: str, doc_title: str, space_id: str, access_token: str):
@@ -168,11 +171,11 @@ async def save_doc_shortcut_to_drive(doc_url: str, doc_title: str, space_id: str
                 headers={"Authorization": f"Bearer {access_token}"},
             )
         if resp.status_code in (200, 201):
-            print(f"[drive] shortcut '{safe_name}' created", flush=True)
+            logger.info(f"[drive] shortcut '{safe_name}' created")
         else:
-            print(f"[drive] shortcut {resp.status_code}: {resp.text[:200]}", flush=True)
+            logger.error(f"[drive] shortcut {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
-        print(f"[drive] shortcut {type(e).__name__}: {e}", flush=True)
+        logger.error(f"[drive] shortcut {type(e).__name__}: {e}")
 
 async def fetch_meeting_chat(space_id: str, access_token: str) -> str:
     if not space_id or not access_token:
@@ -185,7 +188,7 @@ async def fetch_meeting_chat(space_id: str, access_token: str) -> str:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
         if resp.status_code != 200:
-            print(f"[chat] API {resp.status_code} for {full_space_id}: {resp.text[:200]}", flush=True)
+            logger.warning(f"[chat] API {resp.status_code} for {full_space_id}: {resp.text[:200]}")
             return ""
         messages = []
         for m in resp.json().get("messages", []):
@@ -194,8 +197,8 @@ async def fetch_meeting_chat(space_id: str, access_token: str) -> str:
             if text:
                 messages.append(f"{sender}: {text}")
         result = "\n".join(messages)
-        print(f"[chat] {len(messages)} messages ({len(result)} chars)", flush=True)
+        logger.info(f"[chat] {len(messages)} messages ({len(result)} chars)")
         return result
     except Exception as e:
-        print(f"[chat] error: {type(e).__name__}: {e}", flush=True)
+        logger.error(f"[chat] error: {type(e).__name__}: {e}")
         return ""

@@ -2,7 +2,10 @@ import httpx
 import re
 import asyncio
 import subprocess
+import logging
 from app.config import MAX_SVG_SIZE
+
+logger = logging.getLogger("concierge")
 
 async def fetch_url(url: str) -> str:
     try:
@@ -17,15 +20,15 @@ async def fetch_url(url: str) -> str:
             text = re.sub(r'[ \t]+', ' ', text)
             text = re.sub(r'\n{3,}', '\n\n', text)
             text = text.strip()
-            print(f"[fetch_url] {url} — {len(text)} chars", flush=True)
+            logger.info(f"[fetch_url] {url} — {len(text)} chars")
             return text[:6000]  # cap at ~1.5k tokens
     except Exception as e:
-        print(f"[fetch_url] error: {e}", flush=True)
+        logger.error(f"[fetch_url] error: {e}")
         return f"Error fetching {url}: {e}"
 
 def svg_to_png(svg_bytes: bytes, width: int = 2400) -> bytes | None:
     if len(svg_bytes) > MAX_SVG_SIZE:
-        print(f"[drive] SVG too large for conversion: {len(svg_bytes)} bytes", flush=True)
+        logger.warning(f"[drive] SVG too large for conversion: {len(svg_bytes)} bytes")
         return None
     try:
         result = subprocess.run(
@@ -35,8 +38,8 @@ def svg_to_png(svg_bytes: bytes, width: int = 2400) -> bytes | None:
         if result.returncode == 0:
             return result.stdout
         else:
-            print(f"[drive] PNG conversion failed (code {result.returncode}): {result.stderr.decode()}", flush=True)
+            logger.error(f"[drive] PNG conversion failed (code {result.returncode}): {result.stderr.decode()}")
             return None
     except Exception as e:
-        print(f"[drive] PNG conversion error: {e}", flush=True)
+        logger.error(f"[drive] PNG conversion error: {e}")
         return None
