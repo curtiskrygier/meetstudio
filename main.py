@@ -174,16 +174,69 @@ async def live_session(websocket: WebSocket, meeting_id: str):
         ],
     )
 
-    await websocket.send_text(json.dumps({"type": "status", "text": "Connecting to Gemini Live..."}))
+    # --- A2UI STATE MANAGER ---
+    ui_state = {
+        "status_state": "connecting",
+        "status_text": "Connecting to Gemini Live...",
+        "authenticated": True,
+        "audioEnabled": True,
+        "videoEnabled": False,
+        "diagramMode": False,
+        "transcriptMode": False,
+        "actionLinks": []
+    }
+
+    async def broadcast_a2ui():
+        """Generates the A2UI payload and sends it to the frontend."""
+        payload = {
+            "type": "A2UI_STATE",
+            "components": [
+                {
+                    "id": "hero_status",
+                    "element": "gdm-status-view",
+                    "props": {
+                        "state": ui_state["status_state"],
+                        "status": ui_state["status_text"],
+                        "authenticated": ui_state["authenticated"]
+                    }
+                },
+                {
+                    "id": "control_bar",
+                    "element": "gdm-controls-view",
+                    "props": {
+                        "audioEnabled": ui_state["audioEnabled"],
+                        "videoEnabled": ui_state["videoEnabled"],
+                        "diagramMode": ui_state["diagramMode"],
+                        "transcriptMode": ui_state["transcriptMode"]
+                    }
+                },
+                {
+                    "id": "workspace_links",
+                    "element": "gdm-actions-view",
+                    "props": {
+                        "actions": ui_state["actionLinks"]
+                    }
+                }
+            ]
+        }
+        try:
+            await websocket.send_text(json.dumps(payload))
+        except Exception as e:
+            logger.error(f"[a2ui] Broadcast error: {e}")
+
+    # Initial broadcast
+    await broadcast_a2ui()
 
     async with gemini_client.aio.live.connect(model=MODEL, config=config) as session:
-        await websocket.send_text(json.dumps({"type": "status", "text": f"Assistant connected — listening"}))
+        # Update state on successful connection
+        ui_state["status_state"] = "listening"
+        ui_state["status_text"] = "Assistant connected — listening"
+        await broadcast_a2ui()
 
         stop_event = asyncio.Event()
         workspace_user = [""]
         session_token = [""]
         session_space = [meeting_id]
-        diagram_mode = [False]
         current_turn = {"id": str(uuid_lib.uuid4()), "role": None}
 
         async def browser_to_gemini():
@@ -192,6 +245,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     msg = await websocket.receive()
                     raw = msg.get("bytes")
                     text = msg.get("text")
+                    
                     if raw:
                         await session.send_realtime_input(audio=types.Blob(data=raw, mime_type="audio/pcm;rate=16000"))
                     elif text:
@@ -201,11 +255,20 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             session_token[0] = data.get("access_token", "")
                             if data.get("meeting_id"): session_space[0] = data.get("meeting_id")
                             logger.info(f"[ws] init user={workspace_user[0]} space={session_space[0]}")
+                        
                         elif data.get("type") == "diagram_mode":
-                            diagram_mode[0] = bool(data.get("active", False))
+                            # Sync frontend button clicks back into backend state
+                            ui_state["diagramMode"] = bool(data.get("active", False))
+                            if ui_state["diagramMode"]:
+                                ui_state["status_text"] = "Gemini Agent Architect — speak your architecture description"
+                            else:
+                                ui_state["status_text"] = "Assistant connected — listening"
+                            await broadcast_a2ui()
+                            
                         elif data.get("type") == "view_change":
                             await broadcast_to_stage(session_space[0], data)
-            except Exception: stop_event.set()
+            except Exception:
+                stop_event.set()
 
         recv_task = asyncio.create_task(browser_to_gemini())
 
@@ -217,33 +280,44 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     if response.tool_call:
                         responses = []
                         for fc in response.tool_call.function_calls:
-                            if diagram_mode[0]:
+                            # Use ui_state instead of diagram_mode[0] array
+                            if ui_state["diagramMode"]:
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
                                 continue
                             
                             elif fc.name == "workspace_agent":
                                 logger.info(f"[tool] workspace: {fc.args}")
                                 res = await call_workspace_agent(fc.args.get("query", ""), user_id=workspace_user[0])
-
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": res}))
+                                
                                 for url in re.findall(r'https?://(?:docs|drive|sheets|slides)\.google\.com/[^\s)]+', res):
                                     clean_url = url.rstrip('.,)')
                                     label = "Open Spreadsheet" if "spreadsheets" in clean_url else "Open Document"
-                                    await websocket.send_text(json.dumps({"type": "action_link", "url": clean_url, "label": label}))
+                                    
+                                    # A2UI STATE UPDATE
+                                    ui_state["actionLinks"].append({"url": clean_url, "label": label, "content": res})
+                                    await broadcast_a2ui()
+                                    
                                     # Broadcast to main stage
                                     await broadcast_to_stage(session_space[0], {
                                         "type": "view_change",
                                         "mode": "doc",
                                         "url": clean_url,
                                         "label": label,
-                                        "content": res # Preview
+                                        "content": res
                                     })
                                     if session_token[0] and session_space[0]:
                                         asyncio.create_task(save_doc_shortcut_to_drive(clean_url, label, session_space[0], session_token[0]))
+                            
                             elif fc.name == "present_on_main_stage":
                                 url = fc.args.get("url", "")
                                 label = fc.args.get("label", "Document")
                                 content = fc.args.get("content", "")
+                                
+                                # A2UI STATE UPDATE
+                                ui_state["actionLinks"].append({"url": url, "label": label, "content": content})
+                                await broadcast_a2ui()
+                                
                                 await broadcast_to_stage(session_space[0], {
                                     "type": "view_change",
                                     "mode": "doc",
@@ -251,16 +325,29 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     "label": label,
                                     "content": content
                                 })
-                                await websocket.send_text(json.dumps({"type": "action_link", "url": url, "label": label}))
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "Presented."}))
+                            
                             elif fc.name == "activate_architect_mode":
-                                await websocket.send_text(json.dumps({"type": "set_diagram_mode", "active": True}))
+                                # A2UI STATE UPDATE
+                                ui_state["diagramMode"] = True
+                                ui_state["status_text"] = "Gemini Agent Architect — speak your architecture description"
+                                await broadcast_a2ui()
+                                
+                                await broadcast_to_stage(session_space[0], {"type": "view_change", "mode": "diagram"})
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
+                            
                             elif fc.name == "deactivate_architect_mode":
-                                await websocket.send_text(json.dumps({"type": "set_diagram_mode", "active": False}))
+                                # A2UI STATE UPDATE
+                                ui_state["diagramMode"] = False
+                                ui_state["status_text"] = "Assistant connected — listening"
+                                await broadcast_a2ui()
+                                
+                                await broadcast_to_stage(session_space[0], {"type": "view_change", "mode": "placeholder"})
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
+                            
                             elif fc.name == "fetch_url":
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": await fetch_url(fc.args.get("url", ""))}))
+                            
                             else:
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
                         if responses: await session.send_tool_response(function_responses=responses)
@@ -269,6 +356,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     sc = response.server_content
                     if not sc: continue
 
+                    # Transcript logic remains unchanged
                     input_trans = getattr(sc, "input_transcription", None)
                     if input_trans:
                         t_text = getattr(input_trans, "text", "")
