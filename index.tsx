@@ -977,31 +977,44 @@ export class GdmArchitectAgent extends LitElement {
       return;
     }
     
+    console.log('[concierge] Saving and starting new diagram session...');
     this.diagramContext = '';
     this.actionLinks = [];
     this.transcriptStartIndex = this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').length;
     this.diagramSessionStartTime = new Date().toISOString();
+    const oldSessionId = this.diagramSessionId;
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
     this.lastTranscriptFileId = '';
     this.lastDiagramFileId = '';
     
-    // Broadcast reset immediately
+    const broadcastMsg = {
+      type: 'view_change',
+      mode: 'diagram',
+      diag_id: this.diagramSessionId,
+      version: 0
+    };
+
+    // 1. Broadcast reset immediately
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'view_change',
-        mode: 'diagram',
-        diag_id: this.diagramSessionId
-      }));
+      this.ws.send(JSON.stringify(broadcastMsg));
     }
 
-    // Register session server-side
+    // 2. Force local stage update via SDK
+    if (this.sidePanelClient) {
+      this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
+    }
+
+    // 3. Register session server-side & purge old cache
     try {
       await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: this.diagramSessionId }),
+        body: JSON.stringify({ 
+          session_id: this.diagramSessionId,
+          purge_old: oldSessionId
+        }),
       });
       this.status = 'New diagram session ready — speak to generate';
     } catch (e: any) {
