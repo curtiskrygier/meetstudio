@@ -96,8 +96,11 @@ async def broadcast_to_stage(meeting_id: str, message: dict):
     if not meeting_id: return
     if message.get("type") == "view_change":
         current_view[meeting_id] = message
-    if meeting_id not in stage_listeners: return
+    if meeting_id not in stage_listeners:
+        logger.info(f"[stage_ws] No listeners for {meeting_id}")
+        return
     payload = json.dumps(message)
+    logger.info(f"[stage_ws] Broadcasting {message.get('type')} to {len(stage_listeners[meeting_id])} listeners")
     for ws in list(stage_listeners[meeting_id]):
         try: await ws.send_text(payload)
         except Exception: pass
