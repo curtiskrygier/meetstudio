@@ -38,6 +38,7 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     d2_code = match.group(1).strip() if match else raw_text.strip()
     
     # PREPEND STYLE WRAPPER (Overrides anything the model produced)
+    classes = "classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud};app:{shape:rectangle}}\n"
     style_header = ""
     if style == "blueprint":
         style_header = (
@@ -68,7 +69,7 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     
     # Remove any existing vars, direction, or theme from model to avoid conflicts
     d2_code = re.sub(r'^(direction|vars|style|classes|theme).*?(\n\n|\n[a-z])', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
-    d2_code = style_header + "\n" + d2_code
+    d2_code = classes + style_header + "\n" + d2_code
 
     # Extract title from D2 code for storage/Drive
     title_match = re.search(r'title:\s*"([^"]+)"', d2_code)

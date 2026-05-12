@@ -90,6 +90,7 @@ export class GdmArchitectAgent extends LitElement {
       background: #0c0d10; color: #f2f3f5;
       font-family: "Plus Jakarta Sans", system-ui, sans-serif;
       -webkit-font-smoothing: antialiased;
+      color-scheme: dark;
       --bg-0:#0c0d10; --bg-1:#131418; --bg-2:#191b20; --bg-3:#20232a;
       --line:#262932; --line-soft:#1d2027;
       --fg:#f2f3f5; --fg-2:#b8bcc4; --fg-3:#7e828c; --fg-4:#565a64;
@@ -269,12 +270,12 @@ export class GdmArchitectAgent extends LitElement {
     .turn-name.gem { background: linear-gradient(135deg, var(--gem-1), var(--gem-2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
     .turn-text { font-size: 13px; line-height: 1.45; color: var(--fg); }
     .transcript-empty { padding: 18px 16px; background: var(--bg-1); border: 1px dashed var(--line); border-radius: 12px; text-align: center; color: var(--fg-3); font-size: 12.5px; }
-    .context-input { width: 100%; min-height: 88px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg); font-family: inherit; font-size: 12px; line-height: 1.5; padding: 10px 12px; resize: vertical; box-sizing: border-box; transition: border-color 150ms; }
-    .context-input:focus { outline: none; border-color: var(--gem-2); }
-    .context-input.has-content { border-color: rgba(52,210,122,0.5); }
-    .context-input::placeholder { color: var(--fg-4); }
+    .ctx-input { width: 100%; min-height: 88px; background: var(--bg-2) !important; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg) !important; font-family: inherit; font-size: 12px; line-height: 1.5; padding: 10px 12px; resize: vertical; box-sizing: border-box; transition: border-color 150ms; }
+    .ctx-input:focus { outline: none; border-color: var(--gem-2); }
+    .ctx-input.has-content { border-color: rgba(52,210,122,0.5); }
+    .ctx-input::placeholder { color: var(--fg-4); }
     .context-row { display: flex; gap: 8px; align-items: flex-start; }
-    .context-row .context-input { flex: 1; }
+    .context-row .ctx-input { flex: 1; }
     .ctx-send { flex-shrink: 0; height: 36px; padding: 0 14px; background: var(--gem-2); border: none; border-radius: var(--radius-sm); color: #fff; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; align-self: flex-end; white-space: nowrap; }
     .ctx-send:hover { opacity: 0.85; }
     .ctx-send:disabled { opacity: 0.4; cursor: default; }
@@ -898,7 +899,11 @@ export class GdmArchitectAgent extends LitElement {
       this.status = 'Nothing to export — speak first';
       return;
     }
+    
+    // Open window immediately to avoid popup blocker
+    const driveWin = window.open('about:blank', '_blank');
     this.status = 'Exporting transcript to Doc…';
+
     try {
       const resp = await fetch('/api/transcript/export', {
         method: 'POST',
@@ -915,10 +920,17 @@ export class GdmArchitectAgent extends LitElement {
         this.lastTranscriptFileId = data.file_id;
         const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Transcript exported to Drive ✓';
-        window.open(driveUrl, '_blank');
+        if (driveWin) {
+          driveWin.location.href = driveUrl;
+        } else {
+          window.open(driveUrl, '_blank');
+        }
+      } else if (driveWin) {
+        driveWin.close();
       }
     } catch (e: any) {
       this.status = `Export failed: ${e.message || e}`;
+      if (driveWin) driveWin.close();
     }
   }
 
@@ -927,7 +939,11 @@ export class GdmArchitectAgent extends LitElement {
       this.status = 'Cannot save — no active diagram session';
       return false;
     }
+
+    // Open window immediately to avoid popup blocker
+    const driveWin = window.open('about:blank', '_blank');
     this.status = 'Saving diagram to Drive…';
+    
     try {
       const resp = await fetch(`/api/diagram/${this.diagramSessionId}/save`, {
         method: 'POST',
@@ -940,7 +956,11 @@ export class GdmArchitectAgent extends LitElement {
         this.lastDiagramFileId = data.file_id;
         const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Diagram saved to Drive ✓';
-        window.open(driveUrl, '_blank');
+        if (driveWin) {
+          driveWin.location.href = driveUrl;
+        } else {
+          window.open(driveUrl, '_blank');
+        }
         return true;
       }
       return false;
@@ -967,6 +987,15 @@ export class GdmArchitectAgent extends LitElement {
     this.lastTranscriptFileId = '';
     this.lastDiagramFileId = '';
     
+    // Broadcast reset immediately
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'broadcast_view',
+        mode: 'diagram',
+        diag_id: this.diagramSessionId
+      }));
+    }
+
     // Register session server-side
     try {
       await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
@@ -974,19 +1003,9 @@ export class GdmArchitectAgent extends LitElement {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: this.diagramSessionId }),
       });
-
-      // Broadcast the new ID to everyone's stage
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({
-          type: 'broadcast_view',
-          mode: 'diagram',
-          diag_id: this.diagramSessionId
-        }));
-      }
-
       this.status = 'New diagram session ready — speak to generate';
     } catch (e: any) {
-      this.status = 'New session ready (broadcast failed)';
+      this.status = 'New session ready (registration failed)';
     }
   }
 
@@ -1001,6 +1020,15 @@ export class GdmArchitectAgent extends LitElement {
     this.lastTranscriptFileId = '';
     this.lastDiagramFileId = '';
     
+    // Broadcast reset immediately to everyone's stage
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'broadcast_view',
+        mode: 'diagram',
+        diag_id: this.diagramSessionId
+      }));
+    }
+
     // Register session server-side
     try {
       await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
@@ -1008,16 +1036,6 @@ export class GdmArchitectAgent extends LitElement {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: this.diagramSessionId }),
       });
-
-      // Broadcast the new ID to everyone's stage
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({
-          type: 'broadcast_view',
-          mode: 'diagram',
-          diag_id: this.diagramSessionId
-        }));
-      }
-
       this.status = 'Diagram reset — speak to generate';
     } catch (e: any) {
       this.status = 'Reset failed';
@@ -1261,32 +1279,28 @@ export class GdmArchitectAgent extends LitElement {
             <textarea class="ctx-input" placeholder="Refine your architecture description here..."
               .value=${this.diagramContext}
               @input=${(e: any) => this.diagramContext = e.target.value}></textarea>
-            <div class="ctx-actions">
+            <div class="ctx-actions" style="margin-top:12px; gap:8px">
               <button class="ctx-send" style="flex:1"
                 ?disabled=${this.diagramming}
                 @click=${() => this.generateDiagram()}>
-                Update
+                ${this.diagramming ? 'Generating…' : 'Generate'}
               </button>
               <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1"
                 @click=${() => this.resetDiagram()}>
                 New
               </button>
-              <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.2"
+              <button class="ctx-send" style="background:var(--gem-1);flex:1.5"
                 ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
                 @click=${() => this.saveDiagramToDrive()}>
-                Save
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;margin-right:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export to Drive
               </button>
               ${this.lastDiagramFileId ? html`
                 <button class="ctx-send" style="background:var(--gem-2);flex:1.2"
                   @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
-                  Open Export
+                  Open PNG
                 </button>
               ` : ''}
-              <button class="ctx-send" style="background:var(--bg-3);border:1px solid var(--line);color:var(--fg-3);flex:1.5"
-                ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
-                @click=${() => this.saveAndNewDiagram()}>
-                Save & New
-              </button>
             </div>
           </div>
         </div>

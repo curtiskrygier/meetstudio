@@ -53,15 +53,11 @@ D2_PROMPT = """You are an expert systems architect. Analyse the meeting context 
 
 Rules:
 - Output ONLY valid D2 code. No markdown, no backticks, no explanation.
-- Start with EXACTLY this configuration block:
-  direction: right
-  vars: { d2-config: { layout-engine: elk; sketch: true } }
 - ARCHITECTURAL LAYERS: Use nested containers with curly braces { } to group related components into logical layers (e.g. "Client Tier", "API Layer", "Data Persistence").
 - SEQUENTIAL FLOW: Define nodes and connections in the order of the data flow or processing steps described.
 - Add a Title at the top-center using this format:
   title: "Short Meeting Title"
-- Define classes on ONE LINE:
-  classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud}}
+- NO SYSTEM BLOCKS: Do NOT output 'vars', 'style', 'classes', 'direction', or 'layout' blocks. These are applied automatically.
 - CRITICAL: EVERY node name and EVERY edge label MUST be wrapped in double quotes.
 - NO RESERVED WORDS: Do NOT use D2 keywords (style, vars, classes, direction, layout) as node names or edge labels.
 - Use DOT SYNTAX for attributes: "Node Name".class: infra
