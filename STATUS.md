@@ -11,7 +11,9 @@ The Meet Live Architect has been fully restored and enhanced into a production-r
 | Component | Status | Description |
 |---|---|---|
 | **Side Panel UI** | ✅ Stable | Fully restored v17 design with premium aesthetics. |
-| **Layout Switcher** | ✅ New | One-click modes: **Blueprint**, **Sketch**, **Dark Flow**, **Corporate**. |
+| **Layout Switcher** | ✅ Elite | 4 Modes: **Blueprint**, **Sketch**, **Dark Flow**, **Corporate**. |
+| **Clean Diagrams** | ✅ New | **Zero Technical Clutter**: Config boxes (100/200) removed via backend CLI arguments. |
+| **Master Architect**| ✅ New | Enforced sequence numbers (1), (2), (3) and minimalist node labels. |
 | **Doc Previews** | ✅ New | Live text content of shared docs displayed on the Main Stage. |
 | **Sticky Diagrams** | ✅ New | Flicker-free PNG rendering with background pre-loading. |
 | **Agent Transcripts** | ✅ Fixed | Explicit `[Gemini Architect]` labels with streaming aggregation. |

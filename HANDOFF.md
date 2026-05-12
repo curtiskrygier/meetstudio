@@ -13,6 +13,11 @@
     - **Dark Flow**: High-tech "Cyber" aesthetic with Cyan accents.
     - **Corporate**: Standard Google Blue professional design.
 - **Rendering Fixes**:
+    - **Zero Technical Clutter**: Eliminated "100" and "200" boxes by moving configuration to backend CLI arguments (`d2 -t 200 -l elk`).
+    - **Master Architect Prompt**: Enforced high-impact layout rules:
+        - Mandatory sequence numbers `(1), (2)...` on all interaction arrows.
+        - Minimalist node labels (1-2 keywords max) to prevent container overflow.
+        - Grid-columns for balanced, compact visual organization.
     - Re-enabled **Bundled Icons** via `--bundle` flag and absolute container paths.
     - Fixed `KeyError` crashes using safe `.replace()` for context injection.
 

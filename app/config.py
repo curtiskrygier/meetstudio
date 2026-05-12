@@ -49,45 +49,37 @@ current_view: dict[str, dict] = {}
 stage_listeners: dict[str, set] = {} # set[WebSocket]
 
 # D2 Prompt for diagram generation
-D2_PROMPT = """You are an expert systems architect. Analyse the meeting context below and generate a professional architecture diagram.
+D2_PROMPT = """You are a Master Systems Architect. Analyse the technical meeting context and generate an elite, professional D2 architecture diagram.
 
 Rules:
 - Output ONLY valid D2 code. No markdown, no backticks, no explanation.
-- NO SYSTEM BLOCKS: Do NOT output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are applied automatically by the backend.
-- ARCHITECTURAL LAYERS: Use nested containers with curly braces { } to group related components into logical layers (e.g. "Client Tier", "API Layer", "Data Persistence").
-- SEQUENTIAL FLOW: Define nodes and connections in the order of the data flow.
-- Add a Title at the top-center using this format:
-  title: "Short Meeting Title"
-- LABEL STYLING: Every node MUST have a label. Keep labels concise (2-4 words max) to avoid overflow. 
-- CRITICAL: EVERY node name and EVERY edge label MUST be wrapped in double quotes.
-- Use DOT SYNTAX for classes: "Node Name".class: infra
-- Use ABSOLUTE PATHS for icons: "Node Name".icon: "/app/assets/icons/<name>.svg"
+- NO SYSTEM BLOCKS: Never output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are managed by the system.
+- ARCHITECTURAL LAYERS: Group all components into logical nested containers (e.g., "User Interface", "Serverless Ingestion", "AI Reasoning", "Storage Tier").
+- GRID LAYOUT: Use 'grid-columns: 2' (or more) inside containers with many nodes to ensure a balanced, compact layout.
+- DATA FLOW: Use sequence numbers (1), (2), (3)... as prefixes on ALL edge labels to show the order of operations clearly.
+- MINIMALIST NODES: Keep node labels to 1-2 keywords (e.g., "FastAPI", "Gemini API"). Avoid long sentences in nodes.
+- DESCRIPTIVE EDGES: Use edge labels to explain the interaction (e.g., "1. Streams PCM Audio").
+- CRITICAL: Wrap EVERY node name and EVERY edge label in double quotes.
+- ICONS: Assign icons using absolute paths: "Node Name".icon: "/app/assets/icons/<name>.svg"
 - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
-- Icon Rules:
-  - "Main Stage" or "Google Meet": Use "meet.svg"
-  - "Gemini" or "Virtual Architect": Use "gemini.svg"
-  - "Database": Use "sql.svg" or "storage.svg"
-  - "Reasoning Engine": Use "vertex_ai.svg"
-- SHAPES: Use standard D2 shapes: square, circle, cloud, cylinder, rectangle, person.
-- LAYOUT HYGIENE: 
-  - Do NOT create excessively deep nesting (max 2 levels).
-  - Use empty labels on edges only if the flow is obvious.
-  - Ensure labels remain within the container/box by keeping them short.
+- Icon Selection:
+  - "Main Stage", "Meet", "Browser": Use "meet.svg"
+  - "Gemini", "LLM", "AI": Use "gemini.svg"
+  - "FastAPI", "Cloud Run", "Server": Use "cloud_run.svg"
+  - "Drive", "Docs", "Sheets": Use "drive.svg", "docs.svg", "sheets.svg"
+- SHAPES: Use 'square', 'circle', 'cloud', 'cylinder', 'rectangle', 'person'. Ensure shapes reflect the component type.
 
 Example:
-"Client Tier": {
-  "User".class: user
-  "Browser".icon: "/app/assets/icons/cloud.svg"
+"Data Pipeline": {
+  grid-columns: 2
+  "Input".icon: "/app/assets/icons/cloud.svg"
+  "Processor".icon: "/app/assets/icons/compute.svg"
 }
-"Cloud Infrastructure": {
-  "Web App".icon: "/app/assets/icons/cloud_run.svg"
-  "Database".class: storage
-}
-"User" -> "Web App": "Requests"
-"Web App" -> "Database": "Queries"
+"User" -> "Input": "1. Sends Data"
+"Input" -> "Processor": "2. Forwards Payload"
 
-STRICT: If the "Meeting context" below says "No meeting context available" or is empty, output ONLY this:
-"Waiting for architecture description...".shape: rectangle
+STRICT: If context is empty, output ONLY:
+"Waiting for Architecture Description...".shape: rectangle
 
 Meeting context:
 {context}
