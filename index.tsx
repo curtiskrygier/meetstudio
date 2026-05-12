@@ -1020,13 +1020,20 @@ export class GdmArchitectAgent extends LitElement {
     this.lastTranscriptFileId = '';
     this.lastDiagramFileId = '';
     
-    // Broadcast reset immediately to everyone's stage
+    const broadcastMsg = {
+      type: 'broadcast_view',
+      mode: 'diagram',
+      diag_id: this.diagramSessionId
+    };
+
+    // Broadcast via WebSocket to remote participants
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'broadcast_view',
-        mode: 'diagram',
-        diag_id: this.diagramSessionId
-      }));
+      this.ws.send(JSON.stringify(broadcastMsg));
+    }
+
+    // Force local stage update via SDK
+    if (this.sidePanelClient) {
+      this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
     }
 
     // Register session server-side

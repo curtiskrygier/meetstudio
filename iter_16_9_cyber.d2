@@ -1,0 +1,37 @@
+style: { stroke: "#00f2ff"; fill: "#0b0e14"; stroke-width: 2 }
+"Ingestion / Source": {
+  "Meet Add-on".icon: "assets/icons/meet.svg"
+  "Meet Add-on".shape: rectangle
+  "Meet Media API".icon: "assets/icons/meet.svg"
+  "Meet Media API".shape: rectangle
+}
+
+"AI Processing": {
+  "FastAPI Gateway".icon: "assets/icons/cloud_run.svg"
+  "FastAPI Gateway".shape: rectangle
+
+  "AI Reasoning": {
+    "Gemini Live API".icon: "assets/icons/gemini.svg"
+    "Gemini Live API".shape: rectangle
+    "Architect Agent".icon: "assets/icons/vertex_ai.svg"
+    "Architect Agent".shape: rectangle
+  }
+
+  "D2 Renderer".icon: "assets/icons/cloud.svg"
+  "D2 Renderer".shape: rectangle
+  "Meet Main Stage".icon: "assets/icons/meet.svg"
+  "Meet Main Stage".shape: rectangle
+}
+
+"Storage / Output": {
+  "Drive Archive".icon: "assets/icons/drive.svg"
+  "Drive Archive".shape: cylinder
+}
+
+"Meet Add-on" -> "Meet Media API": "1. Streams 16kHz Audio"
+"Meet Media API" -> "FastAPI Gateway": "2. Captures Audio Chunks"
+"FastAPI Gateway" -> "Gemini Live API": "3. Pipes Audio (WS)"
+"Gemini Live API" -> "Architect Agent": "4. Streams Live Transcript"
+"Architect Agent" -> "D2 Renderer": "5. Generates D2 Code"
+"D2 Renderer" -> "Meet Main Stage": "6. Renders Live SVG"
+"D2 Renderer" -> "Drive Archive": "7. Exports SVG Snapshot"
