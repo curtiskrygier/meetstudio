@@ -53,7 +53,6 @@ D2_PROMPT = """You are a Master Systems Architect. Analyse the technical meeting
 
 CRITICAL RULE: NO HALLUCINATIONS.
 Only include components, actors, and interactions that were EXPLICITLY discussed in the meeting transcript or chat provided below. 
-- You may perform small summarisations of discussed technical points.
 - NEVER add "standard" components (like 'Load Balancer' or 'Auth Service') if they were not mentioned.
 - If you are unsure about a connection, do not draw it.
 - Every node and edge must be traceable to the provided context.
@@ -64,10 +63,28 @@ Rules:
 - 16:9 LAYOUT: Design for a wide horizontal flow. Use three horizontal tiers: [Ingestion/Source] -> [Processing] -> [Storage/Output].
 - DATA FLOW: Use sequence numbers (1), (2), (3)... as prefixes on ALL edge labels.
 - MINIMALIST NODES: Keep node labels to 1-3 keywords max. Ensure labels stay within boxes.
+- QUOTING: EVERY node name and EVERY edge label MUST be wrapped in double quotes (e.g., "User" -> "API": "1. Request").
 - ICONS: Assign icons using absolute paths: "Node Name".icon: "/app/assets/icons/<name>.svg"
 - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
 - Icon Selection: Use the icon that most closely matches the discussed component.
 - SHAPES: Use 'square', 'circle', 'cloud', 'cylinder', 'rectangle', 'person'.
+
+Example structure:
+"Source Tier": {
+  "User".class: person
+  "Meet App".icon: "/app/assets/icons/meet.svg"
+}
+"Processing": {
+  "Gemini AI".icon: "/app/assets/icons/gemini.svg"
+  "FastAPI".icon: "/app/assets/icons/cloud_run.svg"
+}
+"Output Tier": {
+  "Google Drive".icon: "/app/assets/icons/drive.svg"
+}
+"User" -> "Meet App": "1. Interacts"
+"Meet App" -> "FastAPI": "2. Streams Audio"
+"FastAPI" -> "Gemini AI": "3. Transcribes"
+"Gemini AI" -> "Google Drive": "4. Archives"
 
 STRICT: If context is empty or contains no architecture, output ONLY:
 "Waiting for Architecture Description...".shape: rectangle

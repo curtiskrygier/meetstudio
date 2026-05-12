@@ -37,6 +37,12 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     match = re.search(r'```(?:d2)?\s*\n?(.*?)```', raw_text, re.DOTALL)
     d2_code = match.group(1).strip() if match else raw_text.strip()
     
+    # SYSTEM BLOCK REMOVAL: Model occasionally outputs direction or vars even when forbidden
+    # We strip these lines before prepending our own controlled headers
+    d2_code = re.sub(r'^(direction|vars|style|classes|theme|layout):\s*.*$', '', d2_code, flags=re.MULTILINE | re.IGNORECASE)
+    # Also strip multi-line vars/style blocks if they exist
+    d2_code = re.sub(r'^(vars|style|classes)\s*\{.*?\}\s*$', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    
     # PREPEND STYLE WRAPPER (Overrides anything the model produced)
     classes = "classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud};app:{shape:rectangle}}\n"
     style_header = "direction: right\n"
@@ -56,15 +62,13 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     elif style == "google":
         # Google-branded 'Corporate' aesthetic
         d2_args.extend(["-l", "elk", "-t", "200"])
-        style_header += "style: {\n  font-size: 14\n  stroke: \"#4285F4\"\n  stroke-width: 2\n}\n"
+        style_header += 'style: {\n  font-size: 14\n  stroke: "#4285F4"\n  stroke-width: 2\n}\n'
     else: # cyber (default)
         # High-tech 'Dark Flow' aesthetic
         d2_args.extend(["-l", "elk", "-t", "200"])
-        style_header += "style: {\n  font-size: 14\n  stroke: \"#00f2ff\"\n  fill: \"#0b0e14\"\n  stroke-width: 2\n}\n"
+        style_header += 'style: {\n  font-size: 14\n  stroke: "#00f2ff"\n  fill: "#0b0e14"\n  stroke-width: 2\n}\n'
     
-    # Remove any existing vars, direction, or theme from model to avoid conflicts
-    d2_code = re.sub(r'^(direction|vars|style|classes|theme).*?(\n\n|\n[a-z])', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
-    d2_code = classes + style_header + "\n" + d2_code
+    d2_code = classes + style_header + "\n" + d2_code.strip()
 
     # Extract title from D2 code for storage/Drive
     title_match = re.search(r'title:\s*"([^"]+)"', d2_code)
@@ -80,6 +84,7 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
         try:
             # We MUST use --bundle to include icons
             # Args are built based on the selected style
+            print(f"[d2] rendering {style}...", flush=True)
             process = await asyncio.create_subprocess_exec(
                 *d2_args, d2_path, svg_path,
                 stdout=asyncio.subprocess.PIPE,
@@ -90,8 +95,9 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
             if process.returncode != 0:
                 err_msg = stderr.decode()
                 print(f"[d2] error: {err_msg}", flush=True)
+                print(f"[d2] failed code:\n{d2_code}", flush=True)
                 # Fallback to extremely simple layout if complex one fails
-                fallback_code = f'direction: right\ntitle: "{title}"\n"User" -> "System": "Interaction"'
+                fallback_code = f'direction: right\ntitle: "{title}"\n"User" -> "System": "Architecting..."'
                 with open(d2_path, "w") as f:
                     f.write(fallback_code)
                 process = await asyncio.create_subprocess_exec(

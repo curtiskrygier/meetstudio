@@ -1088,7 +1088,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
-          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.1</div>
         </div>
         <div class="body">
           <div class="hero" style="padding:40px 18px">
@@ -1112,7 +1112,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
-          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.1</div>
         </div>
         <div class="body">
           <div class="hero" style="padding:40px 18px 24px">
@@ -1163,7 +1163,7 @@ export class GdmArchitectAgent extends LitElement {
             <div class="brand-mark">${GEMINI_LOGO}</div>
             <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
           </div>
-          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.1</div>
         </div>
         <div class="body">
           <div class="hero">
@@ -1201,7 +1201,7 @@ export class GdmArchitectAgent extends LitElement {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             </button>
           ` : ''}
-          <div style="font-size:9px;color:var(--fg-4)">v18.0</div>
+          <div style="font-size:9px;color:var(--fg-4)">v18.1</div>
         </div>
       </div>
       <div class="body">
