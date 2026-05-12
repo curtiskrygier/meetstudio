@@ -287,7 +287,11 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = ""):
 async def get_session(meeting_id: str): return {"session_id": current_session.get(meeting_id, "")}
 @app.post("/api/session/{meeting_id:path}")
 async def set_session(meeting_id: str, data: dict):
-    current_session[meeting_id] = data.get("session_id", "")
+    session_id = data.get("session_id", "")
+    current_session[meeting_id] = session_id
+    # Clear stale view and notify all listeners to show placeholder
+    reset_msg = {"type": "view_change", "mode": "diagram", "diag_id": session_id, "version": 0}
+    await broadcast_to_stage(meeting_id, reset_msg)
     return {"ok": True}
 
 @app.get("/api/diagram/{diagram_id}/version")
