@@ -352,7 +352,7 @@ export class GdmArchitectAgent extends LitElement {
   private unloadHandler = () => { this.disconnect(); };
 
   firstUpdated() {
-    console.log('[concierge] build v18.0 — modular backend, layout switcher, doc previews');
+    console.log('[concierge] build v18.1 — modular backend, 16:9 optimized, cinematic UX');
     this.initializeAddon();
   }
 
