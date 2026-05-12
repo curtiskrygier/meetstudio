@@ -39,7 +39,7 @@ export class GdmArchitectAgent extends LitElement {
   @state() actionLinks: Array<{url: string; label: string; content?: string}> = [];
   @state() diagramMode = false;
   @state() diagramming = false;
-  @state() diagramStyle: 'cyber' | 'blueprint' | 'sketch' | 'google' = 'cyber';
+  @state() diagramStyle: 'cyber' | 'blueprint' | 'sketch' | 'google' = 'sketch';
   @state() diagramContext = '';
   @state() transcriptMode = false;
   @state() lastTranscriptFileId = '';
@@ -1010,10 +1010,12 @@ export class GdmArchitectAgent extends LitElement {
   }
 
   private async resetDiagram() {
+    console.log('[concierge] Resetting diagram session...');
     this.diagramContext = '';
     this.actionLinks = [];
     this.transcriptStartIndex = this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').length;
     this.diagramSessionStartTime = new Date().toISOString();
+    const oldSessionId = this.diagramSessionId;
     this.diagramSessionId = crypto.randomUUID();
     this.lastTranscriptTime = 0;
     this.lastGenerationTime = 0;
@@ -1023,25 +1025,29 @@ export class GdmArchitectAgent extends LitElement {
     const broadcastMsg = {
       type: 'view_change',
       mode: 'diagram',
-      diag_id: this.diagramSessionId
+      diag_id: this.diagramSessionId,
+      version: 0
     };
 
-    // Broadcast via WebSocket to remote participants
+    // 1. Broadcast via WebSocket to remote participants
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(broadcastMsg));
     }
 
-    // Force local stage update via SDK
+    // 2. Force local stage update via SDK
     if (this.sidePanelClient) {
       this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
     }
 
-    // Register session server-side
+    // 3. Register session server-side & purge old cache
     try {
       await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: this.diagramSessionId }),
+        body: JSON.stringify({ 
+          session_id: this.diagramSessionId,
+          purge_old: oldSessionId 
+        }),
       });
       this.status = 'Diagram reset — speak to generate';
     } catch (e: any) {

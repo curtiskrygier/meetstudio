@@ -27,7 +27,7 @@ SYSTEM_PROMPT = os.environ.get(
     "BLUEPRINT MODE: Use direction: right, layout: elk, and theme: 200. Best for structural clarity.\n"
     "SKETCH MODE: Use direction: down, layout: dagre, and sketch: true. Hand-drawn whiteboard feel.\n"
     "CYBER MODE: Use direction: right, layout: elk, and dark-theme: 200. stroke: '#00f2ff', fill: '#0b0e14'.\n\n"
-    "Default to BLUEPRINT visual style for diagrams unless the user requests otherwise."
+    "Default to SKETCH visual style for diagrams unless the user requests otherwise."
 )
 
 if not PROJECT_ID:
@@ -49,43 +49,27 @@ current_view: dict[str, dict] = {}
 stage_listeners: dict[str, set] = {} # set[WebSocket]
 
 # D2 Prompt for diagram generation
-D2_PROMPT = """You are a Master Systems Architect. Analyse the technical meeting context and generate an elite, professional D2 architecture diagram optimized for a 16:9 widescreen display.
+D2_PROMPT = """You are a Master Systems Architect. Analyse the technical meeting context and generate a professional D2 architecture diagram.
+
+CRITICAL RULE: NO HALLUCINATIONS.
+Only include components, actors, and interactions that were EXPLICITLY discussed in the meeting transcript or chat provided below. 
+- You may perform small summarisations of discussed technical points.
+- NEVER add "standard" components (like 'Load Balancer' or 'Auth Service') if they were not mentioned.
+- If you are unsure about a connection, do not draw it.
+- Every node and edge must be traceable to the provided context.
 
 Rules:
 - Output ONLY valid D2 code. No markdown, no backticks, no explanation.
 - NO SYSTEM BLOCKS: Never output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are managed by the system.
-- 16:9 LAYOUT: Always design for a wide horizontal flow. Use three clear horizontal tiers: [Ingestion/Source] -> [AI Processing] -> [Storage/Output].
-- ARCHITECTURAL LAYERS: Group all components into logical nested containers based on the 3-tier rule.
-- AI HIGHLIGHT: Wrap all AI-related components (Gemini, LLM, Vertex) in a container named "AI Reasoning".
-- DATA FLOW: Use sequence numbers (1), (2), (3)... as prefixes on ALL edge labels to show the order of operations clearly.
-- MINIMALIST NODES: Keep node labels to 1-3 keywords max (e.g., "FastAPI", "Gemini API"). Ensure labels stay within boxes.
-- DESCRIPTIVE EDGES: Use edge labels to explain the interaction (e.g., "1. Streams PCM Audio").
-- CRITICAL: Wrap EVERY node name and EVERY edge label in double quotes.
+- 16:9 LAYOUT: Design for a wide horizontal flow. Use three horizontal tiers: [Ingestion/Source] -> [AI Reasoning] -> [Storage/Output].
+- DATA FLOW: Use sequence numbers (1), (2), (3)... as prefixes on ALL edge labels.
+- MINIMALIST NODES: Keep node labels to 1-3 keywords max. Ensure labels stay within boxes.
 - ICONS: Assign icons using absolute paths: "Node Name".icon: "/app/assets/icons/<name>.svg"
 - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
-- Icon Selection:
-  - "Main Stage", "Meet", "Browser", "Add-on": Use "meet.svg"
-  - "Gemini", "LLM", "AI", "Multimodal": Use "gemini.svg"
-  - "FastAPI", "Cloud Run", "Server", "Gateway": Use "cloud_run.svg"
-  - "Drive", "Docs", "Sheets", "Archive": Use "drive.svg", "docs.svg", "sheets.svg"
-- SHAPES: Use 'square', 'circle', 'cloud', 'cylinder', 'rectangle', 'person'. Ensure shapes reflect the component type.
+- Icon Selection: Use the icon that most closely matches the discussed component.
+- SHAPES: Use 'square', 'circle', 'cloud', 'cylinder', 'rectangle', 'person'.
 
-Example:
-"Source Tier": {
-  "User".class: person
-  "Meet".icon: "/app/assets/icons/meet.svg"
-}
-"AI Reasoning": {
-  "Gemini".icon: "/app/assets/icons/gemini.svg"
-}
-"Output Tier": {
-  "Drive".icon: "/app/assets/icons/drive.svg"
-}
-"User" -> "Meet": "1. Interacts"
-"Meet" -> "Gemini": "2. Sends Audio"
-"Gemini" -> "Drive": "3. Saves Result"
-
-STRICT: If context is empty, output ONLY:
+STRICT: If context is empty or contains no architecture, output ONLY:
 "Waiting for Architecture Description...".shape: rectangle
 
 Meeting context:

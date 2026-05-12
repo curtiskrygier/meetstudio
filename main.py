@@ -288,7 +288,16 @@ async def get_session(meeting_id: str): return {"session_id": current_session.ge
 @app.post("/api/session/{meeting_id:path}")
 async def set_session(meeting_id: str, data: dict):
     session_id = data.get("session_id", "")
+    purge_old = data.get("purge_old")
     current_session[meeting_id] = session_id
+    
+    # Force purge of old session data if requested
+    if purge_old:
+        diagram_store.pop(purge_old, None)
+        diagram_version.pop(purge_old, None)
+        diagram_title.pop(purge_old, None)
+        print(f"[session] Purged old session: {purge_old}", flush=True)
+
     # Clear stale view and notify all listeners to show placeholder
     reset_msg = {"type": "view_change", "mode": "diagram", "diag_id": session_id, "version": 0}
     await broadcast_to_stage(meeting_id, reset_msg)
