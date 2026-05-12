@@ -65,6 +65,16 @@ export const mainStyles = css`
       color: var(--gem-2); cursor: pointer; transition: all 120ms;
     }
     .mode-toggle:hover { background: var(--bg-2); border-color: var(--fg-4); }
+
+    .mode-toggle-lg {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em;
+      padding: 6px 12px; border-radius: 8px;
+      background: var(--bg-3); border: 1px solid var(--line);
+      color: var(--gem-2); cursor: pointer; transition: all 120ms;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .mode-toggle-lg:hover { background: var(--bg-2); border-color: var(--fg-4); transform: translateY(-1px); }
+    .mode-toggle-lg:active { transform: translateY(0); }
     .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4); }
     
     /* Checklist */

@@ -830,6 +830,12 @@ export class GdmArchitectAgent extends LitElement {
                 <button class="ctx-send" style="background:var(--bg-3); border:1px solid var(--line); color:var(--fg-3); flex:1" @click=${() => this.resetDiagram()}>
                   New
                 </button>
+                <button class="ctx-send" style="background:var(--gem-1); flex:1.5"
+                  ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
+                  @click=${() => this.saveDiagramToDrive()}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;margin-right:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Save PNG
+                </button>
               </div>
             </div>
           ` : ''}
@@ -837,7 +843,14 @@ export class GdmArchitectAgent extends LitElement {
           <div class="section">
             <div class="section-head">
               <span class="section-title">Transcript</span>
-              <button class="mode-toggle" @click=${() => this.exportTranscript()}>Export</button>
+              ${this.lastDiagramFileId ? html`
+                <button class="mode-toggle-lg" @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px;margin-right:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Open Image
+                </button>
+              ` : html`
+                <button class="mode-toggle" @click=${() => this.exportTranscript()}>Export</button>
+              `}
             </div>
             <gdm-transcript-view .transcript=${this.transcript}></gdm-transcript-view>
           </div>

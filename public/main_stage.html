@@ -409,7 +409,10 @@
                   }
                 }
               } else if (msg.mode === 'diagram') {
-                pollDiagram(msg.version);
+                if (msg.svg) {
+                  renderInlineSVG(msg.svg);
+                  knownVersion = msg.version;
+                }
               }
             }
           } catch (e) {}
