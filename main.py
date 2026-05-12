@@ -46,13 +46,15 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Frame-Options"] = "ALLOWALL"
-        # Restored permissive CSP from 2d74378
+        # Tightened CSP whitelisting Google domains and removing unsafe-eval
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
-            "default-src * 'unsafe-inline' 'unsafe-eval'; "
-            "script-src * 'unsafe-inline' 'unsafe-eval'; "
-            "connect-src * 'unsafe-inline'; "
-            "img-src * data: blob: 'unsafe-inline';"
+            "default-src 'self' https://*.google.com; "
+            "script-src 'self' 'unsafe-inline' https://*.google.com https://*.gstatic.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "connect-src 'self' https://*.google.com wss://* ws://*; "
+            "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gstatic.com; "
+            "font-src 'self' https://fonts.gstatic.com;"
         )
         return response
 
@@ -264,13 +266,19 @@ async def live_session(websocket: WebSocket, meeting_id: str):
             recv_task.cancel()
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, meeting_id: str = ""):
+async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
+    if not await validate_google_token(token):
+        await websocket.close(code=1008) # Policy Violation
+        return
     await websocket.accept()
     try: await live_session(websocket, meeting_id)
     except WebSocketDisconnect: pass
 
 @app.websocket("/ws/stage")
-async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = ""):
+async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
+    if not await validate_google_token(token):
+        await websocket.close(code=1008) # Policy Violation
+        return
     await websocket.accept()
     if not meeting_id: await websocket.close(); return
     if meeting_id not in stage_listeners: stage_listeners[meeting_id] = set()

@@ -423,7 +423,7 @@ export class GdmArchitectAgent extends LitElement {
 
   private connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}`;
+    const url = `${proto}://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}`;
     this.ws = new WebSocket(url);
     this.ws.binaryType = 'arraybuffer';
 
@@ -720,7 +720,7 @@ export class GdmArchitectAgent extends LitElement {
     } else {
       this.transcriptMode = true;
       if (this.sidePanelClient && !this.isActivityStarted) {
-        const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}`;
+        const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}`;
         try {
           await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
           this.isActivityStarted = true;
@@ -770,7 +770,7 @@ export class GdmArchitectAgent extends LitElement {
 
       if (this.sidePanelClient) {
         if (!this.isActivityStarted) {
-          const stageUrl = `${location.origin}/main_stage.html?mode=diagram&diag_id=${encodeURIComponent(this.diagramSessionId)}&meeting=${encodeURIComponent(this.meetingId)}`;
+          const stageUrl = `${location.origin}/main_stage.html?mode=diagram&diag_id=${encodeURIComponent(this.diagramSessionId)}&meeting=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}`;
           try {
             await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
             this.isActivityStarted = true;
@@ -803,7 +803,7 @@ export class GdmArchitectAgent extends LitElement {
   private async openInMainStage(url: string, label: string, content: string = '') {
     if (this.sidePanelClient && url.includes('docs.google.com')) {
       if (!this.isActivityStarted) {
-        const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}&meeting=${encodeURIComponent(this.meetingId)}${content ? `&content=${encodeURIComponent(content)}` : ''}`;
+        const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}&meeting=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}${content ? `&content=${encodeURIComponent(content)}` : ''}`;
         try {
           await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
           this.isActivityStarted = true;

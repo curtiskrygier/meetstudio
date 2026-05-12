@@ -243,6 +243,7 @@
     let currentMode = params.get('mode') || 'placeholder';
     let diagramId = params.get('diag_id') || '';
     const meetingId = params.get('meeting') || '';
+    const accessToken = params.get('token') || '';
     let knownVersion = 0;
     let turns = [];
 
@@ -338,7 +339,7 @@
     function connectStageWS() {
       if (!meetingId) return;
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}`);
+      const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&token=${encodeURIComponent(accessToken)}`);
       
       ws.onopen = () => console.log('[stage] Caption broadcast connected');
       ws.onmessage = (e) => {
