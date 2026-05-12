@@ -72,6 +72,7 @@ Rules:
   - "Gemini" or "Virtual Architect": Use "gemini.svg"
   - "Database": Use "sql.svg" or "storage.svg"
   - "Reasoning Engine": Use "vertex_ai.svg"
+- SHAPES: Use standard D2 shapes: square, circle, cloud, cylinder, rectangle, person. (Do NOT use 'file' or 'doc').
 
 Example:
 "Client Tier": {

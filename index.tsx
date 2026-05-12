@@ -39,7 +39,7 @@ export class GdmArchitectAgent extends LitElement {
   @state() actionLinks: Array<{url: string; label: string; content?: string}> = [];
   @state() diagramMode = false;
   @state() diagramming = false;
-  @state() diagramStyle: 'cyber' | 'blueprint' | 'sketch' = 'cyber';
+  @state() diagramStyle: 'cyber' | 'blueprint' | 'sketch' | 'google' = 'cyber';
   @state() diagramContext = '';
   @state() transcriptMode = false;
   @state() lastTranscriptFileId = '';
@@ -1116,6 +1116,18 @@ export class GdmArchitectAgent extends LitElement {
         ${actionCards}
 
         <div class="section">
+          <div class="section-head"><span class="section-title">What can I say?</span></div>
+          <div class="action-list" style="gap:8px">
+            <div class="action-sub" style="font-size:11px;padding:0 4px;margin-bottom:4px">Ask Gemini to help with your workspace:</div>
+            <div class="turn-text" style="font-size:11px;opacity:0.8;padding:4px;background:rgba(255,255,255,0.03);border-radius:6px">
+              • "Create a document about our project plan"<br>
+              • "Search for the latest architectural review"<br>
+              • "Start diagramming a 3-tier web application"
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
           <div class="controls-row" style="grid-template-columns:repeat(5, 1fr)">
             <div class="ctrl" data-active="${this.audioEnabled}" @click=${() => this.toggleAudio()}>
               <div class="ctrl-icon">
@@ -1174,11 +1186,25 @@ export class GdmArchitectAgent extends LitElement {
           </div>
           <div class="layout-switcher">
             <button class="style-btn" ?data-active=${this.diagramStyle === 'blueprint'} 
-                    @click=${() => { this.diagramStyle = 'blueprint'; this.generateDiagram(); }}>Blueprint</button>
+                    @click=${() => { this.diagramStyle = 'blueprint'; this.generateDiagram(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+              Blueprint
+            </button>
             <button class="style-btn" ?data-active=${this.diagramStyle === 'sketch'} 
-                    @click=${() => { this.diagramStyle = 'sketch'; this.generateDiagram(); }}>Sketch</button>
+                    @click=${() => { this.diagramStyle = 'sketch'; this.generateDiagram(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l5 5"/></svg>
+              Sketch
+            </button>
             <button class="style-btn" ?data-active=${this.diagramStyle === 'cyber'} 
-                    @click=${() => { this.diagramStyle = 'cyber'; this.generateDiagram(); }}>Dark Flow</button>
+                    @click=${() => { this.diagramStyle = 'cyber'; this.generateDiagram(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;margin-right:4px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              Dark Flow
+            </button>
+            <button class="style-btn" ?data-active=${this.diagramStyle === 'google'} 
+                    @click=${() => { this.diagramStyle = 'google'; this.generateDiagram(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px;margin-right:4px"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+              Corporate
+            </button>
           </div>
 
           <div class="section-head" style="margin-top:16px">

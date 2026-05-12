@@ -319,7 +319,12 @@ async def export_transcript(payload: dict = Body(...)):
 async def api_diagram(payload: dict = Body(...)):
     try:
         meeting_name = await get_calendar_meeting_name(payload["space_id"], payload["access_token"])
-        diag_id, svg, title = await generate_diagram(payload["transcript"], payload.get("chat", ""), payload["space_id"], payload["access_token"], meeting_name, payload["session_id"])
+        diag_id, svg, title = await generate_diagram(
+            payload["transcript"], payload.get("chat", ""), 
+            payload["space_id"], payload["access_token"], 
+            meeting_name, payload["session_id"],
+            style=payload.get("style", "cyber")
+        )
         
         # Upload to Drive to match v17 stable behavior
         drive_file_id = await save_diagram_to_drive(svg, title, payload["space_id"], payload["access_token"], meeting_name=meeting_name)

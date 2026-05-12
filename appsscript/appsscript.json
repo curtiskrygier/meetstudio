@@ -6,7 +6,7 @@
     "https://www.googleapis.com/auth/meetings.space.readonly"
   ],
   "urlFetchWhitelist": [
-    "https://meet-live-concierge-633006702698.us-central1.run.app/"
+    "https://meet-live-concierge-ddt4x52nwq-uc.a.run.app/"
   ],
   "runtimeVersion": "V8",
   "addOns": {
@@ -19,9 +19,9 @@
       "web": {
         "logoUrl": "https://www.gstatic.com/images/branding/product/1x/diagram_48dp.png",
         "addOnOrigins": [
-          "https://meet-live-concierge-633006702698.us-central1.run.app"
+          "https://meet-live-concierge-ddt4x52nwq-uc.a.run.app"
         ],
-        "sidePanelUrl": "https://meet-live-concierge-633006702698.us-central1.run.app"
+        "sidePanelUrl": "https://meet-live-concierge-ddt4x52nwq-uc.a.run.app"
       }
     }
   }

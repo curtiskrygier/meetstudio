@@ -42,22 +42,32 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     if style == "blueprint":
         style_header = (
             "direction: right\n"
-            "vars: {\n  d2-config: {\n    layout-engine: elk\n    theme: 200\n  }\n}\n"
+            "vars: { d2-config: { layout-engine: elk; sketch: false } }\n"
+            "theme: 200\n"
         )
     elif style == "sketch":
         style_header = (
             "direction: down\n"
-            "vars: {\n  d2-config: {\n    layout-engine: dagre\n    theme: 100\n    sketch: true\n  }\n}\n"
+            "vars: { d2-config: { layout-engine: dagre; sketch: true } }\n"
+            "theme: 100\n"
+        )
+    elif style == "google":
+        style_header = (
+            "direction: right\n"
+            "vars: { d2-config: { layout-engine: elk; sketch: false } }\n"
+            "theme: 200\n"
+            "style: {\n  stroke: \"#4285F4\"\n  stroke-width: 2\n}\n"
         )
     else: # cyber (default)
         style_header = (
             "direction: right\n"
-            "vars: {\n  d2-config: {\n    layout-engine: elk\n    theme: 200\n    dark-theme: 200\n  }\n}\n"
+            "vars: { d2-config: { layout-engine: elk; sketch: false } }\n"
+            "theme: 200\n"
             "style: {\n  stroke: \"#00f2ff\"\n  fill: \"#0b0e14\"\n  stroke-width: 2\n}\n"
         )
     
-    # Remove any existing vars or direction from model to avoid conflicts
-    d2_code = re.sub(r'^(direction|vars|style|classes).*?(\n\n|\n[a-z])', '', d2_code, flags=re.DOTALL | re.MULTILINE)
+    # Remove any existing vars, direction, or theme from model to avoid conflicts
+    d2_code = re.sub(r'^(direction|vars|style|classes|theme).*?(\n\n|\n[a-z])', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
     d2_code = style_header + "\n" + d2_code
 
     # Extract title from D2 code for storage/Drive
