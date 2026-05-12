@@ -7,13 +7,13 @@ All secrets are referenced as shell variables. Set them before running any comma
 ## Variables
 
 ```bash
-export GCP_PROJECT=master-engine-495207-j8
-export GCP_PROJECT_NUMBER=633006702698
+export GCP_PROJECT=agent-archi
+export GCP_PROJECT_NUMBER=649226456677
 export REGION=us-central1
 export SERVICE_NAME=meet-live-concierge
-export CLIENT_ID=633006702698-lf3vsget4m8c7cati2k0eki33n0l19lt.apps.googleusercontent.com
-export GEMINI_PROJECT=master-engine-495207-j8
-export KORE_VOICE=Kore
+export CLIENT_ID=649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com
+export GEMINI_PROJECT=agent-archi
+export KORE_VOICE=Charon
 # Optional: export SYSTEM_PROMPT="..."
 ```
 

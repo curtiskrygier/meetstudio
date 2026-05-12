@@ -1,33 +1,35 @@
-# LLM Handoff - Meet Live Concierge
+# LLM Handoff - Meet Live Architect (Demo Ready)
 
-## Summary of Recent Changes
+## Summary of Accomplishments (May 11, 2026)
 
-### 1. Branding Updates (Completed)
-- Renamed all instances of **"Agent Archi"** to **"Gemini Agent Architect"**.
-- Updated: `public/main_stage.html`, `public/diagram_stage.html`, and status messages in `index.tsx`.
+### 1. Architectural Restoration
+- Surgically restored the **v17 UI** (Lit/TypeScript) into the **v18 modular backend** (FastAPI).
+- Aligned all identifiers with the Marketplace project **`agent-archi` (`649226456677`)**.
 
-### 2. "New" Feature Logic (Clean Slate)
-- **Voice Transcript Isolation**: Implemented `transcriptStartIndex` in `index.tsx`. Only transcript data since starting a session is sent to Gemini.
-- **Chat Message Filtering**: Implemented `diagramSessionStartTime`. Chat history from earlier in the meeting is now ignored.
-- **UI State Reset**: `actionLinks` (Workspace Actions) are now cleared when starting a new session.
+### 2. Diagramming Enhancements
+- **Layout Switcher**: Added UI buttons and backend style-prepending for 4 visual modes:
+    - **Blueprint**: Professional ELK layout, Neutral theme.
+    - **Sketch**: Hand-drawn whiteboard vibe (Dagre engine).
+    - **Dark Flow**: High-tech "Cyber" aesthetic with Cyan accents.
+    - **Corporate**: Standard Google Blue professional design.
+- **Rendering Fixes**:
+    - Re-enabled **Bundled Icons** via `--bundle` flag and absolute container paths.
+    - Fixed `KeyError` crashes using safe `.replace()` for context injection.
 
-### 3. SVG Rendering Fixes (Critical)
-- **Safe Context Insertion**: Switched from `.format()` to `.replace("{context}", context)` in `main.py`. This prevents `KeyError` crashes when meeting discussions contain curly braces (e.g., code snippets or transcription artifacts).
-- **Improved Extraction**: Implemented robust D2 code block extraction. It now correctly identifies and strips conversational text before or after the triple backticks in Gemini's response.
-- **Bundled Assets**: Added the `--bundle` flag to the `d2` command to ensure all icons and assets are embedded as data URIs in the SVG, preventing 404s on the frontend.
-- **Idiomatic D2 Config**: Moved `d2-config` to the top-level (out of `vars`) to ensure it is correctly parsed by the renderer.
+### 3. Collaborative Previews
+- **Main Stage Doc Preview**: Implemented a new text rendering area on the main stage. Shared documents now broadcast their content body for immediate visibility.
+- **Tooling**: Added `present_on_main_stage` tool to the agent's inventory.
 
-### 4. Brainstorming Mode (Backlog)
-- **Status**: Feature **rolled back** and moved to the backlog (`STATUS.md`).
-- **Reason**: Hallucinations with empty context and UI sync complexity.
+### 4. Stability & UX
+- **Transcript Record**: Included agent voice and implemented turn-based aggregation to prevent duplicates.
+- **Auth Fix**: Implemented a secure Popup OAuth flow that resolves the "Content Blocked" and "Origin Mismatch" errors (requires registering the static URL in GCP Console).
+- **Hardcoded Exports**: "Open Export" now consistently opens the latest diagram PNG.
 
-## Current Status
+## Current State & Deployment
+- **Branch**: `master` (Checkpoint: `552d945`)
+- **Cloud Run URL**: `https://meet-live-concierge-649226456677.us-central1.run.app`
+- **Apps Script**: Version 17 (ID: `AKfycbzslR7ZyhK-UsAluz2-B4n5_uNhC6iw4vCEwWMByMTWdhBIfcnAF9dhYZ60bPXXQ-OI9Q`)
 
-### 1. Deployment (Fully Restored & Robust)
-- **Status**: **Success**. The latest revision (`meet-live-concierge-00097-frw`) is live and has been verified with clean logs.
-- **Stability**: The `KeyError` has been eliminated, and diagram generation is now much more robust.
-
-## Technical Context
-- **Backend**: FastAPI / Cloud Run (`main.py`)
-- **Frontend**: Lit / TypeScript (`index.tsx`)
-- **Reasoning Engine**: Vertex AI (GE04)
+## Future Considerations
+- **Auto-Refresh Token**: Currently requires manual sign-in if the session expires (>1hr).
+- **Activity Persistence**: Ensure `isActivityStarted` handles external closures (e.g., participants closing the stage) gracefully.

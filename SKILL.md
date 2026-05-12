@@ -6,7 +6,7 @@ This add-on implements a voice-activated workspace assistant for Google Meet.
 
 ### 1. Multi-Project Architecture
 - **Identity Project**: `649226456677` — Contains the Marketplace SDK registration and OAuth Consent.
-- **Hosting Project**: `633006702698` — Contains the Cloud Run service and GCS sources.
+- **Hosting Project**: `649226456677` — Contains the Cloud Run service and GCS sources.
 - **Handshake**: `index.tsx` must use the *Identity* number for `createAddonSession`.
 
 ### 2. Audio Pipeline
