@@ -175,6 +175,8 @@ export class GdmArchitectAgent extends LitElement {
     .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-4); }
     .status-pill.live { background: var(--live-soft); border-color: rgba(52,210,122,0.35); color: #7ce0a4; }
     .status-pill.live .status-dot { background: var(--live); box-shadow: 0 0 0 3px rgba(52,210,122,0.18); animation: blink 2s ease-in-out infinite; }
+    .status-pill.disconnected { background: rgba(244,67,54,0.08); border-color: rgba(244,67,54,0.15); color: #f3a59f; }
+    .status-pill.disconnected .status-dot { background: #f44336; opacity: 0.6; }
     @keyframes blink { 50% { opacity: 0.5; } }
     .hero-title { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; margin: 2px 0 -2px; }
     .hero-title.gem { background: linear-gradient(135deg, var(--gem-1), var(--gem-2), var(--gem-3)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
@@ -363,20 +365,15 @@ export class GdmArchitectAgent extends LitElement {
       this.sidePanelClient.on('frameToFrameMessage', (arg: any) => {
         try {
           const msg = JSON.parse(arg.payload);
-          if (msg.type === 'change_mode') {
-            // Broadcast to all stages so UI syncs
-            if (this.ws?.readyState === WebSocket.OPEN) {
-              this.ws.send(JSON.stringify({
-                type: 'broadcast_view',
-                mode: 'diagram',
-                diag_id: this.diagramSessionId
-              }));
+          if (msg.type === 'broadcast_view') {
+            if (msg.mode === 'doc') {
+              this.openInMainStage(msg.url, msg.label, msg.content);
             }
           }
         } catch (e) {}
       });
 
-      this.status = 'Ready — click Connect to start';
+      this.status = this.accessToken ? 'Authenticated — click Connect' : 'Ready — click Connect to start';
     } catch (e: any) {
       this.error = `Add-on init failed: ${e.message || e}`;
     }
@@ -386,6 +383,7 @@ export class GdmArchitectAgent extends LitElement {
     return new Promise((resolve, reject) => {
       const google = (window as any).google;
       if (!google) { reject(new Error('Google Identity Services not loaded')); return; }
+      
       const client = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: [
@@ -399,12 +397,19 @@ export class GdmArchitectAgent extends LitElement {
           'email',
         ].join(' '),
         callback: (tokenResponse: any) => {
+          if (tokenResponse.error) {
+            reject(new Error(tokenResponse.error_description || tokenResponse.error));
+            return;
+          }
           this.accessToken = tokenResponse.access_token;
           resolve();
         },
-        error_callback: () => reject(new Error('Authentication failed')),
+        error_callback: (err: any) => {
+          reject(new Error(err.message || 'Authentication failed'));
+        },
       });
-      client.requestAccessToken();
+      
+      client.requestAccessToken({ prompt: 'consent' });
     });
   }
 
@@ -1048,17 +1053,39 @@ export class GdmArchitectAgent extends LitElement {
           </div>
           <div style="font-size:9px;color:var(--fg-4)">v17</div>
         </div>
-        <div class="hero">
-          <div class="orb-wrap">
-            <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
-            <div class="orb-ring"></div><div class="orb"></div>
+        <div class="body">
+          <div class="hero" style="padding:40px 18px 24px">
+            <div class="orb-wrap">
+              <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
+              <div class="orb-ring"></div><div class="orb"></div>
+            </div>
+            <div class="status-pill disconnected"><div class="status-dot"></div>${this.accessToken ? 'Authenticated' : 'Offline'}</div>
+            <div class="hero-title gem">Your AI Concierge</div>
+            <div class="hero-sub">Voice-powered workspace assistant embedded in this meeting.</div>
           </div>
-          <div class="status-pill disconnected">Disconnected</div>
-          <div class="hero-sub">${this.status}</div>
-          <button class="connect-btn" @click=${this.connect} ?disabled=${this.connecting}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z\"/><path d=\"M19 10v2a7 7 0 0 1-14 0v-2\"/><line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"23\"/></svg>
-            ${this.initialized ? 'Connect to Meeting' : 'Initialising…'}
-          </button>
+          ${this.error ? html`<div class="error-bar" style="margin-top:0">⚠ ${this.error}</div>` : ''}
+          <div class="section" style="padding-top:0">
+            ${!this.accessToken ? html`
+              <button class="cta" @click=${() => this.connect()} style="background:linear-gradient(135deg, #4285F4, #34a853)">
+                <svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:8px"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                Sign in with Google
+              </button>
+            ` : html`
+              <button class="cta" @click=${() => this.connect()} ?disabled=${!this.initialized}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+                Connect to Meeting
+              </button>
+            `}
+          </div>
+          ${actionCards}
+          <div class="section">
+            <div class="section-head"><span class="section-title">How it works</span></div>
+            <div class="tips">
+              <div class="tip"><div class="tip-num">1</div><span>Say <kbd>Hey Gemini</kbd> to activate, then speak your request</span></div>
+              <div class="tip"><div class="tip-num">2</div><span>Create docs, search the web live, or summarise the meeting</span></div>
+              <div class="tip"><div class="tip-num">3</div><span>New documents appear here and launch on the main stage for everyone</span></div>
+            </div>
+          </div>
         </div>
       `;
     }
@@ -1079,8 +1106,17 @@ export class GdmArchitectAgent extends LitElement {
               <div class="orb-ring r3"></div><div class="orb-ring r2"></div>
               <div class="orb-ring"></div><div class="orb"></div>
             </div>
-            <div class="status-pill disconnected">Connecting</div>
+            <div class="status-pill live"><div class="status-dot"></div>Connecting</div>
+            <div class="hero-title">Starting session…</div>
             <div class="hero-sub">${this.status}</div>
+          </div>
+          <div class="section">
+            <div class="conn-progress"></div>
+            <div class="checklist">
+              <div class="check done"><div class="check-tick">✓</div>Add-on initialised</div>
+              <div class="check active"><div class="check-tick"></div>Connecting to Gemini Live…</div>
+              <div class="check"><div class="check-tick"></div>Joining meeting audio</div>
+            </div>
           </div>
         </div>
       `;
