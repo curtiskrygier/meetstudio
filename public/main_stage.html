@@ -49,10 +49,11 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      /* Constrain to 16:9 but allow it to shrink to fit the screen bounds */
       width: 100%;
-      /* Force the container to respect a maximum 16:9 cinematic ratio to prevent vertical stretching */
+      max-width: calc((100vh - 200px) * (16 / 9)); 
+      max-height: calc(100vh - 200px);
       aspect-ratio: 16 / 9;
-      max-height: calc(100vh - 48px - 140px); /* Account for topbar and transcript overlay */
       margin: 0 auto;
       background: #0c0d10;
     }
@@ -95,17 +96,60 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 24px;
-      position: relative;
+      padding: 16px;
     }
-    #diagram-container svg, #diagram-container img {
-      width: 100%;
-      height: 100%;
+
+    #diagram-container svg {
+      /* Force the raw SVG to respect the flex container bounds */
+      max-width: 100%;
+      max-height: 100%;
+      width: auto !important;
+      height: auto !important;
       display: block;
-      object-fit: contain; /* Ensures the diagram scales proportionally within the 16:9 bounds */
-      background: transparent;
       border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     }
+
+    .main-stage-cmd {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 600px;
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      background: rgba(15, 15, 20, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(155, 109, 255, 0.4);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      z-index: 300;
+    }
+    .main-stage-cmd input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      padding: 8px 12px;
+      outline: none;
+    }
+    .main-stage-cmd input::placeholder { color: rgba(255, 255, 255, 0.4); }
+    .main-stage-cmd button {
+      background: #9B6DFF;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 0 20px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .main-stage-cmd button:hover { opacity: 0.85; }
 
     /* Internal Placeholder (for listening state) */
     .inner-placeholder {
@@ -232,6 +276,10 @@
     <!-- View 3: Diagram -->
     <div id="view-diagram" class="diagram-wrap hidden">
       <div id="diagram-container"></div>
+      <div class="main-stage-cmd">
+        <input type="text" id="diagram-override-input" placeholder="Tweak this diagram (e.g., 'Make it look like a cloud blueprint')..." />
+        <button id="diagram-override-btn">Update</button>
+      </div>
     </div>
   </div>
 
@@ -388,6 +436,36 @@
         const session = await meet.addon.createAddonSession({ cloudProjectNumber: '649226456677' });
         const client = await session.createMainStageClient();
         
+        // --- NEW: Command Bar Logic ---
+        const overrideInput = document.getElementById('diagram-override-input');
+        const overrideBtn = document.getElementById('diagram-override-btn');
+        
+        const sendOverride = async () => {
+          const text = overrideInput.value.trim();
+          if (!text) return;
+          
+          overrideBtn.textContent = "Updating...";
+          overrideBtn.style.opacity = "0.5";
+          
+          // Send message to Side Panel
+          await client.notifySidePanel(JSON.stringify({
+            type: 'diagram_override',
+            text: text
+          }));
+          
+          overrideInput.value = '';
+          setTimeout(() => {
+            overrideBtn.textContent = "Update";
+            overrideBtn.style.opacity = "1";
+          }, 2000);
+        };
+
+        overrideBtn.addEventListener('click', sendOverride);
+        overrideInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') sendOverride();
+        });
+        // ------------------------------
+
         client.on('frameToFrameMessage', (arg) => {
           try {
             const msg = JSON.parse(arg.payload);

@@ -128,10 +128,17 @@ export class GdmArchitectAgent extends LitElement {
       this.sidePanelClient.on('frameToFrameMessage', (arg: any) => {
         try {
           const msg = JSON.parse(arg.payload);
-          if (msg.type === 'view_change') {
-            if (msg.mode === 'doc') {
-              this.openInMainStage(msg.url, msg.label, msg.content);
-            }
+          
+          // Handle existing view_change
+          if (msg.type === 'view_change' && msg.mode === 'doc') {
+            this.openInMainStage(msg.url, msg.label, msg.content);
+          }
+          
+          // Handle new diagram_override
+          if (msg.type === 'diagram_override' && msg.text) {
+            console.log('[concierge] Main Stage override received:', msg.text);
+            this.diagramContext = msg.text; // Update local context
+            this.generateDiagram();         // Trigger the API call
           }
         } catch (e) {}
       });
