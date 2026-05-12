@@ -1,7 +1,7 @@
 {
-  "name": "meet-architect-agent",
+  "name": "meet-live-concierge",
   "private": true,
-  "version": "1.0.0",
+  "version": "18.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
