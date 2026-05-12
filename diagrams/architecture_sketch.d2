@@ -1,0 +1,44 @@
+title: "Meet Live Architect Architecture"
+
+classes: {
+  user: { shape: person }
+  interface: { shape: rectangle; style: { stroke-dash: 3 } }
+  ai: { shape: cloud; style: { stroke: "#00f2ff"; stroke-width: 3 } }
+  gateway: { shape: square }
+  storage: { shape: cylinder }
+}
+
+"Participant Tier": {
+  "Meeting Participants".class: user
+}
+
+"Google Meet Interface": {
+  "Add-on Side Panel".icon: "/app/assets/icons/meet.svg"
+  "Meet Main Stage".icon: "/app/assets/icons/meet.svg"
+}
+
+"Cloud Orchestration (FastAPI)": {
+  "Media API Ingestion".icon: "/app/assets/icons/cloud_run.svg"
+  "Session Manager".icon: "/app/assets/icons/cloud_run.svg"
+  "D2 Render Engine".icon: "/app/assets/icons/cloud.svg"
+}
+
+"AI Reasoning Tier": {
+  "Gemini Multimodal Live".icon: "/app/assets/icons/gemini.svg"
+  "Architect Agent (Flash)".icon: "/app/assets/icons/vertex_ai.svg"
+}
+
+"Output & Persistence": {
+  "Google Drive API".icon: "/app/assets/icons/drive.svg"
+  "Workspace Docs/Sheets".icon: "/app/assets/icons/docs.svg"
+}
+
+"Meeting Participants" -> "Add-on Side Panel": "(1) Connects & Voice Activation"
+"Add-on Side Panel" -> "Media API Ingestion": "(2) Streams Raw PCM Audio"
+"Media API Ingestion" -> "Gemini Multimodal Live": "(3) WebSocket Pipeline"
+"Gemini Multimodal Live" -> "Session Manager": "(4) Real-time Transcript"
+"Session Manager" -> "Architect Agent (Flash)": "(5) Request Architecture Code"
+"Architect Agent (Flash)" -> "D2 Render Engine": "(6) Generate D2 Diagram"
+"D2 Render Engine" -> "Meet Main Stage": "(7) Broadcast High-Res PNG"
+"D2 Render Engine" -> "Google Drive API": "(8) Automatic Image Export"
+"Architect Agent (Flash)" -> "Workspace Docs/Sheets": "(9) Prepare Technical Docs"
