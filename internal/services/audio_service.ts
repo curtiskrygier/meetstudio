@@ -14,20 +14,31 @@ export class AudioService {
    * Initializes both contexts. Must be called in a user gesture context.
    */
   async initialize() {
-    if (this.recordingContext) return;
+    if (this.recordingContext) {
+      console.log('[audio] already initialized, resuming...');
+      await this.resume();
+      return;
+    }
 
-    this.recordingContext = new AudioContext({ sampleRate: 16000 });
-    this.playbackContext = new AudioContext({ sampleRate: 24000 });
+    try {
+      console.log('[audio] initializing contexts (16k rec, 24k play)');
+      this.recordingContext = new AudioContext({ sampleRate: 16000 });
+      this.playbackContext = new AudioContext({ sampleRate: 24000 });
 
-    await this.recordingContext.audioWorklet.addModule('/pcm-recorder-processor.js');
-    this.workletNode = new AudioWorkletNode(this.recordingContext, 'pcm-recorder-processor');
-    
-    this.analyser = this.recordingContext.createAnalyser();
-    this.analyser.fftSize = 256;
-    this.workletNode.connect(this.analyser);
-    
-    // Playback starting point
-    this.playbackNextTime = this.playbackContext.currentTime;
+      await this.recordingContext.audioWorklet.addModule('/pcm-recorder-processor.js');
+      this.workletNode = new AudioWorkletNode(this.recordingContext, 'pcm-recorder-processor');
+      
+      this.analyser = this.recordingContext.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.workletNode.connect(this.analyser);
+      
+      this.playbackNextTime = this.playbackContext.currentTime;
+      console.log('[audio] initialized successfully');
+    } catch (e) {
+      console.error('[audio] initialization failed:', e);
+      this.disconnect();
+      throw e;
+    }
   }
 
   getAnalyser() { return this.analyser; }

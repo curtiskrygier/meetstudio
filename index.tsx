@@ -70,7 +70,7 @@ export class GdmArchitectAgent extends LitElement {
   private meetClient: MeetMediaApiClientImpl | null = null;
   private sidePanelClient: any = null;
   private isAddonInitialized = false;
-  private accessToken = '';
+  @state() private accessToken = '';
   private meetingId = '';
   private activeTrackIds = new Set<string>();
   private activeVideoTrackIds = new Set<string>();
@@ -163,11 +163,12 @@ export class GdmArchitectAgent extends LitElement {
           }
           this.accessToken = tokenResponse.access_token;
           console.log('[concierge] OAuth token acquired via popup');
+          this.requestUpdate();
           resolve();
-          // Auto-connect after successful login
-          this.connect();
         },
         error_callback: (err: any) => {
+          console.error('[concierge] OAuth error:', err);
+          this.error = `Auth failed: ${err.message || err}`;
           reject(new Error(err.message || 'Authentication failed'));
         },
       });
@@ -179,20 +180,57 @@ export class GdmArchitectAgent extends LitElement {
   private toggleAudio() { this.audioEnabled = !this.audioEnabled; }
   private toggleVideo() { this.videoEnabled = !this.videoEnabled; }
 
+  private async authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    console.log(`[concierge] auth fetch: ${url}`);
+    const headers = new Headers(options.headers || {});
+    if (this.accessToken) {
+      headers.set('Authorization', `Bearer ${this.accessToken}`);
+    }
+    const resp = await fetch(url, { ...options, headers });
+    if (!resp.ok) {
+      console.warn(`[concierge] auth fetch failed (${resp.status}): ${url}`);
+    }
+    return resp;
+  }
+
+  private async getAuthTicket(): Promise<string> {
+    try {
+      console.log('[concierge] requesting auth ticket...');
+      const resp = await this.authenticatedFetch('/api/auth/ticket');
+      if (!resp.ok) {
+        const txt = await resp.text();
+        console.error('[concierge] ticket request failed:', resp.status, txt);
+        this.error = `Server auth failed: ${resp.status}`;
+        return '';
+      }
+      const data = await resp.json();
+      console.log('[concierge] ticket acquired');
+      return data.ticket || '';
+    } catch (e: any) {
+      console.error('[concierge] ticket error:', e);
+      this.error = `Ticket error: ${e.message || e}`;
+      return '';
+    }
+  }
+
   private async connect() {
     if (!this.initialized) return;
     this.connecting = true;
     this.error = '';
 
     try {
+      // Must initialize audio context in this click handler to satisfy browser policy
       await this.audioService.initialize();
 
-      if (!this.accessToken) await this.requestOAuthToken();
+      if (!this.accessToken) {
+        await this.requestOAuthToken();
+        this.connecting = false;
+        return; // Wait for user to click "Connect" again after auth
+      }
+      
       if (!this.userEmail) {
         try {
-          const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { 'Authorization': `Bearer ${this.accessToken}` }
-          });
+          const resp = await this.authenticatedFetch('https://www.googleapis.com/oauth2/v3/userinfo');
           const info = await resp.json();
           this.userEmail = info.email || '';
           console.log('[concierge] user email:', this.userEmail);
@@ -201,7 +239,7 @@ export class GdmArchitectAgent extends LitElement {
         }
       }
 
-      this.connectWebSocket();
+      await this.connectWebSocket();
 
       this.audioService.getWorkletNode()!.port.onmessage = (e) => {
         if (!this.audioEnabled) return;
@@ -253,9 +291,10 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
-  private connectWebSocket() {
+  private async connectWebSocket() {
+    const ticket = await this.getAuthTicket();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}`;
+    const url = `${proto}://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(ticket)}`;
     
     this.wsService = new WebSocketService(
       (msg) => this.handleWebSocketMessage(msg),
@@ -367,7 +406,8 @@ export class GdmArchitectAgent extends LitElement {
     } else {
       this.transcriptMode = true;
       if (this.sidePanelClient && !this.isActivityStarted) {
-        const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}`;
+        const ticket = await this.getAuthTicket();
+        const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
         try {
           await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
           this.isActivityStarted = true;
@@ -409,7 +449,7 @@ export class GdmArchitectAgent extends LitElement {
         this.wsService?.sendJson({ type: 'diagram_mode', active: true });
       }
 
-      fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
+      this.authenticatedFetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: this.diagramSessionId }),
@@ -417,7 +457,8 @@ export class GdmArchitectAgent extends LitElement {
 
       if (this.sidePanelClient) {
         if (!this.isActivityStarted) {
-          const stageUrl = `${location.origin}/main_stage.html?mode=diagram&diag_id=${encodeURIComponent(this.diagramSessionId)}&meeting=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}`;
+          const ticket = await this.getAuthTicket();
+          const stageUrl = `${location.origin}/main_stage.html?mode=diagram&diag_id=${encodeURIComponent(this.diagramSessionId)}&meeting=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
           try {
             await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
             this.isActivityStarted = true;
@@ -440,7 +481,10 @@ export class GdmArchitectAgent extends LitElement {
       }
       this.diagramInterval = setInterval(() => {
         if (this.diagramMode && !this.diagramming && this.lastTranscriptTime > this.lastGenerationTime) {
-          this.generateDiagram();
+          // Skip auto-gen if user is actively refining context manually
+          if (!this.diagramContext.trim()) {
+            this.generateDiagram();
+          }
         }
       }, 1000);
     }
@@ -449,7 +493,8 @@ export class GdmArchitectAgent extends LitElement {
   private async openInMainStage(url: string, label: string, content: string = '') {
     if (this.sidePanelClient && url.includes('docs.google.com')) {
       if (!this.isActivityStarted) {
-        const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}&meeting=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(this.accessToken)}${content ? `&content=${encodeURIComponent(content)}` : ''}`;
+        const ticket = await this.getAuthTicket();
+        const stageUrl = `${location.origin}/main_stage.html?doc=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}&meeting=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}${content ? `&content=${encodeURIComponent(content)}` : ''}`;
         try {
           await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
           this.isActivityStarted = true;
@@ -458,7 +503,6 @@ export class GdmArchitectAgent extends LitElement {
           window.open(url, '_blank');
         }
       } else {
-        // Tell everyone's stage to switch to doc view
         if (this.wsService?.readyState === WebSocket.OPEN) {
           this.wsService?.sendJson({
             type: 'view_change',
@@ -474,15 +518,12 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
-
   private async fetchChatMessages(): Promise<string> {
     if (!this.accessToken || !this.meetingId) return '';
     try {
-      // meetingId is in spaces/xxx format — same ID the Chat API uses
       const spaceId = this.meetingId.startsWith('spaces/') ? this.meetingId : `spaces/${this.meetingId}`;
-      const resp = await fetch(
-        `https://chat.googleapis.com/v1/${spaceId}/messages?pageSize=100&orderBy=createTime asc`,
-        { headers: { 'Authorization': `Bearer ${this.accessToken}` } }
+      const resp = await this.authenticatedFetch(
+        `https://chat.googleapis.com/v1/${spaceId}/messages?pageSize=100&orderBy=createTime asc`
       );
       if (!resp.ok) {
         console.warn('[concierge] chat API', resp.status);
@@ -511,13 +552,12 @@ export class GdmArchitectAgent extends LitElement {
     const transcript = this.diagramContext.trim() || this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').substring(this.transcriptStartIndex).trim() || '';
     const chat = await this.fetchChatMessages();
     try {
-      const resp = await fetch('/api/diagram', {
+      const resp = await this.authenticatedFetch('/api/diagram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcript,
           chat,
-          access_token: this.accessToken,
           space_id: this.meetingId,
           session_id: this.diagramSessionId,
           style: this.diagramStyle,
@@ -545,18 +585,15 @@ export class GdmArchitectAgent extends LitElement {
       this.status = 'Nothing to export — speak first';
       return;
     }
-    
-    // Open window immediately to avoid popup blocker
     const driveWin = window.open('about:blank', '_blank');
     this.status = 'Exporting transcript to Doc…';
 
     try {
-      const resp = await fetch('/api/transcript/export', {
+      const resp = await this.authenticatedFetch('/api/transcript/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcript: fullTranscript,
-          access_token: this.accessToken,
           space_id: this.meetingId
         }),
       });
@@ -566,11 +603,7 @@ export class GdmArchitectAgent extends LitElement {
         this.lastTranscriptFileId = data.file_id;
         const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Transcript exported to Drive ✓';
-        if (driveWin) {
-          driveWin.location.href = driveUrl;
-        } else {
-          window.open(driveUrl, '_blank');
-        }
+        if (driveWin) driveWin.location.href = driveUrl;
       } else if (driveWin) {
         driveWin.close();
       }
@@ -585,16 +618,14 @@ export class GdmArchitectAgent extends LitElement {
       this.status = 'Cannot save — no active diagram session';
       return false;
     }
-
-    // Open window immediately to avoid popup blocker
     const driveWin = window.open('about:blank', '_blank');
     this.status = 'Saving diagram to Drive…';
     
     try {
-      const resp = await fetch(`/api/diagram/${this.diagramSessionId}/save`, {
+      const resp = await this.authenticatedFetch(`/api/diagram/${this.diagramSessionId}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token: this.accessToken, space_id: this.meetingId }),
+        body: JSON.stringify({ space_id: this.meetingId }),
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
@@ -602,11 +633,7 @@ export class GdmArchitectAgent extends LitElement {
         this.lastDiagramFileId = data.file_id;
         const driveUrl = `https://drive.google.com/file/d/${data.file_id}/view`;
         this.status = 'Diagram saved to Drive ✓';
-        if (driveWin) {
-          driveWin.location.href = driveUrl;
-        } else {
-          window.open(driveUrl, '_blank');
-        }
+        if (driveWin) driveWin.location.href = driveUrl;
         return true;
       }
       return false;
@@ -618,12 +645,7 @@ export class GdmArchitectAgent extends LitElement {
 
   private async saveAndNewDiagram() {
     const success = await this.saveDiagramToDrive();
-    if (!success) {
-      // Don't wipe if save failed
-      return;
-    }
-    
-    console.log('[concierge] Saving and starting new diagram session...');
+    if (!success) return;
     this.diagramContext = '';
     this.actionLinks = [];
     this.transcriptStartIndex = this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').length;
@@ -642,19 +664,16 @@ export class GdmArchitectAgent extends LitElement {
       version: 0
     };
 
-    // 1. Broadcast reset immediately
     if (this.wsService?.readyState === WebSocket.OPEN) {
       this.wsService?.sendJson(broadcastMsg);
     }
 
-    // 2. Force local stage update via SDK
     if (this.sidePanelClient) {
       this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
     }
 
-    // 3. Register session server-side & purge old cache
     try {
-      await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
+      await this.authenticatedFetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -688,19 +707,16 @@ export class GdmArchitectAgent extends LitElement {
       version: 0
     };
 
-    // 1. Broadcast via WebSocket to remote participants
     if (this.wsService?.readyState === WebSocket.OPEN) {
       this.wsService?.sendJson(broadcastMsg);
     }
 
-    // 2. Force local stage update via SDK
     if (this.sidePanelClient) {
       this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
     }
 
-    // 3. Register session server-side & purge old cache
     try {
-      await fetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
+      await this.authenticatedFetch(`/api/session/${encodeURIComponent(this.meetingId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -745,14 +761,14 @@ export class GdmArchitectAgent extends LitElement {
         ${!this.connected && !this.connecting ? html`
           <div class="section" style="padding-top:0">
             ${!this.accessToken ? html`
-              <button class="cta google" @click=${() => this.requestOAuthToken()}>
+              <button class="cta google" @click=${() => this.requestOAuthToken().catch(e => console.error('[concierge] click-auth error:', e))}>
                 <svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:8px"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
                 Sign in with Google
               </button>
             ` : html`
               <button class="cta" @click=${() => this.connect()}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
-                Connect to Meeting
+                Join & Start Audio
               </button>
             `}
           </div>

@@ -49,8 +49,7 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      padding: 0;
-      padding-bottom: 150px; /* Force diagram up to avoid captions */
+      padding: 20px;
       width: 100%;
     }
 
@@ -63,6 +62,7 @@
       text-align: center;
       max-width: 560px;
       width: 90%;
+      z-index: 10;
     }
     .doc-btn {
       display: inline-block;
@@ -83,7 +83,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #0c0d10; /* Match body background */
+      background: transparent;
     }
     #diagram-container {
       width: 100%;
@@ -91,18 +91,16 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 20px;
+      padding: 0;
       position: relative;
     }
-    #diagram-container img {
-      width: 100%;
-      height: 100%;
+    #diagram-container svg {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       display: block;
-      object-fit: contain;
-      background: #fff;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      filter: drop-shadow(0 10px 40px rgba(0,0,0,0.5));
     }
 
     /* Internal Placeholder (for listening state) */
@@ -243,7 +241,7 @@
     let currentMode = params.get('mode') || 'placeholder';
     let diagramId = params.get('diag_id') || '';
     const meetingId = params.get('meeting') || '';
-    const accessToken = params.get('token') || '';
+    const ticket = params.get('ticket') || '';
     let knownVersion = 0;
     let turns = [];
 
@@ -302,44 +300,28 @@
       existing.element.querySelector('.content').textContent = text;
     }
 
-    async function pollDiagram(pushedVersion = null) {
-      if (currentMode !== 'diagram' || !diagramId) return;
+    function renderInlineSVG(base64) {
       try {
-        let version = pushedVersion;
-        if (!version) {
-          const vResp = await fetch(`/api/diagram/${diagramId}/version`);
-          if (!vResp.ok) return;
-          const data = await vResp.json();
-          version = data.version;
-        }
-
-        if (version > knownVersion) {
-          const container = document.getElementById('diagram-container');
-          const imgUrl = `/api/diagram/${diagramId}.png?v=${version}`;
-          
-          // Preload to prevent 'blank page' during download
-          const img = new Image();
-          img.onload = () => {
-            // Only update if we're still in diagram mode and for this ID
-            if (currentMode === 'diagram') {
-              container.innerHTML = '';
-              img.alt = "Architecture Diagram";
-              container.appendChild(img);
-              knownVersion = version;
-              console.log('[stage] Diagram swapped to v' + version);
-            }
-          };
-          img.src = imgUrl;
+        const svg = atob(base64);
+        const container = document.getElementById('diagram-container');
+        container.innerHTML = svg;
+        
+        // Let CSS handle scaling; just ensure it's visible with a transition
+        const svgEl = container.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.opacity = '0';
+          svgEl.style.transition = 'opacity 400ms ease-out';
+          requestAnimationFrame(() => svgEl.style.opacity = '1');
         }
       } catch (e) {
-        console.warn('[stage] pollDiagram error:', e);
+        console.error('[stage] SVG render failed:', e);
       }
     }
 
     function connectStageWS() {
       if (!meetingId) return;
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&token=${encodeURIComponent(accessToken)}`);
+      const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&ticket=${encodeURIComponent(ticket)}`);
       
       ws.onopen = () => console.log('[stage] Caption broadcast connected');
       ws.onmessage = (e) => {
@@ -354,6 +336,10 @@
                 knownVersion = 0;
                 showDiagramPlaceholder();
               }
+              if (msg.svg) {
+                renderInlineSVG(msg.svg);
+                knownVersion = msg.version;
+              }
             }
             setView(msg.mode);
             if (msg.mode === 'doc') {
@@ -366,8 +352,6 @@
                   previewEl.classList.remove('hidden');
                 }
               }
-            } else if (msg.mode === 'diagram') {
-              pollDiagram(msg.version);
             }
           }
         } catch (err) {}
@@ -391,10 +375,8 @@
     } else if (diagramId || params.get('mode') === 'diagram') {
       showDiagramPlaceholder();
       setView('diagram');
-      pollDiagram();
     }
 
-    setInterval(pollDiagram, 5000);
     connectStageWS();
 
     (async () => {

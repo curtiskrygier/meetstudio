@@ -28,7 +28,7 @@ async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
     elif style == "sketch":
         style_header = "direction: down\n"
         style_header += global_style
-        d2_args.extend(["-l", "dagre", "-t", "100", "--sketch"])
+        d2_args.extend(["-l", "dagre", "-t", "200", "--sketch"])
     elif style == "google":
         d2_args.extend(["-l", "elk", "-t", "200"])
         style_header += 'style: {\n  font-size: 14\n  stroke: "#4285F4"\n  stroke-width: 2\n}\n'

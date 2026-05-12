@@ -35,8 +35,8 @@ export class WebSocketService {
         try {
           const msg = JSON.parse(e.data);
           this.onMessage(msg);
-        } catch (e) {
-          console.error('[ws] Parse error:', e);
+        } catch (err) {
+          console.error('[ws] parse error:', err, e.data);
         }
       }
     };

@@ -7,7 +7,7 @@ import uuid as uuid_lib
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body, Depends, HTTPException
 from fastapi.responses import FileResponse, Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -42,7 +42,18 @@ from google.genai import types
 
 @asynccontextmanager
 async def lifespan(app):
+    # Cleanup task for expired tickets
+    async def cleanup_tickets():
+        while True:
+            await asyncio.sleep(300) # every 5 mins
+            now = datetime.now(timezone.utc)
+            expired = [t for t, (tok, exp) in auth_tickets.items() if exp < now]
+            for t in expired: auth_tickets.pop(t, None)
+            if expired: logger.info(f"[auth] Purged {len(expired)} expired tickets")
+    
+    task = asyncio.create_task(cleanup_tickets())
     yield
+    task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -50,19 +61,36 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Frame-Options"] = "ALLOWALL"
-        # Tightened CSP whitelisting Google domains and removing unsafe-eval
+        # Expanding CSP to ensure no internal Google signaling is blocked
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
-            "default-src 'self' https://*.google.com; "
-            "script-src 'self' 'unsafe-inline' https://*.google.com https://*.gstatic.com https://*.googleapis.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "connect-src 'self' https://*.google.com https://*.googleapis.com wss://* ws://* *; "
-            "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gstatic.com; "
-            "font-src 'self' https://fonts.gstatic.com;"
+            "default-src 'self' 'unsafe-inline' https://*.google.com https://*.googleusercontent.com; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://*.google.com https://*.gstatic.com https://*.googleapis.com https://*.googleusercontent.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.google.com; "
+            "connect-src 'self' https://*.google.com https://*.googleapis.com https://*.google-analytics.com wss://* ws://* *; "
+            "img-src * data: blob:; "
+            "font-src 'self' data: https://fonts.gstatic.com https://*.google.com;"
         )
         return response
 
 app.add_middleware(MeetFramingMiddleware)
+
+import secrets
+
+# Ticket system for Stage WS to avoid raw tokens in URL params
+# {ticket_id: (token, expiry)}
+auth_tickets: dict[str, tuple[str, datetime]] = {}
+
+async def get_token_from_header(request: Request) -> str:
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    return auth[7:]
+
+async def token_required(token: str = Depends(get_token_from_header)):
+    if not await validate_google_token(token):
+        raise HTTPException(status_code=403, detail="Invalid or expired Google token")
+    return token
 
 async def broadcast_to_stage(meeting_id: str, message: dict):
     if not meeting_id: return
@@ -272,22 +300,35 @@ async def live_session(websocket: WebSocket, meeting_id: str):
             stop_event.set()
             recv_task.cancel()
 
+@app.get("/api/auth/ticket")
+async def create_auth_ticket(token: str = Depends(token_required)):
+    """Create a short-lived ticket to authenticate a secondary client (like the stage) without passing the raw token in the URL."""
+    ticket = secrets.token_urlsafe(32)
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    auth_tickets[ticket] = (token, expiry)
+    return {"ticket": ticket}
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
-    if not await validate_google_token(token):
-        logger.warning(f"[ws] handshake rejected: invalid token for meeting {meeting_id}")
-        await websocket.close(code=1008) # Policy Violation
+    # We use the 'token' param name for compatibility with index.tsx but it now expects a Ticket
+    ticket_data = auth_tickets.get(token)
+    if not ticket_data or ticket_data[1] < datetime.now(timezone.utc):
+        logger.warning(f"[ws] handshake rejected: invalid or expired ticket for meeting {meeting_id}")
+        await websocket.close(code=1008)
         return
     await websocket.accept()
     try: await live_session(websocket, meeting_id)
     except WebSocketDisconnect: pass
 
 @app.websocket("/ws/stage")
-async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
-    if not await validate_google_token(token):
-        logger.warning(f"[ws/stage] handshake rejected: invalid token for meeting {meeting_id}")
-        await websocket.close(code=1008) # Policy Violation
+async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
+    # Stage client uses short-lived ticket
+    ticket_data = auth_tickets.get(ticket)
+    if not ticket_data or ticket_data[1] < datetime.now(timezone.utc):
+        logger.warning(f"[ws/stage] rejected: invalid or expired ticket")
+        await websocket.close(code=1008)
         return
+    
     await websocket.accept()
     if not meeting_id: await websocket.close(); return
     if meeting_id not in stage_listeners: stage_listeners[meeting_id] = set()
@@ -303,36 +344,36 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", token: s
             if not stage_listeners[meeting_id]: del stage_listeners[meeting_id]
 
 @app.get("/api/session/{meeting_id:path}")
-async def get_session(meeting_id: str): return {"session_id": current_session.get(meeting_id, "")}
+async def get_session(meeting_id: str, _=Depends(token_required)): 
+    return {"session_id": current_session.get(meeting_id, "")}
+
 @app.post("/api/session/{meeting_id:path}")
-async def set_session(meeting_id: str, data: dict):
+async def set_session(meeting_id: str, data: dict, _=Depends(token_required)):
     session_id = data.get("session_id", "")
     purge_old = data.get("purge_old")
     current_session[meeting_id] = session_id
-    
-    # Force purge of old session data if requested
     if purge_old:
         diagram_store.pop(purge_old, None)
         diagram_version.pop(purge_old, None)
         diagram_title.pop(purge_old, None)
         logger.info(f"[session] Purged old session: {purge_old}")
-
-    # Clear stale view and notify all listeners to show placeholder
     reset_msg = {"type": "view_change", "mode": "diagram", "diag_id": session_id, "version": 0}
     await broadcast_to_stage(meeting_id, reset_msg)
     return {"ok": True}
 
 @app.get("/api/diagram/{diagram_id}/version")
-async def get_version(diagram_id: str): return {"version": diagram_version.get(diagram_id, 0)}
+async def get_version(diagram_id: str, _=Depends(token_required)): 
+    return {"version": diagram_version.get(diagram_id, 0)}
+
 @app.get("/api/diagram/{diagram_id}.png")
-async def get_png(diagram_id: str):
+async def get_png(diagram_id: str, _=Depends(token_required)):
     svg = diagram_store.get(diagram_id)
     if not svg: return FastAPIResponse(status_code=404)
     png = await asyncio.get_event_loop().run_in_executor(None, svg_to_png, svg)
     return FastAPIResponse(content=png, media_type="image/png")
 
 @app.post("/api/render")
-async def api_render_d2(payload: dict):
+async def api_render_d2(payload: dict, _=Depends(token_required)):
     d2_code = payload.get("d2", "")
     style = payload.get("style", "cyber")
     if not d2_code: return FastAPIResponse(status_code=400)
@@ -343,18 +384,17 @@ async def api_render_d2(payload: dict):
     return FastAPIResponse(content=svg, media_type="image/svg+xml")
 
 @app.post("/api/transcript/export")
-async def export_transcript(payload: dict = Body(...)):
-    # ... (keeping simplified export logic for now)
+async def export_transcript(payload: dict = Body(...), token: str = Depends(token_required)):
     try:
-        meeting_name = await get_calendar_meeting_name(payload["space_id"], payload["access_token"])
-        folder_id = await get_or_create_meeting_folder(payload["space_id"], payload["access_token"], meeting_name=meeting_name)
+        meeting_name = await get_calendar_meeting_name(payload["space_id"], token)
+        folder_id = await get_or_create_meeting_folder(payload["space_id"], token, meeting_name=meeting_name)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post("https://www.googleapis.com/drive/v3/files", params={"supportsAllDrives": "true"},
                 json={"name": f"Transcript: {meeting_name or payload['space_id']}", "mimeType": "application/vnd.google-apps.document", "parents": [folder_id] if folder_id else []},
-                headers={"Authorization": f"Bearer {payload['access_token']}"})
+                headers={"Authorization": f"Bearer {token}"})
             file_id = resp.json()["id"]
             await client.patch(f"https://www.googleapis.com/drive/v3/files/{file_id}?uploadType=media", params={"supportsAllDrives": "true"},
-                content=payload["transcript"].encode("utf-8"), headers={"Authorization": f"Bearer {payload['access_token']}", "Content-Type": "text/plain"})
+                content=payload["transcript"].encode("utf-8"), headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"})
         logger.info(f"[export] Created document {file_id}")
         return {"ok": True, "file_id": file_id}
     except Exception as e:
@@ -362,24 +402,29 @@ async def export_transcript(payload: dict = Body(...)):
         return {"error": str(e)}
 
 @app.post("/api/diagram")
-async def api_diagram(payload: dict = Body(...)):
+async def api_diagram(payload: dict = Body(...), token: str = Depends(token_required)):
     try:
-        meeting_name = await get_calendar_meeting_name(payload["space_id"], payload["access_token"])
+        meeting_name = await get_calendar_meeting_name(payload["space_id"], token)
         diag_id, svg, title = await generate_diagram(
             payload["transcript"], payload.get("chat", ""), 
-            payload["space_id"], payload["access_token"], 
+            payload["space_id"], token, 
             meeting_name, payload["session_id"],
             style=payload.get("style", "cyber")
         )
+        drive_file_id = await save_diagram_to_drive(svg, title, payload["space_id"], token, meeting_name=meeting_name)
         
-        # Upload to Drive to match v17 stable behavior
-        drive_file_id = await save_diagram_to_drive(svg, title, payload["space_id"], payload["access_token"], meeting_name=meeting_name)
-        
-        await broadcast_to_stage(payload["space_id"], {"type": "view_change", "mode": "diagram", "diag_id": diag_id, "version": diagram_version.get(diag_id, 1)})
+        # Stream the SVG directly over WebSocket to bypass auth/latency bottlenecks
+        svg_base64 = base64.b64encode(svg).decode('utf-8')
+        await broadcast_to_stage(payload["space_id"], {
+            "type": "view_change", 
+            "mode": "diagram", 
+            "diag_id": diag_id, 
+            "version": diagram_version.get(diag_id, 1),
+            "svg": svg_base64
+        })
         return {"id": diag_id, "title": title, "drive_file_id": drive_file_id}
     except Exception as e:
         logger.error(f"[api_diagram] error: {e}")
-        logger.debug(traceback.format_exc())
         return {"error": str(e)}
 
 @app.post("/api/diagram/{diagram_id}/save")
