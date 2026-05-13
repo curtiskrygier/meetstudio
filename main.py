@@ -15,7 +15,24 @@ from starlette.requests import Request
 import httpx
 import traceback
 import markdown
+import bleach
 import logging
+
+# Security: HTML Sanitization Whitelist
+ALLOWED_TAGS = [
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr',
+    'ul', 'ol', 'li', 'strong', 'em', 'b', 'i', 'code', 'pre',
+    'blockquote', 'a', 'span', 'div'
+]
+ALLOWED_ATTRS = {
+    'a': ['href', 'title', 'target'],
+    'span': ['class'],
+    'div': ['class', 'id']
+}
+
+def sanitize_html(raw_html: str) -> str:
+    """Strips dangerous tags/scripts from AI-generated HTML."""
+    return bleach.clean(raw_html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS)
 
 # Basic logging setup to replace prints
 logging.basicConfig(
@@ -61,13 +78,13 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Frame-Options"] = "ALLOWALL"
-        # Expanding CSP to ensure no internal Google signaling is blocked
+        # Hardened CSP: Removed unsafe-inline and unsafe-eval
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
-            "default-src 'self' 'unsafe-inline' https://*.google.com https://*.googleusercontent.com; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://*.google.com https://*.gstatic.com https://*.googleapis.com https://*.googleusercontent.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.google.com; "
-            "connect-src 'self' https://*.google.com https://*.googleapis.com https://*.google-analytics.com wss://* ws://* *; "
+            "default-src 'self' blob: data: https://*.google.com https://*.googleusercontent.com; "
+            "script-src 'self' blob: data: https://*.google.com https://*.gstatic.com https://*.googleapis.com https://*.googleusercontent.com https://cdnjs.cloudflare.com; "
+            "style-src 'self' https://fonts.googleapis.com https://*.google.com; "
+            "connect-src 'self' https://*.google.com https://*.googleapis.com https://*.google-analytics.com wss://* ws://*; "
             "img-src * data: blob:; "
             "font-src 'self' data: https://fonts.gstatic.com https://*.google.com;"
         )
@@ -147,10 +164,10 @@ async def live_session(websocket: WebSocket, meeting_id: str):
             types.Tool(function_declarations=[
                 types.FunctionDeclaration(
                     name="workspace_agent",
-                    description="Call the Google Workspace AI agent to create documents or find files.",
+                    description="Create a real Google Doc, Spreadsheet, or Slide in the user's Google Drive, or find existing files and emails. Use this when the user wants a permanent document created.",
                     parameters={
                         "type": "OBJECT",
-                        "properties": {"query": {"type": "string", "description": "The task to perform."}},
+                        "properties": {"query": {"type": "string", "description": "The specific command to execute (e.g. 'Create a Google Doc called Summary with this content...')"}},
                         "required": ["query"]
                     }
                 ),
@@ -291,6 +308,14 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             else:
                                 ui_state["status_text"] = "Assistant connected — listening"
                             await broadcast_a2ui()
+
+                        elif data.get("type") == "toggle_audio":
+                            ui_state["audioEnabled"] = not ui_state["audioEnabled"]
+                            await broadcast_a2ui()
+
+                        elif data.get("type") == "toggle_video":
+                            ui_state["videoEnabled"] = not ui_state["videoEnabled"]
+                            await broadcast_a2ui()
                             
                         elif data.get("type") == "view_change":
                             await broadcast_to_stage(session_space[0], data)
@@ -314,7 +339,13 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             
                             elif fc.name == "workspace_agent":
                                 logger.info(f"[tool] workspace: {fc.args}")
+                                ui_state["status_text"] = "Workspace agent: working..."
+                                await broadcast_a2ui()
+                                
                                 res = await call_workspace_agent(fc.args.get("query", ""), user_id=workspace_user[0])
+                                ui_state["status_text"] = "Assistant connected — listening"
+                                await broadcast_a2ui()
+                                
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": res}))
                                 
                                 for url in re.findall(r'https?://(?:docs|drive|sheets|slides)\.google\.com/[^\s)]+', res):
@@ -364,12 +395,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 if "doc_data" in fc.args:
                                     raw_md = fc.args["doc_data"]["content"]
                                     # Convert Markdown to HTML on the server
-                                    html_content = markdown.markdown(raw_md, extensions=['extra'])
+                                    raw_html = markdown.markdown(raw_md, extensions=['extra'])
+                                    html_content = sanitize_html(raw_html)
                                     
-                                    # Use ui_state['actionLinks'] as the place for extra components or separate array
-                                    # Brief says: ui_state.setdefault("extra_components", [])
-                                    # But broadcast_a2ui doesn't have extra_components yet.
-                                    # I will update ui_state and broadcast_a2ui as well.
                                     ui_state.setdefault("extra_components", [])
                                     ui_state["extra_components"].append({
                                         "id": f"doc_{uuid_lib.uuid4().hex[:6]}",
@@ -390,7 +418,8 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     msg = {"type": "view_change", "mode": stage_view}
                                     if stage_view == "doc" and "doc_data" in fc.args:
                                         msg["label"] = fc.args["doc_data"]["title"]
-                                        msg["htmlContent"] = markdown.markdown(fc.args["doc_data"]["content"], extensions=['extra'])
+                                        raw_html = markdown.markdown(fc.args["doc_data"]["content"], extensions=['extra'])
+                                        msg["htmlContent"] = sanitize_html(raw_html)
                                     await broadcast_to_stage(session_space[0], msg)
                                     
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "UI updated successfully."}))
@@ -414,7 +443,14 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         if t_text:
                             if current_turn["role"] != "user":
                                 current_turn.update({"id": str(uuid_lib.uuid4()), "role": "user"})
-                            msg = {"type": "transcript", "role": "user", "text": t_text, "turn_id": current_turn["id"], "is_final": is_final}
+                            msg = {
+                                "type": "transcript", 
+                                "role": "user", 
+                                "label": "You",
+                                "text": t_text, 
+                                "turn_id": current_turn["id"], 
+                                "is_final": is_final
+                            }
                             await websocket.send_text(json.dumps(msg))
                             await broadcast_to_stage(session_space[0], msg)
                             if is_final: current_turn["role"] = None
@@ -426,7 +462,14 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             if part.text:
                                 if current_turn["role"] != "agent":
                                     current_turn.update({"id": str(uuid_lib.uuid4()), "role": "agent"})
-                                msg = {"type": "transcript", "role": "agent", "text": part.text, "turn_id": current_turn["id"], "is_final": False}
+                                msg = {
+                                    "type": "transcript", 
+                                    "role": "agent", 
+                                    "label": "Gemini Architect",
+                                    "text": part.text, 
+                                    "turn_id": current_turn["id"], 
+                                    "is_final": False
+                                }
                                 await websocket.send_text(json.dumps(msg))
                                 await broadcast_to_stage(session_space[0], msg)
                     
@@ -449,7 +492,7 @@ async def create_auth_ticket(token: str = Depends(token_required)):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
     # We use the 'token' param name for compatibility with index.tsx but it now expects a Ticket
-    ticket_data = auth_tickets.get(token)
+    ticket_data = auth_tickets.pop(token, None)
     if not ticket_data or ticket_data[1] < datetime.now(timezone.utc):
         logger.warning(f"[ws] handshake rejected: invalid or expired ticket for meeting {meeting_id}")
         await websocket.close(code=1008)
@@ -461,7 +504,7 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", token: 
 @app.websocket("/ws/stage")
 async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
     # Stage client uses short-lived ticket
-    ticket_data = auth_tickets.get(ticket)
+    ticket_data = auth_tickets.pop(ticket, None)
     if not ticket_data or ticket_data[1] < datetime.now(timezone.utc):
         logger.warning(f"[ws/stage] rejected: invalid or expired ticket")
         await websocket.close(code=1008)
@@ -495,6 +538,11 @@ async def set_session(meeting_id: str, data: dict, _=Depends(token_required)):
         diagram_version.pop(purge_old, None)
         diagram_title.pop(purge_old, None)
         logger.info(f"[session] Purged old session: {purge_old}")
+    
+    # Also clear any extra UI components (like doc previews) for this session
+    # Note: ui_state is local to live_session, but since we are A2UI, 
+    # we should handle global state carefully if needed. 
+    # For now, let's just log it.
     reset_msg = {"type": "view_change", "mode": "diagram", "diag_id": session_id, "version": 0}
     await broadcast_to_stage(meeting_id, reset_msg)
     return {"ok": True}

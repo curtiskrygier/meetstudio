@@ -182,8 +182,17 @@ export class GdmArchitectAgent extends LitElement {
     });
   }
 
-  private toggleAudio() { this.audioEnabled = !this.audioEnabled; }
-  private toggleVideo() { this.videoEnabled = !this.videoEnabled; }
+  private toggleAudio() {
+    if (this.wsService?.readyState === WebSocket.OPEN) {
+      this.wsService?.sendJson({ type: 'toggle_audio' });
+    }
+  }
+
+  private toggleVideo() {
+    if (this.wsService?.readyState === WebSocket.OPEN) {
+      this.wsService?.sendJson({ type: 'toggle_video' });
+    }
+  }
 
   private async authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
     console.log(`[concierge] auth fetch: ${url}`);
@@ -346,8 +355,8 @@ export class GdmArchitectAgent extends LitElement {
     }
 
     if (msg.type === 'transcript') {
-      const { turn_id, role, text } = msg;
-      const roleLabel = role === 'agent' ? 'Gemini Architect' : 'User';
+      const { turn_id, role, text, label } = msg;
+      const roleLabel = label || (role === 'agent' ? 'Gemini Architect' : 'User');
       
       let updated = false;
       const newTranscript = this.transcript.map(t => {

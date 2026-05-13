@@ -1,6 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import DOMPurify from 'dompurify';
 
 @customElement('gdm-doc-view')
 export class GdmDocView extends LitElement {
@@ -21,7 +22,7 @@ export class GdmDocView extends LitElement {
   render() {
     return html`
       ${this.title ? html`<div class="doc-title">📄 ${this.title}</div>` : ''}
-      <div class="markdown-body">${unsafeHTML(this.htmlContent || '<em>No content provided.</em>')}</div>
+      <div class="markdown-body">${unsafeHTML(DOMPurify.sanitize(this.htmlContent) || '<em>No content provided.</em>')}</div>
     `;
   }
 }

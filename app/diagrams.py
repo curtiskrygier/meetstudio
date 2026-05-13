@@ -11,9 +11,20 @@ logger = logging.getLogger("concierge")
 
 async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
     """Renders raw D2 code to SVG bytes using the local d2 binary and system style headers."""
+    # SECURITY: Strip comments first to prevent bypasses
+    d2_code = re.sub(r'#.*$', '', d2_code, flags=re.MULTILINE)
+    
+    # SECURITY: Block 'include' and '@' (which can be used for imports/exec)
+    if re.search(r'\binclude\b', d2_code, re.IGNORECASE) or '@' in d2_code:
+        logger.warning(f"D2 security violation: forbidden keyword or character detected.")
+        return b"", "D2 security violation: 'include' and '@' are forbidden."
+
     # SYSTEM BLOCK REMOVAL: Model occasionally outputs direction or vars even when forbidden
-    d2_code = re.sub(r'^(direction|vars|style|classes|theme|layout):\s*.*$', '', d2_code, flags=re.MULTILINE | re.IGNORECASE)
-    d2_code = re.sub(r'^(vars|style|classes)\s*\{.*?\}\s*$', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    # We remove these to ensure our system styles (direction: right, etc.) take precedence
+    forbidden_blocks = ['direction', 'vars', 'style', 'classes', 'theme', 'layout']
+    for block in forbidden_blocks:
+        d2_code = re.sub(rf'^{block}\s*:.*$', '', d2_code, flags=re.MULTILINE | re.IGNORECASE)
+        d2_code = re.sub(rf'^{block}\s*\{{.*?\}}', '', d2_code, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
     
     # PREPEND STYLE WRAPPER
     classes = "classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud};app:{shape:rectangle}}\n"

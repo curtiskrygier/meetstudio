@@ -4,3 +4,4 @@ uvicorn[standard]
 google-genai
 httpx
 markdown
+bleach
