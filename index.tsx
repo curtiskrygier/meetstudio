@@ -15,6 +15,7 @@ import './internal/components/gdm_actions_view';
 import './internal/components/gdm_controls_view';
 import './internal/components/gdm_status_view';
 import './internal/components/gdm_doc_view';
+import './internal/components/gdm_diagram_refiner';
 
 import { mainStyles } from './internal/styles';
 
@@ -130,10 +131,17 @@ export class GdmArchitectAgent extends LitElement {
       this.sidePanelClient.on('frameToFrameMessage', (arg: any) => {
         try {
           const msg = JSON.parse(arg.payload);
-          if (msg.type === 'view_change') {
-            if (msg.mode === 'doc') {
-              this.openInMainStage(msg.url, msg.label, msg.content);
-            }
+          
+          // Handle existing view_change
+          if (msg.type === 'view_change' && msg.mode === 'doc') {
+            this.openInMainStage(msg.url, msg.label, msg.content);
+          }
+          
+          // Handle new diagram_override
+          if (msg.type === 'diagram_override' && msg.text) {
+            console.log('[concierge] Main Stage override received:', msg.text);
+            this.diagramContext = msg.text; // Update local context
+            this.generateDiagram();         // Trigger the API call
           }
         } catch (e) {}
       });
@@ -780,6 +788,33 @@ export class GdmArchitectAgent extends LitElement {
         return html`<gdm-actions-view .actions=${comp.props.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`;
       case 'gdm-doc-view':
         return html`<gdm-doc-view .title=${comp.props.title} .htmlContent=${comp.props.htmlContent}></gdm-doc-view>`;
+      case 'gdm-diagram-refiner':
+        return html`<gdm-diagram-refiner 
+          .diagramStyle=${this.diagramStyle} 
+          .context=${this.diagramContext}
+          .generating=${this.diagramming}
+          .canSave=${!!(this.diagramSessionId && this.lastGenerationTime)}
+          @change-style=${(e: any) => { this.diagramStyle = e.detail; this.generateDiagram(); }}
+          @update-context=${(e: any) => this.diagramContext = e.detail}
+          @generate=${() => this.generateDiagram()}
+          @new=${() => this.resetDiagram()}
+          @save=${() => this.saveDiagramToDrive()}>
+        </gdm-diagram-refiner>`;
+      case 'gdm-transcript-view':
+        return html`
+          <div class="section-head">
+            <span class="section-title">Transcript</span>
+            ${this.lastDiagramFileId ? html`
+              <button class="mode-toggle-lg" @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px;margin-right:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Open Image
+              </button>
+            ` : html`
+              <button class="mode-toggle" @click=${() => this.exportTranscript()}>Export</button>
+            `}
+          </div>
+          <gdm-transcript-view .transcript=${this.transcript}></gdm-transcript-view>
+        `;
       default:
         return html``;
     }
@@ -857,52 +892,6 @@ export class GdmArchitectAgent extends LitElement {
 
         ${this.connected ? html`
           ${this.components.map(comp => html`<div class="section">${this.renderComponent(comp)}</div>`)}
-
-          ${this.components.find(c => c.id === 'control_bar')?.props.diagramMode ? html`
-            <div class="section">
-              <div class="section-head"><span class="section-title">Diagram Visuals</span></div>
-              <div class="layout-switcher">
-                ${['blueprint', 'sketch', 'cyber', 'google'].map(s => html`
-                  <button class="style-btn" ?data-active=${this.diagramStyle === s} 
-                          @click=${() => { this.diagramStyle = s as any; this.generateDiagram(); }}>
-                    ${s.toUpperCase()}
-                  </button>
-                `)}
-              </div>
-              <textarea class="ctx-input" placeholder="Refine your architecture description here..."
-                .value=${this.diagramContext}
-                @input=${(e: any) => this.diagramContext = e.target.value}></textarea>
-              <div style="display:flex; gap:8px; margin-top:12px">
-                <button class="ctx-send" style="flex:1" ?disabled=${this.diagramming} @click=${() => this.generateDiagram()}>
-                  ${this.diagramming ? 'Generating…' : 'Update'}
-                </button>
-                <button class="ctx-send" style="background:var(--bg-3); border:1px solid var(--line); color:var(--fg-3); flex:1" @click=${() => this.resetDiagram()}>
-                  New
-                </button>
-                <button class="ctx-send" style="background:var(--gem-1); flex:1.5"
-                  ?disabled=${!this.diagramSessionId || !this.lastGenerationTime}
-                  @click=${() => this.saveDiagramToDrive()}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;margin-right:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  Save PNG
-                </button>
-              </div>
-            </div>
-          ` : ''}
-
-          <div class="section">
-            <div class="section-head">
-              <span class="section-title">Transcript</span>
-              ${this.lastDiagramFileId ? html`
-                <button class="mode-toggle-lg" @click=${() => window.open(`https://drive.google.com/file/d/${this.lastDiagramFileId}/view`, '_blank')}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px;margin-right:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  Open Image
-                </button>
-              ` : html`
-                <button class="mode-toggle" @click=${() => this.exportTranscript()}>Export</button>
-              `}
-            </div>
-            <gdm-transcript-view .transcript=${this.transcript}></gdm-transcript-view>
-          </div>
         ` : ''}
       </div>
 

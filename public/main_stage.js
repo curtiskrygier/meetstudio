@@ -169,6 +169,38 @@
         const session = await meet.addon.createAddonSession({ cloudProjectNumber: '649226456677' });
         const client = await session.createMainStageClient();
         
+        // --- NEW: Command Bar Logic ---
+        const overrideInput = document.getElementById('diagram-override-input');
+        const overrideBtn = document.getElementById('diagram-override-btn');
+        
+        if (overrideBtn && overrideInput) {
+            const sendOverride = async () => {
+              const text = overrideInput.value.trim();
+              if (!text) return;
+              
+              overrideBtn.textContent = "Updating...";
+              overrideBtn.style.opacity = "0.5";
+              
+              // Send message to Side Panel
+              await client.notifySidePanel(JSON.stringify({
+                type: 'diagram_override',
+                text: text
+              }));
+              
+              overrideInput.value = '';
+              setTimeout(() => {
+                overrideBtn.textContent = "Update";
+                overrideBtn.style.opacity = "1";
+              }, 2000);
+            };
+
+            overrideBtn.addEventListener('click', sendOverride);
+            overrideInput.addEventListener('keypress', (e) => {
+              if (e.key === 'Enter') sendOverride();
+            });
+        }
+        // ------------------------------
+
         client.on('frameToFrameMessage', (arg) => {
           try {
             const msg = JSON.parse(arg.payload);

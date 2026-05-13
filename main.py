@@ -223,6 +223,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
         "diagramMode": False,
         "transcriptMode": False,
         "actionLinks": [],
+        "transcript": [],
         "extra_components": []
     }
 
@@ -256,6 +257,20 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                 }
             }
         ]
+        
+        if ui_state["diagramMode"]:
+            components.append({
+                "id": "diagram_refiner",
+                "element": "gdm-diagram-refiner",
+                "props": {} # Frontend manages some local transient state (context, style) but backend controls visibility
+            })
+
+        components.append({
+            "id": "transcript_view",
+            "element": "gdm-transcript-view",
+            "props": {} # Frontend currently manages the transcript array locally for performance
+        })
+
         # Append server-injected extra components
         components.extend(ui_state.get("extra_components", []))
 
