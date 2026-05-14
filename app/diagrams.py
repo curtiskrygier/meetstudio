@@ -4,6 +4,7 @@ import re
 import tempfile
 import uuid as uuid_lib
 import logging
+import shutil
 from google.genai import types
 from app.config import PROJECT_ID, REGION, DIAGRAM_MODEL, D2_PROMPT, diagram_store, diagram_version, diagram_title
 
@@ -29,7 +30,7 @@ async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
     # PREPEND STYLE WRAPPER
     classes = "classes: {user:{shape:person};infra:{shape:square};storage:{shape:cylinder};cloud:{shape:cloud};app:{shape:rectangle}}\n"
     style_header = "direction: right\n"
-    global_style = "style: {\n  font-size: 14\n  stroke-width: 2\n}\n"
+    global_style = "style: {\n  font-size: 14\n  stroke-width: 2\n  fill: transparent\n}\n"
     
     d2_args = ["d2", "--bundle"]
 
@@ -42,14 +43,20 @@ async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
         d2_args.extend(["-l", "dagre", "-t", "200", "--sketch"])
     elif style == "google":
         d2_args.extend(["-l", "elk", "-t", "200"])
-        style_header += 'style: {\n  font-size: 14\n  stroke: "#4285F4"\n  stroke-width: 2\n}\n'
+        style_header += 'style: {\n  font-size: 14\n  stroke: "#4285F4"\n  stroke-width: 2\n  fill: transparent\n}\n'
     else: # cyber (default)
         d2_args.extend(["-l", "elk", "-t", "200"])
-        style_header += 'style: {\n  font-size: 14\n  stroke: "#00f2ff"\n  fill: "#0b0e14"\n  stroke-width: 2\n}\n'
+        style_header += 'style: {\n  font-size: 14\n  stroke: "#00f2ff"\n  stroke-width: 2\n  fill: transparent\n}\n'
     
     full_d2 = classes + style_header + "\n" + d2_code.strip()
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Copy icons to temp dir so d2 can resolve relative paths
+        try:
+            shutil.copytree("assets/icons", f"{tmpdir}/assets/icons", dirs_exist_ok=True)
+        except Exception as e:
+            logger.warning(f"[d2] Icon copy failed: {e}")
+
         d2_path = f"{tmpdir}/diag.d2"
         svg_path = f"{tmpdir}/diag.svg"
         with open(d2_path, "w") as f:
@@ -59,7 +66,8 @@ async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
             process = await asyncio.create_subprocess_exec(
                 *d2_args, d2_path, svg_path,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                cwd=tmpdir
             )
             try:
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15.0)
@@ -70,11 +78,14 @@ async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
             
             if process.returncode != 0:
                 err_msg = stderr.decode().strip()
+                logger.error(f"[d2] Bundling/Render failed: {err_msg}")
                 return b"", err_msg
 
             if os.path.exists(svg_path):
                 with open(svg_path, "rb") as f:
-                    return f.read(), ""
+                    data = f.read()
+                    logger.info(f"[d2] Rendered {len(data)} bytes (bundled)")
+                    return data, ""
         except Exception as e:
             return b"", str(e)
             

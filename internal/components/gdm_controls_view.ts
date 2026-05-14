@@ -12,29 +12,30 @@ export class GdmControlsView extends LitElement {
     :host { display: block; }
     .controls-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     .ctrl {
-      background: #131418; border: 1px solid #1d2027; border-radius: 12px;
+      background: var(--bg-1); border: 1px solid var(--line-soft); border-radius: 12px;
       padding: 10px 8px 9px; display: flex; flex-direction: column; align-items: center; gap: 6px;
-      cursor: pointer; color: #b8bcc4; transition: all 120ms;
+      cursor: pointer; color: var(--fg-2); transition: all 200ms ease;
     }
-    .ctrl:hover { background: #191b20; }
+    .ctrl:hover { background: var(--bg-2); }
     .ctrl[data-active="true"] { background: rgba(52,210,122,0.10); border-color: rgba(52,210,122,0.32); color: #9bedb9; }
     .ctrl[data-active="false"] { background: rgba(244,67,54,0.08); border-color: rgba(244,67,54,0.28); color: #f3a59f; }
-    .ctrl-icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: #20232a; }
+    .ctrl-icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--bg-3); }
     .ctrl[data-active="true"] .ctrl-icon { background: rgba(52,210,122,0.16); }
     .ctrl[data-active="false"] .ctrl-icon { background: rgba(244,67,54,0.14); }
     .ctrl-icon svg { width: 15px; height: 15px; }
     .ctrl-label { font-size: 11.5px; font-weight: 500; }
-    .ctrl-state { font-size: 10.5px; color: #565a64; }
+    .ctrl-state { font-size: 10.5px; color: var(--fg-4); }
     .ctrl[data-active="true"] .ctrl-state { color: #7ce0a4; }
     .ctrl[data-active="false"] .ctrl-state { color: #f3a59f; }
     
     .secondary-row { display: flex; gap: 8px; margin-top: 8px; }
     .mode-btn {
-      flex: 1; height: 32px; border-radius: 8px; border: 1px solid #1d2027;
-      background: #131418; color: #b8bcc4; font-size: 11px; font-weight: 600;
+      flex: 1; height: 32px; border-radius: 8px; border: 1px solid var(--line-soft);
+      background: var(--bg-1); color: var(--fg-2); font-size: 11px; font-weight: 600;
       cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: all 200ms ease;
     }
-    .mode-btn[data-active="true"] { background: #9B6DFF; color: white; border-color: #9B6DFF; }
+    .mode-btn[data-active="true"] { background: var(--gem-2); color: white; border-color: var(--gem-2); }
   `;
 
   render() {

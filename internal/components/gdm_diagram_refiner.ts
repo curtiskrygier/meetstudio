@@ -11,34 +11,35 @@ export class GdmDiagramRefiner extends LitElement {
   static styles = css`
     :host { display: block; }
     .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #565a64; }
+    .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4); }
     .layout-switcher { display: flex; gap: 6px; margin: 8px 0 12px; }
     .style-btn { 
-      flex: 1; height: 28px; border-radius: 6px; border: 1px solid #262932; 
-      background: #131418; color: #7e828c; font-size: 10px; font-weight: 600; 
-      cursor: pointer; transition: all 120ms;
+      flex: 1; height: 28px; border-radius: 6px; border: 1px solid var(--line); 
+      background: var(--bg-1); color: var(--fg-3); font-size: 10px; font-weight: 600; 
+      cursor: pointer; transition: all 200ms ease;
     }
-    .style-btn[data-active] { background: #4285F4; border-color: #4285F4; color: white; }
-    .style-btn:hover:not([data-active]) { background: #191b20; border-color: #1d2027; }
+    .style-btn[data-active] { background: var(--gem-1); border-color: var(--gem-1); color: white; }
+    .style-btn:hover:not([data-active]) { background: var(--bg-2); border-color: var(--line-soft); }
 
     .ctx-input { 
-      width: 100%; min-height: 88px; background: #191b20 !important; 
-      border: 1px solid #262932; border-radius: 10px; color: #f2f3f5 !important; 
+      width: 100%; min-height: 88px; background: var(--bg-2) !important; 
+      border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg) !important; 
       font-family: inherit; font-size: 12px; line-height: 1.5; 
       padding: 10px 12px; resize: vertical; box-sizing: border-box; 
       transition: border-color 150ms; 
     }
-    .ctx-input:focus { outline: none; border-color: #9B6DFF; }
+    .ctx-input:focus { outline: none; border-color: var(--gem-2); }
 
     .ctx-send { 
-      flex-shrink: 0; height: 36px; padding: 0 14px; background: #9B6DFF; 
-      border: none; border-radius: 10px; color: #fff; font-family: inherit; 
+      flex-shrink: 0; height: 36px; padding: 0 14px; background: var(--gem-2); 
+      border: none; border-radius: var(--radius-sm); color: #fff; font-family: inherit; 
       font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; 
+      transition: all 200ms ease;
     }
     .ctx-send:hover { opacity: 0.85; }
     .ctx-send:disabled { opacity: 0.4; cursor: default; }
-    .ctx-send.secondary { background: #20232a; border: 1px solid #262932; color: #7e828c; }
-    .ctx-send.accent { background: #4285F4; }
+    .ctx-send.secondary { background: var(--bg-3); border: 1px solid var(--line); color: var(--fg-3); }
+    .ctx-send.accent { background: var(--gem-1); }
   `;
 
   render() {

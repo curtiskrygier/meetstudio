@@ -54,6 +54,9 @@ export class GdmArchitectAgent extends LitElement {
   @state() diagramming = false;
   @state() status = 'Initialising...';
   @state() authenticated = false;
+  @state() layout = 'default';
+  @state() private uiPromptText = '';
+  @state() private uiPromptSending = false;
 
   private audioEnabled = true;
   private videoEnabled = false;
@@ -202,6 +205,24 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
+  private async sendUiPrompt() {
+    const text = this.uiPromptText.trim();
+    if (!text || !this.meetingId) return;
+    this.uiPromptSending = true;
+    try {
+      await this.authenticatedFetch('/api/ui-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text, space_id: this.meetingId }),
+      });
+      this.uiPromptText = '';
+    } catch (e) {
+      console.warn('[concierge] ui-prompt error:', e);
+    } finally {
+      this.uiPromptSending = false;
+    }
+  }
+
   private async authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
     console.log(`[concierge] auth fetch: ${url}`);
     const headers = new Headers(options.headers || {});
@@ -330,6 +351,12 @@ export class GdmArchitectAgent extends LitElement {
     });
   }
 
+  private applyTheme(tokens: Record<string, string>) {
+    const host = this.shadowRoot?.host as HTMLElement;
+    if (!host) return;
+    Object.entries(tokens).forEach(([k, v]) => host.style.setProperty(k, v));
+  }
+
   private handleWebSocketMessage(msg: WebSocketMessage | ArrayBuffer) {
     if (msg instanceof ArrayBuffer) {
       const diagramMode = this.components.find(c => c.id === 'control_bar')?.props.diagramMode;
@@ -338,7 +365,15 @@ export class GdmArchitectAgent extends LitElement {
     }
 
     if (msg.type === 'A2UI_STATE') {
-      this.components = (msg as any).components;
+      const a2ui = msg as any;
+      this.components = a2ui.components;
+      this.layout = a2ui.layout || 'default';
+      
+      // Apply theme if provided by server
+      if (a2ui.theme) {
+        this.applyTheme(a2ui.theme);
+      }
+
       // Extract status text for local status property (fallback)
       const hero = this.components.find(c => c.id === 'hero_status');
       if (hero) {
@@ -778,30 +813,14 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
-  private renderComponent(comp: any) {
-    switch(comp.element) {
-      case 'gdm-status-view':
-        return html`<gdm-status-view .state=${comp.props.state} .status=${comp.props.status} .authenticated=${comp.props.authenticated}></gdm-status-view>`;
-      case 'gdm-controls-view':
-        return html`<gdm-controls-view .audioEnabled=${comp.props.audioEnabled} .videoEnabled=${comp.props.videoEnabled} .diagramMode=${comp.props.diagramMode} .transcriptMode=${comp.props.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()}></gdm-controls-view>`;
-      case 'gdm-actions-view':
-        return html`<gdm-actions-view .actions=${comp.props.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`;
-      case 'gdm-doc-view':
-        return html`<gdm-doc-view .title=${comp.props.title} .htmlContent=${comp.props.htmlContent}></gdm-doc-view>`;
-      case 'gdm-diagram-refiner':
-        return html`<gdm-diagram-refiner 
-          .diagramStyle=${this.diagramStyle} 
-          .context=${this.diagramContext}
-          .generating=${this.diagramming}
-          .canSave=${!!(this.diagramSessionId && this.lastGenerationTime)}
-          @change-style=${(e: any) => { this.diagramStyle = e.detail; this.generateDiagram(); }}
-          @update-context=${(e: any) => this.diagramContext = e.detail}
-          @generate=${() => this.generateDiagram()}
-          @new=${() => this.resetDiagram()}
-          @save=${() => this.saveDiagramToDrive()}>
-        </gdm-diagram-refiner>`;
-      case 'gdm-transcript-view':
-        return html`
+  private get componentRegistry() {
+    return new Map<string, (props: any) => any>([
+      ['gdm-status-view', (p) => html`<gdm-status-view .state=${p.state} .status=${p.status} .authenticated=${p.authenticated}></gdm-status-view>`],
+      ['gdm-controls-view', (p) => html`<gdm-controls-view .audioEnabled=${p.audioEnabled} .videoEnabled=${p.videoEnabled} .diagramMode=${p.diagramMode} .transcriptMode=${p.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()}></gdm-controls-view>`],
+      ['gdm-actions-view', (p) => html`<gdm-actions-view .actions=${p.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`],
+      ['gdm-doc-view', (p) => html`<gdm-doc-view .title=${p.title} .htmlContent=${p.htmlContent}></gdm-doc-view>`],
+      ['gdm-diagram-refiner', (p) => html`<gdm-diagram-refiner .diagramStyle=${this.diagramStyle} .context=${this.diagramContext} .generating=${this.diagramming} .canSave=${!!(this.diagramSessionId && this.lastGenerationTime)} @change-style=${(e: any) => { this.diagramStyle = e.detail; this.generateDiagram(); }} @update-context=${(e: any) => this.diagramContext = e.detail} @generate=${() => this.generateDiagram()} @new=${() => this.resetDiagram()} @save=${() => this.saveDiagramToDrive()}></gdm-diagram-refiner>`],
+      ['gdm-transcript-view', (p) => html`
           <div class="section-head">
             <span class="section-title">Transcript</span>
             ${this.lastDiagramFileId ? html`
@@ -814,10 +833,13 @@ export class GdmArchitectAgent extends LitElement {
             `}
           </div>
           <gdm-transcript-view .transcript=${this.transcript}></gdm-transcript-view>
-        `;
-      default:
-        return html``;
-    }
+      `],
+    ]);
+  }
+
+  private renderComponent(comp: any) {
+    const factory = this.componentRegistry.get(comp.element);
+    return factory ? factory(comp.props) : html``;
   }
 
   render() {
@@ -840,7 +862,7 @@ export class GdmArchitectAgent extends LitElement {
         </div>
       </div>
 
-      <div class="body">
+      <div class="body layout-${this.layout}">
         ${!this.connected && !this.connecting ? html`
           <gdm-status-view 
             .state=${state} 
@@ -892,6 +914,26 @@ export class GdmArchitectAgent extends LitElement {
 
         ${this.connected ? html`
           ${this.components.map(comp => html`<div class="section">${this.renderComponent(comp)}</div>`)}
+          
+          <div class="section ui-prompt-bar">
+            <div class="ui-prompt-row">
+              <input
+                class="ctx-input ui-prompt-input"
+                type="text"
+                placeholder="Change the UI… e.g. go matrix, focus mode"
+                .value=${this.uiPromptText}
+                ?disabled=${this.uiPromptSending}
+                @input=${(e: any) => this.uiPromptText = e.target.value}
+                @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this.sendUiPrompt()}
+              />
+              <button
+                class="ctx-send"
+                ?disabled=${this.uiPromptSending || !this.uiPromptText.trim()}
+                @click=${() => this.sendUiPrompt()}>
+                ${this.uiPromptSending ? '…' : 'Apply'}
+              </button>
+            </div>
+          </div>
         ` : ''}
       </div>
 

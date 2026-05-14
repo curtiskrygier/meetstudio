@@ -34,6 +34,15 @@ def sanitize_html(raw_html: str) -> str:
     """Strips dangerous tags/scripts from AI-generated HTML."""
     return bleach.clean(raw_html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS)
 
+THEME_PRESETS = {
+    "default":    {"--bg-0":"#0c0d10","--bg-1":"#131418","--fg":"#f2f3f5","--fg-2":"#b8bcc4","--gem-1":"#4285F4","--radius":"14px","--font":"'Plus Jakarta Sans',sans-serif"},
+    "matrix":     {"--bg-0":"#000000","--bg-1":"#050a00","--fg":"#00ff41","--fg-2":"#00cc33","--gem-1":"#00ff41","--gem-2":"#008f11","--live":"#39ff14","--radius":"0px","--font":"'Courier New',monospace","--line":"#003b00"},
+    "blueprint":  {"--bg-0":"#001b35","--bg-1":"#002548","--fg":"#4fc3f7","--gem-1":"#29b6f6","--radius":"4px","--font":"'Roboto Mono',monospace"},
+    "corporate":  {"--bg-0":"#f8f9fa","--bg-1":"#ffffff","--fg":"#1a1a1a","--fg-2":"#5f6368","--gem-1":"#1a73e8","--radius":"8px","--font":"'Google Sans',sans-serif"},
+    "neon":       {"--bg-0":"#0a0014","--bg-1":"#120020","--fg":"#e040fb","--gem-1":"#ea80fc","--gem-2":"#ff4081","--radius":"16px","--font":"system-ui"},
+    "minimal":    {"--bg-0":"#ffffff","--fg":"#000000","--fg-2":"#333","--gem-1":"#000","--line":"#e0e0e0","--radius":"6px"},
+}
+
 # Basic logging setup to replace prints
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +54,8 @@ logger = logging.getLogger("concierge")
 from app.config import (
     PROJECT_ID, REGION, MODEL, VOICE, SYSTEM_PROMPT,
     gemini_client, diagram_store, diagram_version, diagram_title,
-    current_session, current_view, stage_listeners, WORKSPACE_AGENT_ENGINE
+    current_session, current_view, stage_listeners, WORKSPACE_AGENT_ENGINE,
+    UI_PROMPT_SYSTEM, active_sessions
 )
 from app.auth import validate_google_token
 from app.utils import fetch_url, svg_to_png
@@ -201,7 +211,22 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     "content": {"type": "string", "description": "The raw Markdown content of the document."}
                                 },
                                 "required": ["title", "content"]
-                            }
+                            },
+                            "theme_preset": {"type": "string", "enum": ["default", "matrix", "blueprint", "corporate", "neon", "minimal"]},
+                            "theme_tokens": {"type": "OBJECT", "description": "Raw CSS token overrides — use for custom colors not covered by presets"},
+                            "layout": {"type": "string", "enum": ["default", "focus", "minimal", "presentation", "split"]},
+                            "component_visibility": {
+                                "type": "OBJECT",
+                                "description": "Show/hide named components",
+                                "properties": {
+                                    "transcript": {"type": "boolean"},
+                                    "action_links": {"type": "boolean"},
+                                    "controls": {"type": "boolean"},
+                                    "diagram_refiner": {"type": "boolean"},
+                                }
+                            },
+                            "banner": {"type": "string", "description": "Temporary full-width announcement text, auto-clears after 8s"},
+                            "stage_theme": {"type": "boolean", "description": "Apply same theme to main stage simultaneously"}
                         }
                     }
                 ),
@@ -224,22 +249,36 @@ async def live_session(websocket: WebSocket, meeting_id: str):
         "transcriptMode": False,
         "actionLinks": [],
         "transcript": [],
+        "theme": THEME_PRESETS["default"],
+        "layout": "default",
+        "visibility": {
+            "transcript": True,
+            "action_links": True,
+            "controls": True,
+            "diagram_refiner": True
+        },
         "extra_components": []
     }
 
     async def broadcast_a2ui():
         """Generates the A2UI payload and sends it to the frontend."""
-        components = [
-            {
-                "id": "hero_status",
-                "element": "gdm-status-view",
-                "props": {
-                    "state": ui_state["status_state"],
-                    "status": ui_state["status_text"],
-                    "authenticated": ui_state["authenticated"]
-                }
-            },
-            {
+        vis = ui_state.get("visibility", {})
+        components = []
+        
+        # 1. Status View (Always visible)
+        components.append({
+            "id": "hero_status",
+            "element": "gdm-status-view",
+            "props": {
+                "state": ui_state["status_state"],
+                "status": ui_state["status_text"],
+                "authenticated": ui_state["authenticated"]
+            }
+        })
+        
+        # 2. Control Bar
+        if vis.get("controls", True):
+            components.append({
                 "id": "control_bar",
                 "element": "gdm-controls-view",
                 "props": {
@@ -248,40 +287,53 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     "diagramMode": ui_state["diagramMode"],
                     "transcriptMode": ui_state["transcriptMode"]
                 }
-            },
-            {
+            })
+        
+        # 3. Workspace Links
+        if vis.get("action_links", True) and ui_state["actionLinks"]:
+            components.append({
                 "id": "workspace_links",
                 "element": "gdm-actions-view",
                 "props": {
                     "actions": ui_state["actionLinks"]
                 }
-            }
-        ]
+            })
         
-        if ui_state["diagramMode"]:
+        # 4. Diagram Refiner
+        if ui_state["diagramMode"] and vis.get("diagram_refiner", True):
             components.append({
                 "id": "diagram_refiner",
                 "element": "gdm-diagram-refiner",
-                "props": {} # Frontend manages some local transient state (context, style) but backend controls visibility
+                "props": {} 
             })
 
-        components.append({
-            "id": "transcript_view",
-            "element": "gdm-transcript-view",
-            "props": {} # Frontend currently manages the transcript array locally for performance
-        })
+        # 5. Transcript View
+        if vis.get("transcript", True):
+            components.append({
+                "id": "transcript_view",
+                "element": "gdm-transcript-view",
+                "props": {}
+            })
 
         # Append server-injected extra components
         components.extend(ui_state.get("extra_components", []))
 
         payload = {
             "type": "A2UI_STATE",
-            "components": components
+            "components": components,
+            "theme": ui_state["theme"],
+            "layout": ui_state["layout"]
         }
         try:
             await websocket.send_text(json.dumps(payload))
         except Exception as e:
             logger.error(f"[a2ui] Broadcast error: {e}")
+
+    # Register session globally
+    active_sessions[meeting_id] = {
+        "ui_state": ui_state,
+        "broadcast_fn": broadcast_a2ui
+    }
 
     # Initial broadcast
     await broadcast_a2ui()
@@ -348,7 +400,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         responses = []
                         for fc in response.tool_call.function_calls:
                             # Use ui_state instead of diagram_mode[0] array
-                            if ui_state["diagramMode"]:
+                            if ui_state["diagramMode"] and fc.name != "update_interface":
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
                                 continue
                             
@@ -407,6 +459,23 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 if "status_text" in fc.args:
                                     ui_state["status_text"] = fc.args["status_text"]
                                 
+                                # Theme logic
+                                current_theme = ui_state.get("theme", THEME_PRESETS["default"]).copy()
+                                if "theme_preset" in fc.args:
+                                    preset = fc.args["theme_preset"]
+                                    if preset in THEME_PRESETS:
+                                        current_theme.update(THEME_PRESETS[preset])
+                                if "theme_tokens" in fc.args:
+                                    current_theme.update(fc.args["theme_tokens"])
+                                ui_state["theme"] = current_theme
+
+                                # Layout & Visibility
+                                if "layout" in fc.args:
+                                    ui_state["layout"] = fc.args["layout"]
+                                if "component_visibility" in fc.args:
+                                    cv = fc.args["component_visibility"]
+                                    ui_state.setdefault("visibility", {}).update(cv)
+                                
                                 if "doc_data" in fc.args:
                                     raw_md = fc.args["doc_data"]["content"]
                                     # Convert Markdown to HTML on the server
@@ -429,13 +498,18 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 # 3. Broadcast Main Stage State
                                 stage_view = fc.args.get("main_stage_view")
                                 if stage_view:
-                                    # If it's a doc, we might need to send htmlContent to the stage too
                                     msg = {"type": "view_change", "mode": stage_view}
                                     if stage_view == "doc" and "doc_data" in fc.args:
                                         msg["label"] = fc.args["doc_data"]["title"]
                                         raw_html = markdown.markdown(fc.args["doc_data"]["content"], extensions=['extra'])
                                         msg["htmlContent"] = sanitize_html(raw_html)
                                     await broadcast_to_stage(session_space[0], msg)
+                                
+                                if fc.args.get("stage_theme"):
+                                    await broadcast_to_stage(session_space[0], {
+                                        "type": "theme_change",
+                                        "tokens": current_theme
+                                    })
                                     
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "UI updated successfully."}))
                             
@@ -493,6 +567,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
             logger.error(f"[ws] error: {e}")
             logger.debug(traceback.format_exc())
         finally:
+            active_sessions.pop(meeting_id, None)
             stop_event.set()
             recv_task.cancel()
 
@@ -538,6 +613,72 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
             stage_listeners[meeting_id].discard(websocket)
             logger.info(f"[stage_ws] REMOVED listener for {meeting_id}")
             if not stage_listeners[meeting_id]: del stage_listeners[meeting_id]
+
+@app.post("/api/ui-prompt")
+async def ui_prompt(payload: dict = Body(...), token: str = Depends(token_required)):
+    user_prompt = payload.get("prompt", "")
+    space_id = payload.get("space_id", "")
+    if not user_prompt or not space_id:
+        return FastAPIResponse(status_code=400)
+
+    session_data = active_sessions.get(space_id)
+    if not session_data:
+        return {"ok": False, "error": "No active session for this space"}
+
+    try:
+        # One-shot Gemini Flash call
+        response = await gemini_client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Content(role="user", parts=[types.Part(text=f"User: {user_prompt}")])
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=UI_PROMPT_SYSTEM,
+                temperature=0.1
+            )
+        )
+        
+        raw_text = response.text or ""
+        args = {}
+        if "{" in raw_text:
+            try:
+                args = json.loads(raw_text[raw_text.find("{"):raw_text.rfind("}")+1])
+            except: pass
+        
+        if args:
+            ui_state = session_data["ui_state"]
+            
+            # Apply changes (Mirroring update_interface logic)
+            if "status_text" in args: ui_state["status_text"] = args["status_text"]
+            if "diagram_mode" in args: ui_state["diagramMode"] = args["diagram_mode"]
+            if "theme_preset" in args:
+                preset = args["theme_preset"]
+                if preset in THEME_PRESETS:
+                    ui_state["theme"].update(THEME_PRESETS[preset])
+            if "theme_tokens" in args: ui_state["theme"].update(args["theme_tokens"])
+            if "layout" in args: ui_state["layout"] = args["layout"]
+            if "component_visibility" in args:
+                ui_state.setdefault("visibility", {}).update(args["component_visibility"])
+            
+            # Trigger Broadcast
+            await session_data["broadcast_fn"]()
+            
+            # Sync to Stage if requested
+            if args.get("stage_theme"):
+                await broadcast_to_stage(space_id, {
+                    "type": "theme_change",
+                    "tokens": ui_state["theme"]
+                })
+            
+            if "main_stage_view" in args:
+                await broadcast_to_stage(space_id, {"type": "view_change", "mode": args["main_stage_view"]})
+
+            return {"ok": True, "applied": args}
+            
+        return {"ok": False, "error": "Could not parse UI request"}
+    except Exception as e:
+        logger.error(f"[ui-prompt] error: {e}")
+        return FastAPIResponse(status_code=500)
 
 @app.get("/api/session/{meeting_id:path}")
 async def get_session(meeting_id: str, _=Depends(token_required)): 
@@ -636,7 +777,10 @@ async def save_diagram(diagram_id: str, payload: dict = Body(...)):
     return {"ok": True, "file_id": file_id}
 
 @app.get("/", include_in_schema=False)
-async def serve_index(): return FileResponse("dist/index.html")
+async def serve_index():
+    response = FileResponse("dist/index.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return response
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_static(path: str):
     if os.path.exists(f"dist/{path}"): return FileResponse(f"dist/{path}")

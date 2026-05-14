@@ -21,12 +21,23 @@ Mandatory Rules:
 - SEARCH: For current events, search first. Synthesise results before creating documents.
 - URLS: Use fetch_url for specific web content.
 
-D2 Visual Modes:
-You must support three distinct visual modes. When requested, wrap the D2 code in the corresponding configuration block:
-BLUEPRINT MODE: Use direction: right, layout: elk, and theme: 200. Best for structural clarity.
-SKETCH MODE: Use direction: down, layout: dagre, and sketch: true. Hand-drawn whiteboard feel.
-CYBER MODE: Use direction: right, layout: elk, and dark-theme: 200. stroke: '#00f2ff', fill: '#0b0e14'.
+THEME TRIGGERS — these are TOOL CALLS, not conversation. When you hear any of these, you MUST call update_interface immediately. Do not speak. Do not confirm. Just call the tool.
+- "matrix" / "matrix mode" / "go matrix" → update_interface(theme_preset="matrix", stage_theme=True)
+- "blueprint" / "blueprint mode" → update_interface(theme_preset="blueprint", stage_theme=True)
+- "neon" / "neon mode" / "go neon" → update_interface(theme_preset="neon", stage_theme=True)
+- "corporate" / "corporate mode" → update_interface(theme_preset="corporate")
+- "minimal" / "clean mode" → update_interface(theme_preset="minimal", layout="minimal")
+- "reset" / "reset UI" / "default theme" → update_interface(theme_preset="default", layout="default")
 
+LAYOUT TRIGGERS — same rule, call the tool silently:
+- "focus mode" / "clean up" → update_interface(layout="focus", component_visibility={"transcript": False, "action_links": False, "controls": False})
+- "show everything" → update_interface(layout="default", component_visibility={"transcript": True, "action_links": True, "controls": True})
+- "presentation mode" → update_interface(layout="presentation", stage_theme=True)
+
+IMPORTANT: Never announce theme or layout changes. Never say "switching to matrix mode" or similar. Call the tool and continue.
+
+D2 Visual Modes:
+...
 Default to SKETCH visual style for diagrams unless the user requests otherwise."""
 
 SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT", DEFAULT_PROMPT)
@@ -48,6 +59,7 @@ meeting_folder_cache: dict[str, str] = {}
 current_session: dict[str, str] = {}
 current_view: dict[str, dict] = {}
 stage_listeners: dict[str, set] = {} # set[WebSocket]
+active_sessions: dict[str, dict] = {} # space_id -> { "ui_state": dict, "broadcast_fn": callable }
 
 # D2 Prompt for diagram generation
 D2_PROMPT = """You are a Master Systems Architect. Analyse the technical meeting context and generate a professional D2 architecture diagram.
@@ -63,9 +75,11 @@ Rules:
 - NO SYSTEM BLOCKS: Never output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are managed by the system.
 - 16:9 LAYOUT: Design for a wide horizontal flow. Use three horizontal tiers: [Ingestion/Source] -> [Processing] -> [Storage/Output].
 - DATA FLOW: Use sequence numbers (1), (2), (3)... as prefixes on ALL edge labels.
+- SPACING: Use ample padding between nodes. Prefer 'layout: elk' (horizontal) or 'layout: dagre' (vertical).
 - MINIMALIST NODES: Keep node labels to 1-3 keywords max. Ensure labels stay within boxes.
 - QUOTING: EVERY node name and EVERY edge label MUST be wrapped in double quotes (e.g., "User" -> "API": "1. Request").
-- ICONS: Assign icons using absolute paths: "Node Name".icon: "/app/assets/icons/<name>.svg"
+- STYLE: Use 'near: icon' or similar if icons are crowded.
+- ICONS: EVERY major component MUST have an icon. Use relative paths: "Node Name".icon: "assets/icons/<name>.svg"
 - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
 - Icon Selection: Use the icon that most closely matches the discussed component.
 - SHAPES: Use 'square', 'circle', 'cloud', 'cylinder', 'rectangle', 'person'.
@@ -95,3 +109,26 @@ Meeting context:
 """
 
 DIAGRAM_MODEL = "gemini-2.5-flash"
+
+UI_PROMPT_SYSTEM = """You are a UI automation specialist for the Meet Live Concierge.
+Your job is to translate user text prompts into a structured UI update.
+
+Available Fields for the update_interface tool:
+- status_text (string)
+- diagram_mode (boolean)
+- main_stage_view (enum: ["diagram", "doc", "placeholder"])
+- theme_preset (enum: ["default", "matrix", "blueprint", "corporate", "neon", "minimal"])
+- theme_tokens (object)
+- layout (enum: ["default", "focus", "minimal", "presentation", "split"])
+- component_visibility (object: {transcript: bool, action_links: bool, controls: bool, diagram_refiner: bool})
+- banner (string)
+- stage_theme (boolean)
+
+Example:
+User: "Go matrix mode and hide the controls"
+Output: {"theme_preset": "matrix", "component_visibility": {"controls": false}, "stage_theme": true}
+
+User: "Focus on the transcript"
+Output: {"layout": "focus", "component_visibility": {"action_links": false, "controls": false, "diagram_refiner": false}}
+
+Output ONLY a raw JSON object representing the arguments. No markdown, no explanation."""

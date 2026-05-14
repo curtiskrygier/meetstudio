@@ -10,21 +10,21 @@ export class GdmActionsView extends LitElement {
     .action-list { display: flex; flex-direction: column; gap: 8px; }
     .action { 
       display: flex; align-items: center; gap: 10px; 
-      padding: 10px 12px; background: #131418; 
-      border: 1px solid #1d2027; border-radius: 12px; 
-      cursor: pointer; transition: all 120ms; text-decoration: none; 
+      padding: 10px 12px; background: var(--bg-1); 
+      border: 1px solid var(--line-soft); border-radius: 12px; 
+      cursor: pointer; transition: all 200ms ease; text-decoration: none; 
       animation: slide-up 250ms ease-out;
     }
     @keyframes slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .action:hover { background: #191b20; border-color: #262932; }
+    .action:hover { background: var(--bg-2); border-color: var(--line); }
     .action-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; color: white; }
     .action-ico.doc { background: #2b6cb0; }
     .action-ico.sheet { background: #2f855a; }
     .action-ico.img { background: #6b46c1; }
     .action-ico svg { width: 14px; height: 14px; }
     .action-body { flex: 1; min-width: 0; }
-    .action-title { font-size: 12.5px; font-weight: 500; color: #f2f3f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .action-sub { font-size: 11px; color: #565a64; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .action-title { font-size: 12.5px; font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .action-sub { font-size: 11px; color: var(--fg-4); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   `;
 
   render() {
