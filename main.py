@@ -27,7 +27,7 @@ ALLOWED_TAGS = [
 ALLOWED_ATTRS = {
     'a': ['href', 'title', 'target'],
     'span': ['class'],
-    'div': ['class', 'id']
+    'div': ['class']
 }
 
 def sanitize_html(raw_html: str) -> str:
@@ -401,7 +401,11 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         for fc in response.tool_call.function_calls:
                             # Use ui_state instead of diagram_mode[0] array
                             if ui_state["diagramMode"] and fc.name != "update_interface":
-                                responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
+                                responses.append(types.FunctionResponse(
+                                    id=fc.id, 
+                                    name=fc.name, 
+                                    response={"result": "Tool disabled while Architect Mode is active. Switch main_stage_view or disable diagram_mode first."}
+                                ))
                                 continue
                             
                             elif fc.name == "workspace_agent":
@@ -483,6 +487,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     html_content = sanitize_html(raw_html)
                                     
                                     ui_state.setdefault("extra_components", [])
+                                    if len(ui_state["extra_components"]) >= 5:
+                                        ui_state["extra_components"].pop(0)
+                                        
                                     ui_state["extra_components"].append({
                                         "id": f"doc_{uuid_lib.uuid4().hex[:6]}",
                                         "element": "gdm-doc-view",
@@ -580,9 +587,9 @@ async def create_auth_ticket(token: str = Depends(token_required)):
     return {"ticket": ticket}
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", token: str = ""):
-    # We use the 'token' param name for compatibility with index.tsx but it now expects a Ticket
-    ticket_data = auth_tickets.pop(token, None)
+async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
+    # We use a backend-issued Ticket to authenticate the WebSocket handshake
+    ticket_data = auth_tickets.pop(ticket, None)
     if not ticket_data or ticket_data[1] < datetime.now(timezone.utc):
         logger.warning(f"[ws] handshake rejected: invalid or expired ticket for meeting {meeting_id}")
         await websocket.close(code=1008)
@@ -770,10 +777,10 @@ async def api_diagram(payload: dict = Body(...), token: str = Depends(token_requ
         return {"error": str(e)}
 
 @app.post("/api/diagram/{diagram_id}/save")
-async def save_diagram(diagram_id: str, payload: dict = Body(...)):
+async def save_diagram(diagram_id: str, payload: dict = Body(...), token: str = Depends(token_required)):
     svg = diagram_store.get(diagram_id)
     if not svg: return {"error": "Not found"}
-    file_id = await save_diagram_to_drive(svg, diagram_title.get(diagram_id, "Diagram"), payload["space_id"], payload["access_token"])
+    file_id = await save_diagram_to_drive(svg, diagram_title.get(diagram_id, "Diagram"), payload["space_id"], token)
     return {"ok": True, "file_id": file_id}
 
 @app.get("/", include_in_schema=False)

@@ -8,6 +8,11 @@ from app.config import MAX_SVG_SIZE
 logger = logging.getLogger("concierge")
 
 async def fetch_url(url: str) -> str:
+    # SSRF Protection: Block metadata server and private IP ranges
+    if re.search(r'169\.254\.|127\.0\.0\.1|localhost|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^192\.168\.', url):
+        logger.warning(f"[fetch_url] SSRF Attempt Blocked: {url}")
+        return "Error: Access to internal or restricted addresses is forbidden."
+    
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})

@@ -55,8 +55,8 @@ export class GdmArchitectAgent extends LitElement {
   @state() status = 'Initialising...';
   @state() authenticated = false;
   @state() layout = 'default';
-  @state() private uiPromptText = '';
-  @state() private uiPromptSending = false;
+  @state() uiPromptText = '';
+  @state() uiPromptSending = false;
 
   private audioEnabled = true;
   private videoEnabled = false;
@@ -75,6 +75,7 @@ export class GdmArchitectAgent extends LitElement {
   private transcriptStartIndex = 0;
   private diagramSessionStartTime: string | null = null;
   private speechSilenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private diagramContextTimer: ReturnType<typeof setTimeout> | null = null;
 
   private meetClient: MeetMediaApiClientImpl | null = null;
   private sidePanelClient: any = null;
@@ -337,7 +338,8 @@ export class GdmArchitectAgent extends LitElement {
   private async connectWebSocket() {
     const ticket = await this.getAuthTicket();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}&token=${encodeURIComponent(ticket)}`;
+    const url = `wss://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+
     
     this.wsService = new WebSocketService(
       (msg) => this.handleWebSocketMessage(msg),
@@ -631,6 +633,18 @@ export class GdmArchitectAgent extends LitElement {
 
   private async generateDiagram() {
     if (this.diagramming) return;
+
+    // Reset the auto-gen guard timer if user just edited context
+    if (this.diagramContextTimer) {
+      clearTimeout(this.diagramContextTimer);
+    }
+    this.diagramContextTimer = setTimeout(() => {
+      if (this.diagramContext) {
+        console.log('[concierge] Auto-clearing diagram context due to inactivity');
+        this.diagramContext = '';
+      }
+    }, 30000); // 30s timeout
+
     this.diagramming = true;
     const transcript = this.diagramContext.trim() || this.transcript.map(t => `[${t.role}] ${t.text}`).join('\n').substring(this.transcriptStartIndex).trim() || '';
     const chat = await this.fetchChatMessages();
