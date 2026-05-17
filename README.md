@@ -79,6 +79,9 @@ git clone <this-repo>
 cd meet-live-concierge
 cp .env.production.sample .env.production
 # Edit .env.production with your values
+
+# Substitute your GCP project number in the main stage JS
+sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/<YOUR_PROJECT_NUMBER>/g' public/main_stage.js
 ```
 
 ### 2. Install frontend dependencies

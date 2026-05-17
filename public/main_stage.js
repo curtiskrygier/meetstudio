@@ -174,7 +174,7 @@
 
     (async () => {
       try {
-        const session = await meet.addon.createAddonSession({ cloudProjectNumber: '649226456677' });
+        const session = await meet.addon.createAddonSession({ cloudProjectNumber: 'YOUR_CLOUD_PROJECT_NUMBER' });
         const client = await session.createMainStageClient();
         
         client.on('frameToFrameMessage', (arg) => {
