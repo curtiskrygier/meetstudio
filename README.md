@@ -128,7 +128,8 @@ clasp create --title "Meet Live Concierge" --type standalone
 # clasp writes .clasp.json — this file is git-ignored; don't commit it
 
 # Substitute your Cloud Run URL in the manifest
-sed -i 's|YOUR_CLOUD_RUN_URL|https://<YOUR_SERVICE_URL>|g' appsscript.json
+# Example: sed -i 's|YOUR_CLOUD_RUN_URL|https://meet-live-concierge-123456789012.us-central1.run.app|g' appsscript.json
+sed -i 's|YOUR_CLOUD_RUN_URL|YOUR_ACTUAL_CLOUD_RUN_URL|g' appsscript.json
 
 clasp push --force
 clasp deploy --description "v1"

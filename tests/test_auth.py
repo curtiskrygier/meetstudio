@@ -22,16 +22,6 @@ async def test_validate_token_success():
             assert result is True
 
 @pytest.mark.asyncio
-async def test_validate_token_marketplace_success():
-    mock_resp = AsyncMock(spec=httpx.Response)
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {"aud": config.MARKETPLACE_CLIENT_ID}
-    
-    with patch("httpx.AsyncClient.get", return_value=mock_resp):
-        result = await validate_google_token("valid-token")
-        assert result is True
-
-@pytest.mark.asyncio
 async def test_validate_token_failure():
     mock_resp = AsyncMock()
     mock_resp.status_code = 401

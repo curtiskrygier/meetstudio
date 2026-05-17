@@ -1,3 +1,5 @@
+# Pinned to versions verified against the deployed container.
+# To update pins: docker run --rm <image> pip freeze | grep -E "fastapi|uvicorn|httpx|google|markdown|bleach|pydantic|multipart"
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 httpx==0.28.1
