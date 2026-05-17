@@ -47,7 +47,8 @@ async def get_calendar_meeting_name(space_id: str, access_token: str) -> str:
 async def _drive_get_or_create_folder(name: str, parent: str, access_token: str) -> str | None:
     headers = {"Authorization": f"Bearer {access_token}"}
     async with httpx.AsyncClient(timeout=10.0) as client:
-        q = f"name = '{name}' and mimeType = 'application/vnd.google-apps.folder' and '{parent}' in parents and trashed = false"
+        safe_name = name.replace("'", "\\'")
+        q = f"name = '{safe_name}' and mimeType = 'application/vnd.google-apps.folder' and '{parent}' in parents and trashed = false"
         resp = await client.get(
             "https://www.googleapis.com/drive/v3/files",
             params={

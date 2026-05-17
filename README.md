@@ -162,6 +162,13 @@ uvicorn main:app --reload --port 8080
 npm run dev
 ```
 
+## Running tests
+
+```bash
+pip install -r tests/requirements.txt
+pytest tests/
+```
+
 ## Configuration
 
 | Variable | Required | Description |
