@@ -1,7 +1,6 @@
 import pytest
 import httpx
 from app.auth import validate_google_token
-import app.config as config
 from unittest.mock import AsyncMock, patch
 
 @pytest.mark.asyncio
