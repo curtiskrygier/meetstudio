@@ -1,3 +1,0 @@
-I'd like to demo a concept called the Gemini agent architect. So this is A Google meet add-on where we bring a virtual architect to the meeting. And the aim of the add-on is for the architect to create. Architecture diagrams based on the ongoing discussion in the meeting. So it kind of updates in real time. 
-And at the end, generates An image file that can be referred to afterwards. So that's the the concept in mind. And interested to just prove if it was even technically possible Uh, generally seems to be Not too bad. I'm not saying it's perfect, but I think it's interesting to demo it and I just wanted to, um, to share this for for Winder. 
-Review.

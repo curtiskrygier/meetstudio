@@ -1,4 +1,4 @@
-# Meet Live Architect
+# Meet Live Concierge
 
 A Google Meet Web Add-on that embeds a real-time AI voice assistant (powered by Gemini Live) into your meeting's side panel. The assistant listens to all meeting participants, responds by voice, and can optionally see the active speaker's video feed.
 
@@ -39,7 +39,9 @@ Google Meet participants
 
 ## Workspace Integration
 
-The concierge connects to a delegated **Vertex AI Reasoning Engine** (GE04) to perform Google Workspace tasks. 
+The concierge connects to a delegated **Vertex AI Reasoning Engine** to perform Google Workspace tasks.
+
+> **Note:** This Reasoning Engine is a bridging pattern for the gap while a native Google Workspace MCP server is not yet publicly available. When Workspace MCP ships, this can be replaced with a direct MCP tool call — the agent interface stays the same.
 
 1. **Trigger**: "Hey Gemini, create a document with a summary of the meeting."
 2. **Execution**: The backend calls the reasoning engine with the user's identity.
@@ -57,10 +59,13 @@ The add-on maintains a "Meet Recordings" folder in the user's Google Drive.
 
 ## Prerequisites
 
+> **Meet Media API access is invitation-only.** This add-on uses the [Google Meet Media API](https://developers.google.com/meet/media-api), which is in **Developer Preview** and requires explicit approval from Google. [Apply for access](https://developers.google.com/meet/media-api/guides/overview#apply_for_access) before attempting to deploy. Without it the side panel loads but audio capture is silently blocked.
+
 - Google Cloud project with:
   - Cloud Run API enabled
+  - Meet Media API enabled (developer preview — see above)
+  - Google Workspace Marketplace SDK enabled (for add-on registration)
   - A second GCP project (or the same) with Vertex AI API enabled for Gemini Live billing
-- Google Meet Web Add-on registered via the [GCP Marketplace SDK](https://console.cloud.google.com/apis/api/appsmarket-component.googleapis.com)
 - OAuth 2.0 Client ID (Web application) with the Meet scopes
 - [clasp](https://github.com/google/clasp) installed and authenticated
 - [Node.js](https://nodejs.org/) 18+ and Python 3.11+
@@ -71,9 +76,9 @@ The add-on maintains a "Meet Recordings" folder in the user's Google Drive.
 
 ```bash
 git clone <this-repo>
-cd meet-live-architect
-cp sample.env .env
-# Edit .env with your values
+cd meet-live-concierge
+cp .env.production.sample .env.production
+# Edit .env.production with your values
 ```
 
 ### 2. Install frontend dependencies
@@ -100,7 +105,7 @@ gcloud run deploy meet-live-concierge \
   --region $REGION \
   --timeout=3600 \
   --session-affinity \
-  --no-allow-unauthenticated \
+  --allow-unauthenticated \
   --set-build-env-vars="CLIENT_ID=${CLIENT_ID},CLOUD_PROJECT_NUMBER=${CLOUD_PROJECT_NUMBER}" \
   --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE},CLIENT_ID=${CLIENT_ID},WORKSPACE_AGENT_ENGINE=${WORKSPACE_AGENT_ENGINE}" \
   --project=<YOUR_CLOUD_RUN_PROJECT>
@@ -115,7 +120,7 @@ gcloud run deploy meet-live-concierge \
 cd appsscript
 
 # Create a new standalone Apps Script project (only needed once)
-clasp create --title "Meet Live Architect" --type standalone
+clasp create --title "Meet Live Concierge" --type standalone
 # clasp writes .clasp.json — this file is git-ignored; don't commit it
 
 # Substitute your Cloud Run URL in the manifest
@@ -161,8 +166,20 @@ npm run dev
 | `GEMINI_PROJECT` | Yes (runtime) | GCP project ID billed for Gemini Live API usage |
 | `REGION` | No | Cloud Run / Vertex AI region (default: `us-central1`) |
 | `KORE_VOICE` | No | Gemini Live voice name (default: `Charon`) |
-| `WORKSPACE_AGENT_ENGINE` | No | Resource ID of the Vertex AI Reasoning Engine (e.g. `projects/.../reasoningEngines/...`) |
+| `WORKSPACE_AGENT_ENGINE` | Optional | Resource ID of a deployed Vertex AI Reasoning Engine (e.g. `projects/.../reasoningEngines/...`). Without this, voice commands to create or search Google Docs/Sheets will not work — the agent will respond but take no action. |
 | `SYSTEM_PROMPT` | No | Override the agent's system instruction |
+
+## GCP project structure
+
+This add-on spans **two or three GCP projects**, which is intentional:
+
+| Project | Purpose |
+|---|---|
+| **Add-on / Cloud Run project** | Hosts the Cloud Run service, the OAuth Client ID, and the Meet Media API dev preview access. This is `<YOUR_CLOUD_RUN_PROJECT>` in the deploy command. |
+| **Gemini billing project** | Vertex AI API is enabled here. All Gemini Live calls are billed to this project. Set via `GEMINI_PROJECT`. |
+| **Workspace Agent project** *(optional)* | A separately deployed Vertex AI Reasoning Engine handles Workspace tasks (Docs/Sheets creation). Set via `WORKSPACE_AGENT_ENGINE`. |
+
+The Cloud Run service account must have `roles/aiplatform.user` on the Gemini billing project (see step 3). The three projects can be collapsed into fewer if preferred, but separating billing is recommended.
 
 ## Architecture notes
 
