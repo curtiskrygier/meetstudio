@@ -111,6 +111,9 @@
             Object.entries(msg.tokens).forEach(([k, v]) => {
               document.documentElement.style.setProperty(k, v);
             });
+          } else if (msg.type === 'browser_frame') {
+            const frameImg = document.getElementById('browser-frame');
+            if (frameImg) frameImg.src = msg.data;
           } else if (msg.type === 'view_change') {
             if (msg.mode === 'diagram') {
               if (diagramId !== msg.diag_id) {

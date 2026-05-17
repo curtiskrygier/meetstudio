@@ -16,6 +16,7 @@ import './internal/components/gdm_controls_view';
 import './internal/components/gdm_status_view';
 import './internal/components/gdm_doc_view';
 import './internal/components/gdm_diagram_refiner';
+import './internal/components/gdm_poll_view';
 
 import { mainStyles } from './internal/styles';
 
@@ -834,6 +835,10 @@ export class GdmArchitectAgent extends LitElement {
       ['gdm-actions-view', (p) => html`<gdm-actions-view .actions=${p.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`],
       ['gdm-doc-view', (p) => html`<gdm-doc-view .title=${p.title} .htmlContent=${p.htmlContent}></gdm-doc-view>`],
       ['gdm-diagram-refiner', (p) => html`<gdm-diagram-refiner .diagramStyle=${this.diagramStyle} .context=${this.diagramContext} .generating=${this.diagramming} .canSave=${!!(this.diagramSessionId && this.lastGenerationTime)} @change-style=${(e: any) => { this.diagramStyle = e.detail; this.generateDiagram(); }} @update-context=${(e: any) => this.diagramContext = e.detail} @generate=${() => this.generateDiagram()} @new=${() => this.resetDiagram()} @save=${() => this.saveDiagramToDrive()}></gdm-diagram-refiner>`],
+      ['gdm-poll-view', (p) => html`<gdm-poll-view .question=${p.question} .options=${p.options} @poll-select=${(e: any) => {
+        this.uiPromptText = `User selected ${e.detail.option} in the poll. Update theme and diagram accordingly.`;
+        this.sendUiPrompt();
+      }}></gdm-poll-view>`],
       ['gdm-transcript-view', (p) => html`
           <div class="section-head">
             <span class="section-title">Transcript</span>

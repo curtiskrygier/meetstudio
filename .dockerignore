@@ -1,0 +1,45 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.local
+.git/
+.gitignore
+
+# Checkpoint and backup files
+*.old
+*.v17
+*.v19_checkpoint
+
+# Roast panel outputs
+ROAST-*.md
+
+# Diagram scratch files (root-level only — assets/icons/ is needed by D2)
+/*.d2
+/*.svg
+diagrams/
+
+# Docs and planning
+*.md
+plan.md
+STATUS.md
+HANDOFF.md
+TROUBLESHOOTING_CONTEXT.md
+PROJECT_REVIEW_*.md
+claudehelpme.md
+helpmegemini.md
+deployment-process.md
+sheets-prez.md
+d2test.md
+
+# Test and scratch
+tests/
+prompt_test.txt
+demo_transcript.txt
+api_response.json
+dist.zip
+
+# Python cache
+.pytest_cache/

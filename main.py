@@ -41,7 +41,20 @@ THEME_PRESETS = {
     "corporate":  {"--bg-0":"#f8f9fa","--bg-1":"#ffffff","--fg":"#1a1a1a","--fg-2":"#5f6368","--gem-1":"#1a73e8","--radius":"8px","--font":"'Google Sans',sans-serif"},
     "neon":       {"--bg-0":"#0a0014","--bg-1":"#120020","--fg":"#e040fb","--gem-1":"#ea80fc","--gem-2":"#ff4081","--radius":"16px","--font":"system-ui"},
     "minimal":    {"--bg-0":"#ffffff","--fg":"#000000","--fg-2":"#333","--gem-1":"#000","--line":"#e0e0e0","--radius":"6px"},
+    "red":        {"--bg-0":"#1a0505","--bg-1":"#2a0808","--fg":"#ffcccc","--fg-2":"#ff9999","--gem-1":"#ea4335","--gem-2":"#ff5252","--line":"#4a1a1a","--radius":"4px","--font":"system-ui"},
+    "blue":       {"--bg-0":"#050a1a","--bg-1":"#08142a","--fg":"#ccd9ff","--fg-2":"#99b3ff","--gem-1":"#4285F4","--gem-2":"#6699ff","--line":"#1a2a4a","--radius":"4px","--font":"system-ui"},
 }
+
+# Allowlists for /api/ui-prompt — fields the LLM is permitted to set
+_ALLOWED_UI_FIELDS = frozenset({
+    "status_text", "diagram_mode", "main_stage_view",
+    "theme_preset", "theme_tokens", "layout",
+    "component_visibility", "stage_theme", "banner",
+    "workspace_agent"
+})
+_ALLOWED_LAYOUTS = frozenset({"default", "focus", "minimal", "presentation", "split"})
+_ALLOWED_STAGE_VIEWS = frozenset({"diagram", "doc", "placeholder", "browser"})
+_ALLOWED_VISIBILITY_KEYS = frozenset({"transcript", "action_links", "controls", "diagram_refiner"})
 
 # Basic logging setup to replace prints
 logging.basicConfig(
@@ -132,7 +145,7 @@ async def broadcast_to_stage(meeting_id: str, message: dict):
         try: await ws.send_text(payload)
         except Exception: pass
 
-async def call_workspace_agent(query: str, user_id: str = "") -> str:
+async def call_workspace_agent(query: str, user_id: str = "", user_token: str = "") -> str:
     if not user_id: return "Workspace agent: no user identity available."
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -140,15 +153,44 @@ async def call_workspace_agent(query: str, user_id: str = "") -> str:
                 "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
                 headers={"Metadata-Flavor": "Google"},
             )
-            token = resp.json()["access_token"]
-        
-        url = f"https://{REGION}-aiplatform.googleapis.com/v1/{WORKSPACE_AGENT_ENGINE}:streamQuery"
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            sa_token = resp.json()["access_token"]
+
+        base_url = f"https://{REGION}-aiplatform.googleapis.com/v1/{WORKSPACE_AGENT_ENGINE}"
+        headers = {"Authorization": f"Bearer {sa_token}", "Content-Type": "application/json"}
+
+        # Create a per-call session injecting the user's OAuth token so all 85 workspace
+        # tools act as the calling user rather than the service account.
+        session_id = None
+        if user_token:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                sess_resp = await client.post(
+                    f"{base_url}/sessions",
+                    json={"user_id": user_id, "session_state": {"temp:evergreen-drive-auth": user_token}},
+                    headers=headers,
+                )
+                if sess_resp.status_code == 200:
+                    resp_json = sess_resp.json()
+                    # Session create returns an LRO; real session name is in response.name
+                    raw_name = resp_json.get("response", {}).get("name") or resp_json.get("name", "")
+                    # Strip /operations/... suffix if present
+                    if "/operations/" in raw_name:
+                        raw_name = raw_name[:raw_name.index("/operations/")]
+                    session_id = raw_name.split("/")[-1] if raw_name else None
+                    logger.info(f"[workspace] session created: {session_id}")
+                else:
+                    logger.warning(f"[workspace] session create failed {sess_resp.status_code}: {sess_resp.text[:200]}")
+
         body = {"input": {"message": query, "user_id": user_id}}
+        if session_id:
+            body["input"]["session_id"] = session_id
 
         texts = []
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(url, json=body, headers=headers)
+            resp = await client.post(f"{base_url}:streamQuery", json=body, headers=headers)
+            if resp.status_code != 200:
+                logger.error(f"[workspace] streamQuery failed {resp.status_code}: {resp.text[:500]}")
+                return f"Workspace agent error: {resp.status_code}"
+                
             for line in resp.text.splitlines():
                 if not line.strip(): continue
                 try:
@@ -362,9 +404,17 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     elif text:
                         data = json.loads(text)
                         if data.get("type") == "init":
-                            workspace_user[0] = data.get("user_email", "")
-                            session_token[0] = data.get("access_token", "")
+                            email = data.get("user_email", "")
+                            token = data.get("access_token", "")
+                            workspace_user[0] = email
+                            session_token[0] = token
                             if data.get("meeting_id"): session_space[0] = data.get("meeting_id")
+                            
+                            # Update global session data with identity for API access
+                            if session_space[0] in active_sessions:
+                                active_sessions[session_space[0]]["user_email"] = email
+                                active_sessions[session_space[0]]["access_token"] = token
+                            
                             logger.info(f"[ws] init user={workspace_user[0]} space={session_space[0]}")
                         
                         elif data.get("type") == "diagram_mode":
@@ -413,7 +463,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 ui_state["status_text"] = "Workspace agent: working..."
                                 await broadcast_a2ui()
                                 
-                                res = await call_workspace_agent(fc.args.get("query", ""), user_id=workspace_user[0])
+                                res = await call_workspace_agent(fc.args.get("query", ""), user_id=workspace_user[0], user_token=session_token[0])
                                 ui_state["status_text"] = "Assistant connected — listening"
                                 await broadcast_a2ui()
                                 
@@ -422,12 +472,8 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 for url in re.findall(r'https?://(?:docs|drive|sheets|slides)\.google\.com/[^\s)]+', res):
                                     clean_url = url.rstrip('.,)')
                                     label = "Open Spreadsheet" if "spreadsheets" in clean_url else "Open Document"
-                                    
-                                    # A2UI STATE UPDATE
                                     ui_state["actionLinks"].append({"url": clean_url, "label": label, "content": res})
                                     await broadcast_a2ui()
-                                    
-                                    # Broadcast to main stage
                                     await broadcast_to_stage(session_space[0], {
                                         "type": "view_change",
                                         "mode": "doc",
@@ -437,6 +483,12 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     })
                                     if session_token[0] and session_space[0]:
                                         asyncio.create_task(save_doc_shortcut_to_drive(clean_url, label, session_space[0], session_token[0]))
+
+                                # Surface auth link if workspace agent needs authorization
+                                for url in re.findall(r'https?://workspace-subagent-auth[^\s)]+', res):
+                                    clean_url = url.rstrip('.,)')
+                                    ui_state["actionLinks"].append({"url": clean_url, "label": "Authorize Workspace Access", "content": res})
+                                    await broadcast_a2ui()
                             
                             elif fc.name == "present_on_main_stage":
                                 url = fc.args.get("url", "")
@@ -654,19 +706,75 @@ async def ui_prompt(payload: dict = Body(...), token: str = Depends(token_requir
         
         if args:
             ui_state = session_data["ui_state"]
-            
-            # Apply changes (Mirroring update_interface logic)
+
+            # Strip unknown fields and validate enums/types before touching ui_state
+            args = {k: v for k, v in args.items() if k in _ALLOWED_UI_FIELDS}
+            if "layout" in args and args["layout"] not in _ALLOWED_LAYOUTS:
+                args.pop("layout")
+            if "main_stage_view" in args and args["main_stage_view"] not in _ALLOWED_STAGE_VIEWS:
+                args.pop("main_stage_view")
+            if "theme_preset" in args and args["theme_preset"] not in THEME_PRESETS:
+                args.pop("theme_preset")
+            if "theme_tokens" in args:
+                # Only allow CSS custom properties (--foo: value) to prevent arbitrary key injection
+                args["theme_tokens"] = {
+                    k: v for k, v in args["theme_tokens"].items()
+                    if isinstance(k, str) and k.startswith("--") and isinstance(v, str)
+                }
+            if "component_visibility" in args:
+                args["component_visibility"] = {
+                    k: bool(v) for k, v in args["component_visibility"].items()
+                    if k in _ALLOWED_VISIBILITY_KEYS
+                }
+
+            # Apply changes (mirroring update_interface logic)
             if "status_text" in args: ui_state["status_text"] = args["status_text"]
             if "diagram_mode" in args: ui_state["diagramMode"] = args["diagram_mode"]
             if "theme_preset" in args:
-                preset = args["theme_preset"]
-                if preset in THEME_PRESETS:
-                    ui_state["theme"].update(THEME_PRESETS[preset])
+                ui_state["theme"].update(THEME_PRESETS[args["theme_preset"]])
             if "theme_tokens" in args: ui_state["theme"].update(args["theme_tokens"])
             if "layout" in args: ui_state["layout"] = args["layout"]
             if "component_visibility" in args:
                 ui_state.setdefault("visibility", {}).update(args["component_visibility"])
             
+            # Workspace Agent (Document Creation) via Text Prompt
+            if "workspace_agent" in args:
+                query = args["workspace_agent"].get("query")
+                if query:
+                    logger.info(f"[ui-prompt] workspace request: {query}")
+                    ui_state["status_text"] = "Creating document..."
+                    await session_data["broadcast_fn"]()
+                    
+                    # Extract identity from global session data
+                    email = session_data.get("user_email", "")
+                    token = session_data.get("access_token", "")
+                    
+                    async def run_workspace_task():
+                        try:
+                            res = await call_workspace_agent(query, user_id=email, user_token=token)
+                            for url in re.findall(r'https?://(?:docs|drive|sheets|slides)\.google\.com/[^\s)]+', res):
+                                clean_url = url.rstrip('.,)')
+                                label = "Open Spreadsheet" if "spreadsheets" in clean_url else "Open Document"
+                                ui_state["actionLinks"].append({"url": clean_url, "label": label, "content": res})
+                                await broadcast_to_stage(space_id, {
+                                    "type": "view_change", "mode": "doc", "url": clean_url, "label": label, "content": res
+                                })
+                                if token and space_id:
+                                    asyncio.create_task(save_doc_shortcut_to_drive(clean_url, label, space_id, token))
+
+                            # Surface auth link if workspace agent needs authorization
+                            for url in re.findall(r'https?://workspace-subagent-auth[^\s)]+', res):
+                                ui_state["actionLinks"].append({"url": url.rstrip('.,)'), "label": "Authorize Workspace Access", "content": res})
+
+                            ui_state["status_text"] = "Document ready."
+                            await session_data["broadcast_fn"]()
+                        except Exception as e:
+                            logger.error(f"[ui-prompt] Workspace task failed: {e}")
+                            ui_state["status_text"] = "Document creation failed."
+                            await session_data["broadcast_fn"]()
+                    
+                    asyncio.create_task(run_workspace_task())
+
             # Trigger Broadcast
             await session_data["broadcast_fn"]()
             
@@ -737,13 +845,37 @@ async def export_transcript(payload: dict = Body(...), token: str = Depends(toke
     try:
         meeting_name = await get_calendar_meeting_name(payload["space_id"], token)
         folder_id = await get_or_create_meeting_folder(payload["space_id"], token, meeting_name=meeting_name)
+        
+        boundary = "-------314159265358979323846"
+        metadata = {
+            "name": f"Transcript: {meeting_name or payload['space_id']}",
+            "mimeType": "application/vnd.google-apps.document",
+            "parents": [folder_id] if folder_id else []
+        }
+        
+        body = (
+            f"--{boundary}\n"
+            f"Content-Type: application/json; charset=UTF-8\n\n"
+            f"{json.dumps(metadata)}\n"
+            f"--{boundary}\n"
+            f"Content-Type: text/plain\n\n"
+            f"{payload['transcript']}\n"
+            f"--{boundary}--"
+        ).encode("utf-8")
+
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post("https://www.googleapis.com/drive/v3/files", params={"supportsAllDrives": "true"},
-                json={"name": f"Transcript: {meeting_name or payload['space_id']}", "mimeType": "application/vnd.google-apps.document", "parents": [folder_id] if folder_id else []},
-                headers={"Authorization": f"Bearer {token}"})
+            resp = await client.post(
+                "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+                params={"supportsAllDrives": "true"},
+                content=body,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": f"multipart/related; boundary={boundary}",
+                }
+            )
+            resp.raise_for_status()
             file_id = resp.json()["id"]
-            await client.patch(f"https://www.googleapis.com/drive/v3/files/{file_id}?uploadType=media", params={"supportsAllDrives": "true"},
-                content=payload["transcript"].encode("utf-8"), headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"})
+            
         logger.info(f"[export] Created document {file_id}")
         return {"ok": True, "file_id": file_id}
     except Exception as e:
