@@ -33,7 +33,7 @@ Google Meet participants
 - 📹 Optional 1fps video feed sent to Gemini for visual context
 - 🔇 Audio and video send toggles in the side panel UI
 - 💸 Gemini API calls billed to a configurable GCP project (separate from the Cloud Run host)
-- 📄 **Workspace Agent**: Voice-activated creation and search of Google Docs/Sheets (via GE04 Reasoning Engine)
+- 📄 **Workspace Agent**: Voice-activated creation and search of Google Docs/Sheets (via a deployed Vertex AI Reasoning Engine)
 - ⏳ **Auto-Stage**: Generated documents automatically open in the Meet main stage for all participants
 - 📁 **Save to Drive**: Automatic creation of Drive shortcuts to meeting documents in a structured folder hierarchy
 
@@ -78,10 +78,11 @@ The add-on maintains a "Meet Recordings" folder in the user's Google Drive.
 git clone <this-repo>
 cd meet-live-concierge
 cp .env.production.sample .env.production
-# Edit .env.production with your values
+# Edit .env.production — fill in all YOUR_* placeholders
 
-# Substitute your GCP project number in the main stage JS
-sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/<YOUR_PROJECT_NUMBER>/g' public/main_stage.js
+# Substitute your numeric GCP project number in the main stage JS
+# Example: sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/649226456677/g' public/main_stage.js
+sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/YOUR_NUMERIC_PROJECT_NUMBER/g' public/main_stage.js
 ```
 
 ### 2. Install frontend dependencies
@@ -102,7 +103,7 @@ gcloud projects add-iam-policy-binding <GEMINI_PROJECT> \
 ### 4. Deploy to Cloud Run
 
 ```bash
-source .env
+source .env.production
 gcloud run deploy meet-live-concierge \
   --source . \
   --region $REGION \
@@ -152,7 +153,7 @@ Use the **Test Install** button in the Marketplace SDK console, then open Google
 ## Local development
 
 ```bash
-source .env
+source .env.production
 # Terminal 1 — backend
 uvicorn main:app --reload --port 8080
 

@@ -810,10 +810,6 @@ async def set_session(meeting_id: str, data: dict, _=Depends(token_required)):
         diagram_title.pop(purge_old, None)
         logger.info(f"[session] Purged old session: {purge_old}")
     
-    # Also clear any extra UI components (like doc previews) for this session
-    # Note: ui_state is local to live_session, but since we are A2UI, 
-    # we should handle global state carefully if needed. 
-    # For now, let's just log it.
     reset_msg = {"type": "view_change", "mode": "diagram", "diag_id": session_id, "version": 0}
     await broadcast_to_stage(meeting_id, reset_msg)
     return {"ok": True}
