@@ -9,7 +9,6 @@ VOICE = os.environ.get("KORE_VOICE", "Charon")
 WORKSPACE_AGENT_ENGINE = os.environ.get("WORKSPACE_AGENT_ENGINE", "")
 
 CLIENT_ID = os.environ.get("CLIENT_ID")
-MARKETPLACE_CLIENT_ID = "649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com"
 
 DEFAULT_PROMPT = """You are an AI meeting concierge in Google Meet. Be concise and conversational.
 

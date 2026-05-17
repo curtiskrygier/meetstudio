@@ -1,6 +1,6 @@
 import httpx
 import logging
-from app.config import CLIENT_ID, MARKETPLACE_CLIENT_ID
+from app.config import CLIENT_ID
 
 logger = logging.getLogger("concierge")
 
@@ -21,9 +21,8 @@ async def validate_google_token(token: str) -> bool:
             info = resp.json()
             aud = info.get("aud")
             # Check if token is for our Client ID (if configured)
-            allowed_auds = [CLIENT_ID, MARKETPLACE_CLIENT_ID]
-            if aud not in allowed_auds:
-                logger.warning(f"[auth] token audience mismatch: got {aud}, expected one of {allowed_auds}")
+            if aud != CLIENT_ID:
+                logger.warning(f"[auth] token audience mismatch: got {aud}, expected {CLIENT_ID}")
                 return False
                 
             return True
