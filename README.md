@@ -81,7 +81,7 @@ cp .env.production.sample .env.production
 # Edit .env.production — fill in all YOUR_* placeholders
 
 # Substitute your numeric GCP project number in the main stage JS
-# Example: sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/649226456677/g' public/main_stage.js
+# Example: sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/123456789012/g' public/main_stage.js
 sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/YOUR_NUMERIC_PROJECT_NUMBER/g' public/main_stage.js
 ```
 
