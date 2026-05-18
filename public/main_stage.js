@@ -138,7 +138,7 @@
               if (diagramId !== msg.diag_id) {
                 diagramId = msg.diag_id;
                 knownVersion = 0;
-                showDiagramPlaceholder();
+                if (!msg.svg) showDiagramPlaceholder();
               }
               if (msg.svg) {
                 renderInlineSVG(msg.svg);
@@ -206,7 +206,7 @@
                 if (diagramId !== msg.diag_id) {
                   diagramId = msg.diag_id;
                   knownVersion = 0;
-                  showDiagramPlaceholder();
+                  if (!msg.svg) showDiagramPlaceholder();
                 }
               }
               setView(msg.mode);
