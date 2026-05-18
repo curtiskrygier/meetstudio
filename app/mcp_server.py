@@ -181,24 +181,32 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn):
             if not transcript or not space_id:
                 return _tool_error(req_id, "transcript and space_id are required")
 
-            logger.info(f"[mcp] trigger_diagram for {space_id} (style={style})")
-            diag_id, svg_bytes, title = await generate_diagram_fn(
-                transcript=transcript,
-                session_id=space_id,
-                style=style
-            )
-            if not diag_id:
-                return _tool_error(req_id, "Diagram generation failed — check server logs.")
+            logger.info(f"[mcp] trigger_diagram for {space_id} (style={style}) — generating async")
 
-            from app.config import diagram_version
-            await broadcast_fn(space_id, {
-                "type": "view_change",
-                "mode": "diagram",
-                "diag_id": diag_id,
-                "version": diagram_version.get(diag_id, 1),
-                "svg": base64.b64encode(svg_bytes).decode("utf-8")
-            })
-            return _tool_text(req_id, f"Diagram '{title}' generated and broadcast to {space_id}.")
+            async def _generate_and_broadcast():
+                try:
+                    diag_id, svg_bytes, title = await generate_diagram_fn(
+                        transcript=transcript,
+                        session_id=space_id,
+                        style=style
+                    )
+                    if not diag_id:
+                        logger.error(f"[mcp] trigger_diagram failed for {space_id}")
+                        return
+                    from app.config import diagram_version
+                    await broadcast_fn(space_id, {
+                        "type": "view_change",
+                        "mode": "diagram",
+                        "diag_id": diag_id,
+                        "version": diagram_version.get(diag_id, 1),
+                        "svg": base64.b64encode(svg_bytes).decode("utf-8")
+                    })
+                    logger.info(f"[mcp] diagram broadcast complete for {space_id}")
+                except Exception as e:
+                    logger.error(f"[mcp] trigger_diagram error: {e}")
+
+            asyncio.create_task(_generate_and_broadcast())
+            return _tool_text(req_id, f"Diagram generation started for {space_id} — will appear when ready.")
 
         if name == "send_emoji":
             space_id = (args.get("space_id") or "").strip()
