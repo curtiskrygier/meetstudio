@@ -80,9 +80,9 @@ Only include components, actors, and interactions that were EXPLICITLY discussed
 Rules:
 - Output ONLY valid D2 code. No markdown, no backticks, no explanation.
 - NO SYSTEM BLOCKS: Never output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are managed by the system.
-- 16:9 LAYOUT: Design for a wide horizontal flow. Use three horizontal tiers: [Ingestion/Source] -> [Processing] -> [Storage/Output].
-- DATA FLOW: Use sequence numbers (1), (2), (3)... as prefixes on ALL edge labels.
-- SPACING: Use ample padding between nodes. Prefer 'layout: elk' (horizontal) or 'layout: dagre' (vertical).
+- 16:9 LAYOUT: Design for a wide horizontal flow. Group related components together — do NOT use named tiers or layers. Let the components and their connections define the layout naturally.
+- EDGE LABELS: Use short descriptive labels (e.g. "Audio stream", "Transcript", "SVG"). No numbered sequences.
+- SPACING: Use ample padding between nodes. Prefer 'layout: elk'.
 - MINIMALIST NODES: Keep node labels to 1-3 keywords max. Ensure labels stay within boxes.
 - QUOTING: EVERY node name and EVERY edge label MUST be wrapped in double quotes (e.g., "User" -> "API": "1. Request").
 - STYLE: Use 'near: icon' or similar if icons are crowded.
@@ -92,21 +92,15 @@ Rules:
 - SHAPES: Use 'square', 'circle', 'cloud', 'cylinder', 'rectangle', 'person'.
 
 Example structure:
-"Source Tier": {
-  "User".class: person
-  "Meet App".icon: "assets/icons/meet.svg"
-}
-"Processing": {
-  "Gemini AI".icon: "assets/icons/gemini.svg"
-  "FastAPI".icon: "assets/icons/cloud_run.svg"
-}
-"Output Tier": {
-  "Google Drive".icon: "assets/icons/drive.svg"
-}
-"User" -> "Meet App": "1. Interacts"
-"Meet App" -> "FastAPI": "2. Streams Audio"
-"FastAPI" -> "Gemini AI": "3. Transcribes"
-"Gemini AI" -> "Google Drive": "4. Archives"
+"User".class: person
+"Meet App".icon: "assets/icons/meet.svg"
+"FastAPI".icon: "assets/icons/cloud_run.svg"
+"Gemini AI".icon: "assets/icons/gemini.svg"
+"Google Drive".icon: "assets/icons/drive.svg"
+"User" -> "Meet App": "Interacts"
+"Meet App" -> "FastAPI": "Audio stream"
+"FastAPI" -> "Gemini AI": "Transcript"
+"Gemini AI" -> "Google Drive": "Archives"
 
 STRICT: If context is empty or contains no architecture, output ONLY:
 "Waiting for Architecture Description...".shape: rectangle
