@@ -11,6 +11,30 @@ logger = logging.getLogger("concierge")
 
 _MCP_API_KEY = os.environ.get("MCP_API_KEY", "")
 
+_EMOJI_TRIGGERS = {
+    "impressive": "👏",
+    "impress":    "👏",
+    "love":       "🫶",
+    "idea":       "💡",
+    "ideas":      "💡",
+    "brilliant":  "💡",
+    "amazing":    "🔥",
+    "incredible": "🔥",
+    "congrats":   "🎉",
+    "congratulations": "🎉",
+}
+
+def _detect_emojis(text: str) -> list[str]:
+    words = text.lower().split()
+    seen, result = set(), []
+    for word in words:
+        clean = word.strip(".,!?;:'\"")
+        emoji = _EMOJI_TRIGGERS.get(clean)
+        if emoji and emoji not in seen:
+            seen.add(emoji)
+            result.append(emoji)
+    return result
+
 _TOOLS = [
     {
         "name": "send_transcript",
@@ -168,6 +192,11 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn):
                 "is_final": True
             })
             logger.info(f"[mcp] send_transcript to {space_id}: {text[:60]}")
+
+            for emoji in _detect_emojis(text):
+                await asyncio.sleep(0.4)
+                await broadcast_fn(space_id, {"type": "emoji_reaction", "emoji": emoji})
+
             return _tool_text(req_id, f"Transcript line sent to {space_id}.")
 
         if name == "trigger_diagram":
