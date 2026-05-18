@@ -78,6 +78,7 @@ from app.drive import (
 )
 from app.diagrams import generate_diagram, render_d2
 from app.mcp_server import handle_mcp
+from app.reactions import detect_emojis
 
 from google.genai import types
 
@@ -145,6 +146,14 @@ async def broadcast_to_stage(meeting_id: str, message: dict):
     for ws in list(stage_listeners[meeting_id]):
         try: await ws.send_text(payload)
         except Exception: pass
+
+    if message.get("type") == "transcript":
+        for emoji in detect_emojis(message.get("text", "")):
+            await asyncio.sleep(0.4)
+            emoji_payload = json.dumps({"type": "emoji_reaction", "emoji": emoji})
+            for ws in list(stage_listeners.get(meeting_id, [])):
+                try: await ws.send_text(emoji_payload)
+                except Exception: pass
 
 async def call_workspace_agent(query: str, user_id: str = "", user_token: str = "") -> str:
     if not user_id: return "Workspace agent: no user identity available."
