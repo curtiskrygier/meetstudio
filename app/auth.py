@@ -23,8 +23,9 @@ async def validate_google_token(token: str) -> bool:
                 logger.warning("[auth] CLIENT_ID not configured — rejecting all tokens")
                 return False
             aud = info.get("aud")
-            if aud != CLIENT_ID:
-                logger.warning(f"[auth] token audience mismatch: got {aud}, expected {CLIENT_ID}")
+            azp = info.get("azp")
+            if aud != CLIENT_ID and azp != CLIENT_ID:
+                logger.warning(f"[auth] token mismatch: aud={aud}, azp={azp}, expected {CLIENT_ID}")
                 return False
                 
             return True
