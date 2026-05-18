@@ -68,6 +68,32 @@ _TOOLS = [
             },
             "required": ["transcript", "space_id"]
         }
+    },
+    {
+        "name": "send_emoji",
+        "description": (
+            "Launch floating emoji reactions on the Meet main stage — "
+            "they rise from the bottom and fade out, like live stream reactions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": {
+                    "type": "string",
+                    "description": "Google Meet space ID of the active session"
+                },
+                "emoji": {
+                    "type": "string",
+                    "description": "The emoji character(s) to float up the screen (e.g. '👏', '🔥', '💡')"
+                },
+                "repeat": {
+                    "type": "integer",
+                    "description": "Number of times to fire the burst (1-5). Defaults to 1.",
+                    "default": 1
+                }
+            },
+            "required": ["space_id", "emoji"]
+        }
     }
 ]
 
@@ -172,6 +198,22 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn):
                 "svg": base64.b64encode(svg_bytes).decode("utf-8")
             })
             return _tool_text(req_id, f"Diagram '{title}' generated and broadcast to {space_id}.")
+
+        if name == "send_emoji":
+            space_id = (args.get("space_id") or "").strip()
+            emoji = (args.get("emoji") or "👏").strip()
+            repeat = max(1, min(int(args.get("repeat") or 1), 5))
+
+            if not space_id:
+                return _tool_error(req_id, "space_id is required")
+
+            for i in range(repeat):
+                if i > 0:
+                    await asyncio.sleep(0.6)
+                await broadcast_fn(space_id, {"type": "emoji_reaction", "emoji": emoji})
+
+            logger.info(f"[mcp] send_emoji {emoji} x{repeat} to {space_id}")
+            return _tool_text(req_id, f"Emoji {emoji} fired x{repeat} to {space_id}.")
 
         return _rpc_error(req_id, -32601, f"Unknown tool: {name}")
 

@@ -95,6 +95,23 @@
       }
     }
 
+    function launchEmoji(emoji) {
+      const layer = document.getElementById('emoji-layer');
+      if (!layer) return;
+      const count = Math.floor(Math.random() * 3) + 2;
+      for (let i = 0; i < count; i++) {
+        setTimeout(() => {
+          const el = document.createElement('div');
+          el.className = 'emoji-float';
+          el.textContent = emoji;
+          el.style.left = (10 + Math.random() * 80) + '%';
+          el.style.animationDelay = (Math.random() * 0.4) + 's';
+          layer.appendChild(el);
+          el.addEventListener('animationend', () => el.remove());
+        }, i * 120);
+      }
+    }
+
     function connectStageWS() {
       if (!meetingId) return;
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -106,6 +123,8 @@
           const msg = JSON.parse(e.data);
           if (msg.type === 'transcript') {
             updateTranscript(msg);
+          } else if (msg.type === 'emoji_reaction') {
+            launchEmoji(msg.emoji || '👏');
           } else if (msg.type === 'theme_change') {
             console.log('[stage] Applying theme change...');
             Object.entries(msg.tokens).forEach(([k, v]) => {
