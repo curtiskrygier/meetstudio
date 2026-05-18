@@ -1,0 +1,3 @@
+# Use .gitignore rules but keep .env.production for Vite build-time env vars
+#!include:.gitignore
+!.env.production

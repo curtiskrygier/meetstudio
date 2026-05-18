@@ -77,6 +77,7 @@ from app.drive import (
     save_diagram_to_drive, fetch_meeting_chat, save_doc_shortcut_to_drive
 )
 from app.diagrams import generate_diagram, render_d2
+from app.mcp_server import handle_mcp
 
 from google.genai import types
 
@@ -911,6 +912,17 @@ async def save_diagram(diagram_id: str, payload: dict = Body(...), token: str = 
     file_id = await save_diagram_to_drive(svg, diagram_title.get(diagram_id, "Diagram"), payload["space_id"], token)
     return {"ok": True, "file_id": file_id}
 
+@app.get("/api/dev/sessions")
+async def dev_sessions():
+    return {
+        "active_sessions": list(active_sessions.keys()),
+        "stage_listeners": {k: len(v) for k, v in stage_listeners.items()}
+    }
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request):
+    return await handle_mcp(request, broadcast_to_stage, generate_diagram)
+
 @app.get("/", include_in_schema=False)
 async def serve_index():
     response = FileResponse("dist/index.html")
@@ -918,6 +930,8 @@ async def serve_index():
     return response
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_static(path: str):
+    if path.startswith("api/") or path in ("mcp",):
+        raise HTTPException(status_code=404)
     if os.path.exists(f"dist/{path}"): return FileResponse(f"dist/{path}")
     return FileResponse("dist/index.html")
 

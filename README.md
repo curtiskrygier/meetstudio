@@ -151,6 +151,68 @@ Copy the deployment ID (`AKfycb...`) and enter it in:
 
 Use the **Test Install** button in the Marketplace SDK console, then open Google Meet.
 
+## MCP Server
+
+The backend exposes an MCP server at `/mcp` (Streamable HTTP transport — compatible with Claude Code and Gemini CLI).
+
+### Tools
+
+| Tool | Description |
+|---|---|
+| `send_transcript` | Broadcast a subtitle line to the Meet main stage |
+| `trigger_diagram` | Generate a D2 diagram from a description and broadcast it to the main stage |
+
+Both tools require the `space_id` of an active meeting session.
+
+### Connect from Claude Code
+
+Add to `~/.claude/settings.json` (or `.claude/settings.local.json` for per-project):
+
+```json
+{
+  "mcpServers": {
+    "meet-live-concierge": {
+      "type": "sse",
+      "url": "https://YOUR_CLOUD_RUN_URL/mcp"
+    }
+  }
+}
+```
+
+If `MCP_API_KEY` is set on the server, add a `headers` block:
+
+```json
+{
+  "mcpServers": {
+    "meet-live-concierge": {
+      "type": "sse",
+      "url": "https://YOUR_CLOUD_RUN_URL/mcp",
+      "headers": { "Authorization": "Bearer YOUR_MCP_API_KEY" }
+    }
+  }
+}
+```
+
+For local dev, point the URL at `http://localhost:8080/mcp`.
+
+### Connect from Gemini CLI
+
+```json
+{
+  "mcpServers": {
+    "meet-live-concierge": {
+      "httpUrl": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+### Security
+
+If `MCP_API_KEY` is unset the endpoint is open — suitable for local development only. Set it via `--set-env-vars` when deploying to Cloud Run.
+
+---
+
 ## Local development
 
 ```bash
