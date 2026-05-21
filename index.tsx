@@ -58,6 +58,7 @@ export class GdmArchitectAgent extends LitElement {
   @state() layout = 'default';
   @state() uiPromptText = '';
   @state() uiPromptSending = false;
+  @state() imageGenerating = false;
 
   private audioEnabled = true;
   private videoEnabled = false;
@@ -204,6 +205,29 @@ export class GdmArchitectAgent extends LitElement {
   private toggleVideo() {
     if (this.wsService?.readyState === WebSocket.OPEN) {
       this.wsService?.sendJson({ type: 'toggle_video' });
+    }
+  }
+
+  private async generateImage() {
+    const prompt = this.uiPromptText.trim();
+    if (!prompt || !this.meetingId) {
+      this.status = 'Type an image description in the field below, then click Image';
+      return;
+    }
+    this.imageGenerating = true;
+    this.status = 'Generating image…';
+    try {
+      await this.authenticatedFetch('/api/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, space_id: this.meetingId }),
+      });
+      this.uiPromptText = '';
+      this.status = 'Image generating — will appear on stage';
+    } catch (e: any) {
+      this.status = `Image failed: ${(e as any).message || e}`;
+    } finally {
+      this.imageGenerating = false;
     }
   }
 
@@ -831,7 +855,7 @@ export class GdmArchitectAgent extends LitElement {
   private get componentRegistry() {
     return new Map<string, (props: any) => any>([
       ['gdm-status-view', (p) => html`<gdm-status-view .state=${p.state} .status=${p.status} .authenticated=${p.authenticated}></gdm-status-view>`],
-      ['gdm-controls-view', (p) => html`<gdm-controls-view .audioEnabled=${p.audioEnabled} .videoEnabled=${p.videoEnabled} .diagramMode=${p.diagramMode} .transcriptMode=${p.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()}></gdm-controls-view>`],
+      ['gdm-controls-view', (p) => html`<gdm-controls-view .audioEnabled=${p.audioEnabled} .videoEnabled=${p.videoEnabled} .diagramMode=${p.diagramMode} .transcriptMode=${p.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()} @generate-image=${()=>this.generateImage()}></gdm-controls-view>`],
       ['gdm-actions-view', (p) => html`<gdm-actions-view .actions=${p.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`],
       ['gdm-doc-view', (p) => html`<gdm-doc-view .title=${p.title} .htmlContent=${p.htmlContent}></gdm-doc-view>`],
       ['gdm-diagram-refiner', (p) => html`<gdm-diagram-refiner .diagramStyle=${this.diagramStyle} .context=${this.diagramContext} .generating=${this.diagramming} .canSave=${!!(this.diagramSessionId && this.lastGenerationTime)} @change-style=${(e: any) => { this.diagramStyle = e.detail; this.generateDiagram(); }} @update-context=${(e: any) => this.diagramContext = e.detail} @generate=${() => this.generateDiagram()} @new=${() => this.resetDiagram()} @save=${() => this.saveDiagramToDrive()}></gdm-diagram-refiner>`],
@@ -939,7 +963,7 @@ export class GdmArchitectAgent extends LitElement {
               <input
                 class="ctx-input ui-prompt-input"
                 type="text"
-                placeholder="Change the UI… e.g. go matrix, focus mode"
+                placeholder="Change UI or describe an image… e.g. neon robot at a meeting"
                 .value=${this.uiPromptText}
                 ?disabled=${this.uiPromptSending}
                 @input=${(e: any) => this.uiPromptText = e.target.value}

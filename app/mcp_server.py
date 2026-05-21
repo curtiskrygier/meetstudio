@@ -1,15 +1,14 @@
 import asyncio
 import base64
 import logging
-import os
 import uuid as uuid_lib
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger("concierge")
+from app.auth import check_producer_auth
 
-_MCP_API_KEY = os.environ.get("MCP_API_KEY", "")
+logger = logging.getLogger("concierge")
 
 
 _TOOLS = [
@@ -71,6 +70,27 @@ _TOOLS = [
         }
     },
     {
+        "name": "generate_image",
+        "description": (
+            "Generate an AI image from a text description using Imagen 4 and broadcast it "
+            "live to the Meet main stage."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed image description (e.g. 'A futuristic data center with neon blue lights')"
+                },
+                "space_id": {
+                    "type": "string",
+                    "description": "Google Meet space ID of the active session"
+                }
+            },
+            "required": ["prompt", "space_id"]
+        }
+    },
+    {
         "name": "send_emoji",
         "description": (
             "Launch floating emoji reactions on the Meet main stage — "
@@ -112,11 +132,11 @@ def _rpc_error(req_id, code: int, message: str):
     return JSONResponse({"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}})
 
 
-async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn):
-    if _MCP_API_KEY:
-        auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {_MCP_API_KEY}":
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn, generate_image_fn=None):
+    try:
+        check_producer_auth(request)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=getattr(e, "status_code", 401))
 
     try:
         body = await request.json()
@@ -223,6 +243,36 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn):
 
             logger.info(f"[mcp] send_emoji {emoji} x{repeat} to {space_id}")
             return _tool_text(req_id, f"Emoji {emoji} fired x{repeat} to {space_id}.")
+
+        if name == "generate_image":
+            prompt = (args.get("prompt") or "").strip()
+            space_id = (args.get("space_id") or "").strip()
+
+            if not prompt or not space_id:
+                return _tool_error(req_id, "prompt and space_id are required")
+
+            if not generate_image_fn:
+                return _tool_error(req_id, "Image generation not configured on this server.")
+
+            logger.info(f"[mcp] generate_image for {space_id}: {prompt[:60]}")
+
+            async def _generate_and_broadcast():
+                try:
+                    img_bytes = await generate_image_fn(prompt)
+                    if not img_bytes:
+                        logger.error(f"[mcp] generate_image returned no data for {space_id}")
+                        return
+                    await broadcast_fn(space_id, {
+                        "type": "view_change",
+                        "mode": "image",
+                        "imageData": base64.b64encode(img_bytes).decode("utf-8")
+                    })
+                    logger.info(f"[mcp] image broadcast complete for {space_id}")
+                except Exception as e:
+                    logger.error(f"[mcp] generate_image error: {e}")
+
+            asyncio.create_task(_generate_and_broadcast())
+            return _tool_text(req_id, f"Image generation started for {space_id} — will appear when ready.")
 
         return _rpc_error(req_id, -32601, f"Unknown tool: {name}")
 

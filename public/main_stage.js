@@ -95,6 +95,44 @@
       }
     }
 
+    function youtubeId(url) {
+      try {
+        const u = new URL(url);
+        if (u.hostname.includes('youtube.com')) return u.searchParams.get('v');
+        if (u.hostname === 'youtu.be') return u.pathname.slice(1);
+      } catch (e) {}
+      return null;
+    }
+
+    function playVideo(url) {
+      const videoEl = document.getElementById('stage-video');
+      const iframeEl = document.getElementById('stage-iframe');
+      if (!videoEl || !iframeEl) return;
+
+      const ytId = youtubeId(url);
+      if (ytId) {
+        videoEl.classList.add('hidden');
+        videoEl.pause();
+        videoEl.src = '';
+        iframeEl.src = `https://www.youtube.com/embed/${ytId}?autoplay=1&enablejsapi=1`;
+        iframeEl.classList.remove('hidden');
+      } else {
+        iframeEl.classList.add('hidden');
+        iframeEl.src = '';
+        videoEl.classList.remove('hidden');
+        videoEl.src = url;
+        videoEl.play().catch(() => {});
+      }
+    }
+
+    function renderStageImage(base64) {
+      const imgEl = document.getElementById('stage-image');
+      if (!imgEl) return;
+      imgEl.classList.remove('loaded');
+      imgEl.onload = () => imgEl.classList.add('loaded');
+      imgEl.src = 'data:image/jpeg;base64,' + base64;
+    }
+
     function launchEmoji(emoji) {
       const layer = document.getElementById('emoji-layer');
       if (!layer) return;
@@ -112,10 +150,42 @@
       }
     }
 
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Activate button — unlocks AudioContext and hides itself on first click
+    const activateBtn = document.getElementById('audio-activate');
+    if (activateBtn) {
+      activateBtn.addEventListener('click', () => {
+        audioCtx.resume();
+        activateBtn.style.display = 'none';
+      }, { once: true });
+    }
+
+    function resumeAudio() {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+    document.addEventListener('click', resumeAudio);
+    document.addEventListener('keydown', resumeAudio);
+
+    async function playAudioChunk(base64wav) {
+      try {
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        const bytes = Uint8Array.from(atob(base64wav), c => c.charCodeAt(0));
+        const buffer = await audioCtx.decodeAudioData(bytes.buffer);
+        const src = audioCtx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(audioCtx.destination);
+        src.start();
+      } catch (e) { console.warn('[stage] audio play error', e); }
+    }
+
+    let stageWS = null;
+
     function connectStageWS() {
       if (!meetingId) return;
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&ticket=${encodeURIComponent(ticket)}`);
+      stageWS = ws;
       
       ws.onopen = () => console.log('[stage] Caption broadcast connected');
       ws.onmessage = (e) => {
@@ -130,6 +200,8 @@
             Object.entries(msg.tokens).forEach(([k, v]) => {
               document.documentElement.style.setProperty(k, v);
             });
+          } else if (msg.type === 'audio') {
+            if (msg.data) playAudioChunk(msg.data);
           } else if (msg.type === 'browser_frame') {
             const frameImg = document.getElementById('browser-frame');
             if (frameImg) frameImg.src = msg.data;
@@ -144,6 +216,12 @@
                 renderInlineSVG(msg.svg);
                 knownVersion = msg.version;
               }
+            }
+            if (msg.mode === 'image' && msg.imageData) {
+              renderStageImage(msg.imageData);
+            }
+            if (msg.mode === 'video' && msg.url) {
+              playVideo(msg.url);
             }
             setView(msg.mode);
             if (msg.mode === 'doc') {
@@ -189,11 +267,30 @@
       setView('diagram');
     }
 
+    // Signal server when a direct video finishes so the queue can advance
+    const stageVideo = document.getElementById('stage-video');
+    if (stageVideo) {
+      stageVideo.addEventListener('ended', () => {
+        if (stageWS && stageWS.readyState === WebSocket.OPEN) {
+          stageWS.send(JSON.stringify({ type: 'video_ended' }));
+        }
+      });
+    }
+
     connectStageWS();
 
     (async () => {
       try {
         const session = await meet.addon.createAddonSession({ cloudProjectNumber: '649226456677' });
+        // Attempt AudioContext unlock on Meet SDK init (user join gesture context)
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume().then(() => {
+            if (audioCtx.state === 'running') {
+              const btn = document.getElementById('audio-activate');
+              if (btn) btn.style.display = 'none';
+            }
+          }).catch(() => {});
+        }
         const client = await session.createMainStageClient();
         
         client.on('frameToFrameMessage', (arg) => {

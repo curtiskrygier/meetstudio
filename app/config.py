@@ -43,6 +43,8 @@ MATRIX DEMO — when the user says "let's do the Matrix demo" or you hear audio 
 
 IMPORTANT: Never announce theme or layout changes. Never say "switching to matrix mode" or similar. Call the tool and continue.
 
+DEMO / NARRATION MODE: If you hear pre-recorded audio narration or a presentation being played (not a live person directly asking you a question), do NOT speak and do NOT generate any text response. Stay completely silent. The input transcription handles captioning automatically. Responding to narration creates noise on stage — silence is the correct behaviour.
+
 D2 Visual Modes:
 ...
 Default to SKETCH visual style for diagrams unless the user requests otherwise."""
@@ -67,6 +69,7 @@ current_session: dict[str, str] = {}
 current_view: dict[str, dict] = {}
 stage_listeners: dict[str, set] = {} # set[WebSocket]
 active_sessions: dict[str, dict] = {} # space_id -> { "ui_state": dict, "broadcast_fn": callable }
+video_queues: dict[str, list] = {} # space_id -> [{"url": str, "label": str}, ...]
 
 # D2 Prompt for diagram generation
 D2_PROMPT = """You are a Master Systems Architect. Analyse the technical meeting context and generate a professional D2 architecture diagram.
@@ -80,27 +83,30 @@ Only include components, actors, and interactions that were EXPLICITLY discussed
 Rules:
 - Output ONLY valid D2 code. No markdown, no backticks, no explanation.
 - NO SYSTEM BLOCKS: Never output 'vars', 'style', 'classes', 'direction', 'theme', or 'layout' blocks. These are managed by the system.
-- 16:9 LAYOUT: Design for a wide horizontal flow. Group related components together — do NOT use named tiers or layers. Let the components and their connections define the layout naturally.
-- EDGE LABELS: Use short descriptive labels (e.g. "Audio stream", "Transcript", "SVG"). No numbered sequences.
-- SPACING: Use ample padding between nodes. Prefer 'layout: elk'.
-- MINIMALIST NODES: Keep node labels to 1-3 keywords max. Ensure labels stay within boxes.
-- QUOTING: EVERY node name and EVERY edge label MUST be wrapped in double quotes (e.g., "User" -> "API": "1. Request").
-- STYLE: Use 'near: icon' or similar if icons are crowded.
+- FLAT NODES ONLY: ALL nodes must be top-level. NEVER use nested blocks or containers — no `{ }` grouping of any kind. Every node is declared independently at the root level. This is the most important rule.
+- SINGLE DIAGRAM: Output exactly one diagram. No separate process flow, no second section, no sequence diagram alongside the architecture.
+- 16:9 LAYOUT: Design for a wide horizontal flow left to right. Let connections define the layout naturally.
+- EDGE LABELS: Short descriptive labels only (e.g. "Audio stream", "Transcript", "SVG"). No numbered sequences. Labels must be 1-3 words max.
+- ONE EDGE PER PAIR: Maximum ONE edge between any two nodes. Use `<->` for bidirectional connections. Never draw two separate arrows between the same pair of nodes — combine into one `<->` edge with a single label.
+- NODE LABELS: 1-3 words max. If a label is longer than 12 characters, shorten it.
+- QUOTING: EVERY node name and EVERY edge label MUST be wrapped in double quotes.
 - ICONS: EVERY major component MUST have an icon. Use relative paths: "Node Name".icon: "assets/icons/<name>.svg"
 - Icons Available: meet.svg, docs.svg, sheets.svg, drive.svg, gemini.svg, cloud_run.svg, sql.svg, storage.svg, compute.svg, cloud.svg, vertex_ai.svg, load_balancer.svg
-- Icon Selection: Use the icon that most closely matches the discussed component.
 - SHAPES: Use 'square', 'circle', 'cloud', 'cylinder', 'rectangle', 'person'.
 
-Example structure:
-"User".class: person
-"Meet App".icon: "assets/icons/meet.svg"
+Example of correct flat structure (follow this exactly):
+"Side Panel".icon: "assets/icons/meet.svg"
 "FastAPI".icon: "assets/icons/cloud_run.svg"
-"Gemini AI".icon: "assets/icons/gemini.svg"
+"Gemini Live".icon: "assets/icons/gemini.svg"
+"Gemini Flash".icon: "assets/icons/gemini.svg"
+"Main Stage".icon: "assets/icons/meet.svg"
 "Google Drive".icon: "assets/icons/drive.svg"
-"User" -> "Meet App": "Interacts"
-"Meet App" -> "FastAPI": "Audio stream"
-"FastAPI" -> "Gemini AI": "Transcript"
-"Gemini AI" -> "Google Drive": "Archives"
+"Side Panel" -> "FastAPI": "PCM audio"
+"FastAPI" <-> "Gemini Live": "Audio"
+"FastAPI" -> "Gemini Flash": "Transcript"
+"Gemini Flash" -> "FastAPI": "D2 markup"
+"FastAPI" -> "Main Stage": "SVG"
+"FastAPI" -> "Google Drive": "Save file"
 
 STRICT: If context is empty or contains no architecture, output ONLY:
 "Waiting for Architecture Description...".shape: rectangle

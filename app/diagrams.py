@@ -42,10 +42,10 @@ async def render_d2(d2_code: str, style: str = "cyber") -> tuple[bytes, str]:
         style_header += global_style
         d2_args.extend(["-l", "dagre", "-t", "200", "--sketch"])
     elif style == "google":
-        d2_args.extend(["-l", "elk", "-t", "200"])
+        d2_args.extend(["-l", "dagre", "-t", "200"])
         style_header += 'style: {\n  font-size: 14\n  stroke: "#4285F4"\n  stroke-width: 2\n  fill: transparent\n}\n'
     else: # cyber (default)
-        d2_args.extend(["-l", "elk", "-t", "200"])
+        d2_args.extend(["-l", "dagre", "-t", "200"])
         style_header += 'style: {\n  font-size: 14\n  stroke: "#00f2ff"\n  stroke-width: 2\n  fill: transparent\n}\n'
     
     full_d2 = classes + style_header + "\n" + d2_code.strip()

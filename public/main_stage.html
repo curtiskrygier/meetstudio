@@ -20,6 +20,7 @@
     <div id="view-placeholder" class="placeholder">
       <div class="pulse-icon">✨</div>
       <p>Awaiting activity from the Side Panel...</p>
+      <button id="audio-activate" class="activate-btn">▶ Activate Session</button>
     </div>
 
     <!-- View 2: Document Card -->
@@ -41,6 +42,17 @@
         <img id="browser-frame" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.5);" />
       </div>
     </div>
+
+    <!-- View 5: AI Image -->
+    <div id="view-image" class="image-wrap hidden">
+      <img id="stage-image" class="stage-image" />
+    </div>
+
+    <!-- View 6: Video / YouTube -->
+    <div id="view-video" class="video-wrap hidden">
+      <video id="stage-video" class="stage-video" autoplay playsinline controls></video>
+      <iframe id="stage-iframe" class="stage-video hidden" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+    </div>
   </div>
 
   <!-- Permanent Transcript Layer -->
@@ -50,6 +62,7 @@
 
   <!-- Floating Emoji Layer -->
   <div id="emoji-layer"></div>
+
 
   <script src="main_stage.js"></script>
 </body>

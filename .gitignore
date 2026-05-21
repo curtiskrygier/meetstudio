@@ -44,4 +44,9 @@ diagrams/
 prompt_test.txt
 d2test.md
 test.d2
-test.svg
+test.svg# Media files
+*.mp4
+*.wav
+*.mp3
+*.m4a
+*.webm

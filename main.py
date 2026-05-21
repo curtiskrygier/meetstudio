@@ -53,7 +53,7 @@ _ALLOWED_UI_FIELDS = frozenset({
     "workspace_agent"
 })
 _ALLOWED_LAYOUTS = frozenset({"default", "focus", "minimal", "presentation", "split"})
-_ALLOWED_STAGE_VIEWS = frozenset({"diagram", "doc", "placeholder", "browser"})
+_ALLOWED_STAGE_VIEWS = frozenset({"diagram", "doc", "placeholder", "browser", "image"})
 _ALLOWED_VISIBILITY_KEYS = frozenset({"transcript", "action_links", "controls", "diagram_refiner"})
 
 # Basic logging setup to replace prints
@@ -68,15 +68,16 @@ from app.config import (
     PROJECT_ID, REGION, MODEL, VOICE, SYSTEM_PROMPT,
     gemini_client, diagram_store, diagram_version, diagram_title,
     current_session, current_view, stage_listeners, WORKSPACE_AGENT_ENGINE,
-    UI_PROMPT_SYSTEM, active_sessions
+    UI_PROMPT_SYSTEM, active_sessions, video_queues
 )
-from app.auth import validate_google_token
+from app.auth import validate_google_token, check_producer_auth
 from app.utils import fetch_url, svg_to_png
 from app.drive import (
     get_calendar_meeting_name, get_or_create_meeting_folder,
     save_diagram_to_drive, fetch_meeting_chat, save_doc_shortcut_to_drive
 )
 from app.diagrams import generate_diagram, render_d2
+from app.images import generate_image
 from app.mcp_server import handle_mcp
 from app.reactions import detect_emojis
 
@@ -111,17 +112,32 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
             "style-src 'self' https://fonts.googleapis.com https://*.google.com; "
             "connect-src 'self' https://*.google.com https://*.googleapis.com https://*.google-analytics.com wss://* ws://*; "
             "img-src * data: blob:; "
-            "font-src 'self' data: https://fonts.gstatic.com https://*.google.com;"
+            "font-src 'self' data: https://fonts.gstatic.com https://*.google.com; "
+            "frame-src https://www.youtube.com https://www.youtube-nocookie.com;"
         )
         return response
 
 app.add_middleware(MeetFramingMiddleware)
 
 import secrets
+import time
+from collections import defaultdict
 
 # Ticket system for Stage WS to avoid raw tokens in URL params
 # {ticket_id: (token, expiry)}
 auth_tickets: dict[str, tuple[str, datetime]] = {}
+
+# Simple in-memory rate limiter for /api/image (per token, max 5/min)
+_image_rate: dict[str, list[float]] = defaultdict(list)
+_IMAGE_RATE_LIMIT = 5
+
+def _check_image_rate(token: str):
+    now = time.time()
+    window = [t for t in _image_rate[token] if now - t < 60]
+    if len(window) >= _IMAGE_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded — max 5 image requests per minute")
+    window.append(now)
+    _image_rate[token] = window
 
 async def get_token_from_header(request: Request) -> str:
     auth = request.headers.get("Authorization")
@@ -285,6 +301,17 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                 types.FunctionDeclaration(name="fetch_url", description="Get content of a URL.", parameters={
                     "type": "OBJECT", "properties": {"url": {"type": "string"}}, "required": ["url"]
                 }),
+                types.FunctionDeclaration(
+                    name="generate_image",
+                    description="Generate an AI image from a description and display it on the Meet main stage.",
+                    parameters={
+                        "type": "OBJECT",
+                        "properties": {
+                            "prompt": {"type": "string", "description": "A detailed description of the image to generate (e.g. 'A futuristic server room with glowing blue lights')"}
+                        },
+                        "required": ["prompt"]
+                    }
+                ),
             ]),
             types.Tool(google_search=types.GoogleSearch()),
         ],
@@ -381,10 +408,15 @@ async def live_session(websocket: WebSocket, meeting_id: str):
         except Exception as e:
             logger.error(f"[a2ui] Broadcast error: {e}")
 
+    # Inject queue: external audio (e.g. from /api/audio-inject) feeds here
+    inject_queue: asyncio.Queue = asyncio.Queue()
+
     # Register session globally
     active_sessions[meeting_id] = {
         "ui_state": ui_state,
-        "broadcast_fn": broadcast_a2ui
+        "broadcast_fn": broadcast_a2ui,
+        "audio_inject": inject_queue,
+        "audio_muted": False,
     }
 
     # Initial broadcast
@@ -410,7 +442,8 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     text = msg.get("text")
                     
                     if raw:
-                        await session.send_realtime_input(audio=types.Blob(data=raw, mime_type="audio/pcm;rate=16000"))
+                        if not active_sessions.get(session_space[0], {}).get("audio_muted"):
+                            await session.send_realtime_input(audio=types.Blob(data=raw, mime_type="audio/pcm;rate=16000"))
                     elif text:
                         data = json.loads(text)
                         if data.get("type") == "init":
@@ -450,6 +483,20 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                 stop_event.set()
 
         recv_task = asyncio.create_task(browser_to_gemini())
+
+        async def audio_injector():
+            while not stop_event.is_set():
+                try:
+                    chunk = await asyncio.wait_for(inject_queue.get(), timeout=0.2)
+                    await session.send_realtime_input(
+                        audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                except Exception as e:
+                    logger.error(f"[inject] send error: {e}")
+
+        inject_task = asyncio.create_task(audio_injector())
 
         try:
             while not stop_event.is_set():
@@ -584,7 +631,34 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             
                             elif fc.name == "fetch_url":
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": await fetch_url(fc.args.get("url", ""))}))
-                            
+
+                            elif fc.name == "generate_image":
+                                prompt = fc.args.get("prompt", "")
+                                logger.info(f"[tool] generate_image: {prompt[:60]}")
+                                ui_state["status_text"] = "Generating image…"
+                                await broadcast_a2ui()
+
+                                async def _gen_broadcast(p=prompt, space=session_space[0]):
+                                    try:
+                                        img_bytes = await generate_image(p)
+                                        if img_bytes:
+                                            await broadcast_to_stage(space, {
+                                                "type": "view_change",
+                                                "mode": "image",
+                                                "imageData": base64.b64encode(img_bytes).decode("utf-8")
+                                            })
+                                    except Exception as ex:
+                                        logger.error(f"[tool] generate_image broadcast failed: {ex}")
+                                    finally:
+                                        ui_state["status_text"] = "Assistant connected — listening"
+                                        await broadcast_a2ui()
+
+                                asyncio.create_task(_gen_broadcast())
+                                responses.append(types.FunctionResponse(
+                                    id=fc.id, name=fc.name,
+                                    response={"result": "Image generation started — will appear on stage when ready."}
+                                ))
+
                             else:
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": "ok"}))
                         if responses: await session.send_tool_response(function_responses=responses)
@@ -616,20 +690,22 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     if sc.model_turn:
                         for part in sc.model_turn.parts:
                             if part.inline_data:
-                                await websocket.send_bytes(part.inline_data.data)
+                                if not active_sessions.get(meeting_id, {}).get("audio_muted"):
+                                    await websocket.send_bytes(part.inline_data.data)
                             if part.text:
-                                if current_turn["role"] != "agent":
-                                    current_turn.update({"id": str(uuid_lib.uuid4()), "role": "agent"})
-                                msg = {
-                                    "type": "transcript", 
-                                    "role": "agent", 
-                                    "label": "Gemini Architect",
-                                    "text": part.text, 
-                                    "turn_id": current_turn["id"], 
-                                    "is_final": False
-                                }
-                                await websocket.send_text(json.dumps(msg))
-                                await broadcast_to_stage(session_space[0], msg)
+                                if not active_sessions.get(meeting_id, {}).get("audio_muted"):
+                                    if current_turn["role"] != "agent":
+                                        current_turn.update({"id": str(uuid_lib.uuid4()), "role": "agent"})
+                                    msg = {
+                                        "type": "transcript",
+                                        "role": "agent",
+                                        "label": "Gemini Architect",
+                                        "text": part.text,
+                                        "turn_id": current_turn["id"],
+                                        "is_final": False
+                                    }
+                                    await websocket.send_text(json.dumps(msg))
+                                    await broadcast_to_stage(session_space[0], msg)
                     
                     if sc.turn_complete: current_turn["role"] = None
         except Exception as e:
@@ -639,14 +715,32 @@ async def live_session(websocket: WebSocket, meeting_id: str):
             active_sessions.pop(meeting_id, None)
             stop_event.set()
             recv_task.cancel()
+            inject_task.cancel()
 
 @app.get("/api/auth/ticket")
-async def create_auth_ticket(token: str = Depends(token_required)):
+async def create_auth_ticket(request: Request, token: str = Depends(token_required)):
     """Create a short-lived ticket to authenticate a secondary client (like the stage) without passing the raw token in the URL."""
     ticket = secrets.token_urlsafe(32)
     expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
     auth_tickets[ticket] = (token, expiry)
     return {"ticket": ticket}
+
+
+@app.get("/api/stage-ticket/{space_id:path}")
+async def create_stage_ticket(space_id: str, request: Request):
+    """
+    Issue a stage WebSocket ticket authenticated by STAGE_API_KEY.
+    Used by headless recording clients that don't have a Google OAuth token.
+    Returns the full stage URL ready to open in a browser.
+    """
+    check_producer_auth(request)
+    logger.info(f"[stage-ticket] issued for {space_id} from {request.client.host}")
+    ticket = secrets.token_urlsafe(32)
+    # 30-minute expiry — long enough for a full demo recording
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=30)
+    auth_tickets[ticket] = ("mcp-recording-client", expiry)
+    stage_url = f"{request.base_url}main_stage.html?meeting={space_id}&ticket={ticket}"
+    return {"ticket": ticket, "stage_url": stage_url}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
@@ -676,7 +770,24 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
     logger.info(f"[stage_ws] NEW listener for {meeting_id}. Total: {len(stage_listeners[meeting_id])}")
     if meeting_id in current_view: await websocket.send_text(json.dumps(current_view[meeting_id]))
     try:
-        while True: await websocket.receive_text()
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                continue
+            if msg.get("type") == "video_ended":
+                queue = video_queues.get(meeting_id, [])
+                if queue:
+                    next_item = queue.pop(0)
+                    logger.info(f"[queue] video_ended — advancing to next ({len(queue)} remaining) for {meeting_id}")
+                    await broadcast_to_stage(meeting_id, {
+                        "type": "view_change", "mode": "video",
+                        "url": next_item["url"], "label": next_item.get("label", "")
+                    })
+                else:
+                    logger.info(f"[queue] video_ended — queue empty, returning to placeholder for {meeting_id}")
+                    await broadcast_to_stage(meeting_id, {"type": "view_change", "mode": "placeholder"})
     except WebSocketDisconnect:
         if meeting_id in stage_listeners:
             stage_listeners[meeting_id].discard(websocket)
@@ -805,8 +916,70 @@ async def ui_prompt(payload: dict = Body(...), token: str = Depends(token_requir
         logger.error(f"[ui-prompt] error: {e}")
         return FastAPIResponse(status_code=500)
 
+@app.get("/api/video-queue/{space_id:path}")
+async def get_video_queue(space_id: str, request: Request):
+    check_producer_auth(request)
+    return {"queue": video_queues.get(space_id, []), "length": len(video_queues.get(space_id, []))}
+
+@app.post("/api/video-queue/{space_id:path}")
+async def add_to_video_queue(space_id: str, request: Request):
+    """Add one or more videos to the queue. Starts playing immediately if queue was empty."""
+    check_producer_auth(request)
+    body = await request.json()
+    items = body if isinstance(body, list) else [body]
+    # Normalise: each item can be a string URL or {"url": ..., "label": ...}
+    normalised = [{"url": i, "label": ""} if isinstance(i, str) else i for i in items]
+
+    was_empty = space_id not in video_queues or len(video_queues[space_id]) == 0
+    video_queues.setdefault(space_id, []).extend(normalised)
+
+    if was_empty and video_queues[space_id]:
+        first = video_queues[space_id].pop(0)
+        logger.info(f"[queue] starting playback: {first['url']} for {space_id}")
+        await broadcast_to_stage(space_id, {
+            "type": "view_change", "mode": "video",
+            "url": first["url"], "label": first.get("label", "")
+        })
+
+    return {"ok": True, "queued": len(normalised), "remaining": len(video_queues.get(space_id, []))}
+
+@app.delete("/api/video-queue/{space_id:path}")
+async def clear_video_queue(space_id: str, request: Request):
+    check_producer_auth(request)
+    video_queues.pop(space_id, None)
+    await broadcast_to_stage(space_id, {"type": "view_change", "mode": "placeholder"})
+    return {"ok": True}
+
+@app.post("/api/video-queue/{space_id:path}/skip")
+async def skip_video(space_id: str, request: Request):
+    check_producer_auth(request)
+    queue = video_queues.get(space_id, [])
+    if queue:
+        next_item = queue.pop(0)
+        await broadcast_to_stage(space_id, {
+            "type": "view_change", "mode": "video",
+            "url": next_item["url"], "label": next_item.get("label", "")
+        })
+        return {"ok": True, "playing": next_item, "remaining": len(queue)}
+    else:
+        await broadcast_to_stage(space_id, {"type": "view_change", "mode": "placeholder"})
+        return {"ok": True, "playing": None, "remaining": 0}
+
+@app.post("/api/gemini-mute/{space_id:path}")
+async def gemini_mute(space_id: str, request: Request):
+    """Mute or unmute Gemini's audio response for a given session. Used during demos."""
+    check_producer_auth(request)
+    body = await request.json()
+    muted = bool(body.get("muted", True))
+    session_data = active_sessions.get(space_id)
+    if not session_data:
+        raise HTTPException(404, "No active session")
+    session_data["audio_muted"] = muted
+    logger.info(f"[gemini-mute] {space_id} audio_muted={muted}")
+    return {"ok": True, "muted": muted}
+
 @app.get("/api/session/{meeting_id:path}")
-async def get_session(meeting_id: str, _=Depends(token_required)): 
+async def get_session(meeting_id: str, _=Depends(token_required)):
     return {"session_id": current_session.get(meeting_id, "")}
 
 @app.post("/api/session/{meeting_id:path}")
@@ -922,15 +1095,95 @@ async def save_diagram(diagram_id: str, payload: dict = Body(...), token: str = 
     return {"ok": True, "file_id": file_id}
 
 @app.get("/api/dev/sessions")
-async def dev_sessions():
+async def dev_sessions(request: Request):
+    check_producer_auth(request)
     return {
         "active_sessions": list(active_sessions.keys()),
         "stage_listeners": {k: len(v) for k, v in stage_listeners.items()}
     }
 
+
+@app.post("/api/audio-inject/{space_id:path}")
+async def audio_inject(space_id: str, request: Request):
+    """
+    Stream raw 16kHz 16-bit mono PCM audio into the active Gemini Live session
+    for the given space. Gemini transcribes it live and captions appear on stage.
+
+    Auth: Bearer <STAGE_API_KEY>
+    Body: raw PCM bytes (audio/pcm) — use ffmpeg to convert:
+        ffmpeg -i input.wav -ar 16000 -ac 1 -f s16le output.pcm
+    """
+    check_producer_auth(request)
+
+    session_data = active_sessions.get(space_id)
+    if not session_data or "audio_inject" not in session_data:
+        raise HTTPException(status_code=404, detail="No active Gemini Live session for this space")
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty body")
+
+    inject_queue: asyncio.Queue = session_data["audio_inject"]
+    chunk_size = 3200  # 100ms of 16kHz 16-bit mono
+    for i in range(0, len(body), chunk_size):
+        await inject_queue.put(body[i:i + chunk_size])
+
+    logger.info(f"[inject] queued {len(body)} bytes ({len(body)//3200} chunks) for {space_id}")
+    return {"ok": True, "bytes": len(body), "chunks": len(body) // chunk_size}
+
+
+@app.post("/api/stage-audio/{space_id:path}")
+async def stage_audio(space_id: str, request: Request):
+    """
+    Broadcast audio to all stage WebSocket listeners for a space.
+    The stage page decodes and plays it via Web Audio API.
+    No active Gemini session required — works whenever the stage is open.
+
+    Auth: Bearer <STAGE_API_KEY>
+    Body: any audio format (WAV recommended, max 15MB) — sent as base64 to all stage listeners.
+    """
+    check_producer_auth(request)
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty body")
+    if len(body) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio payload too large — max 15MB")
+
+    import base64
+    await broadcast_to_stage(space_id, {
+        "type": "audio",
+        "data": base64.b64encode(body).decode("utf-8"),
+    })
+    return {"ok": True, "bytes": len(body)}
+
+
+@app.post("/api/image")
+async def api_image(payload: dict = Body(...), token: str = Depends(token_required)):
+    _check_image_rate(token)
+    prompt = (payload.get("prompt") or "").strip()
+    space_id = (payload.get("space_id") or "").strip()
+    if not prompt or not space_id:
+        return FastAPIResponse(status_code=400)
+
+    async def _gen_and_broadcast():
+        try:
+            img_bytes = await generate_image(prompt)
+            if img_bytes:
+                await broadcast_to_stage(space_id, {
+                    "type": "view_change",
+                    "mode": "image",
+                    "imageData": base64.b64encode(img_bytes).decode("utf-8")
+                })
+        except Exception as e:
+            logger.error(f"[api/image] error: {e}")
+
+    asyncio.create_task(_gen_and_broadcast())
+    return {"ok": True, "message": "Image generation started"}
+
+
 @app.post("/mcp")
 async def mcp_endpoint(request: Request):
-    return await handle_mcp(request, broadcast_to_stage, generate_diagram)
+    return await handle_mcp(request, broadcast_to_stage, generate_diagram, generate_image)
 
 @app.get("/", include_in_schema=False)
 async def serve_index():

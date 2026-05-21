@@ -179,7 +179,7 @@ Add to `~/.claude/settings.json` (or `.claude/settings.local.json` for per-proje
 }
 ```
 
-If `MCP_API_KEY` is set on the server, add a `headers` block:
+If `STAGE_API_KEY` is set on the server, add a `headers` block:
 
 ```json
 {
@@ -187,7 +187,7 @@ If `MCP_API_KEY` is set on the server, add a `headers` block:
     "meet-live-concierge": {
       "type": "sse",
       "url": "https://YOUR_CLOUD_RUN_URL/mcp",
-      "headers": { "Authorization": "Bearer YOUR_MCP_API_KEY" }
+      "headers": { "Authorization": "Bearer YOUR_STAGE_API_KEY" }
     }
   }
 }
@@ -209,7 +209,7 @@ For local dev, point the URL at `http://localhost:8080/mcp`.
 
 ### Security
 
-If `MCP_API_KEY` is unset the endpoint is open — suitable for local development only. Set it via `--set-env-vars` when deploying to Cloud Run.
+If `STAGE_API_KEY` is unset the endpoint is open — suitable for local development only. Set it via `--set-env-vars` when deploying to Cloud Run.
 
 ---
 
