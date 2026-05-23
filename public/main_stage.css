@@ -1382,3 +1382,24 @@ body {
   margin-bottom: 8px;
 }
 
+/* Programmatic HUD Radar Zoom Controls */
+.radar-zoom-btn {
+  background: none;
+  border: none;
+  color: #00f2ff;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.radar-zoom-btn:hover {
+  background: rgba(0, 242, 255, 0.15) !important;
+}
+
+

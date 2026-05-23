@@ -721,7 +721,7 @@
               ` : '';
               
               radarSvg += `
-                <g class="radar-target" style="animation-delay: ${idx * 0.4}s; cursor: pointer;" onclick="window.selectFlightTarget('${callsign}', ${altitude}, ${speed})">
+                <g class="radar-target" style="animation-delay: ${idx * 0.4}s; cursor: pointer;" data-callsign="${callsign}" data-altitude="${altitude}" data-speed="${speed}">
                   ${brackets}
                   <circle cx="${x}" cy="${y}" r="2.5" fill="${isLocked ? '#00f2ff' : '#00ff88'}"/>
                   <circle cx="${x}" cy="${y}" r="5" fill="none" stroke="${isLocked ? '#00f2ff' : '#00ff88'}" stroke-width="0.5" opacity="0.4"/>
@@ -760,9 +760,9 @@
                     </svg>
                     <!-- Floating Glassmorphic HUD Zoom Controls -->
                     <div class="radar-zoom-controls" style="position: absolute; bottom: 8px; right: 8px; display: flex; gap: 4px; z-index: 10; align-items: center; background: rgba(5, 15, 25, 0.65); border: 1px solid rgba(0, 242, 255, 0.25); border-radius: 6px; padding: 2px 4px; backdrop-filter: blur(4px);">
-                      <button onclick="window.changeRadarZoom(-0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">−</button>
+                      <button class="radar-zoom-btn radar-zoom-out">−</button>
                       <span style="color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 8px; font-weight: bold; min-width: 32px; text-align: center; user-select: none; border-left: 1px solid rgba(0, 242, 255, 0.15); border-right: 1px solid rgba(0, 242, 255, 0.15); padding: 0 4px;">${radarZoomLevel.toFixed(2)}x</span>
-                      <button onclick="window.changeRadarZoom(0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">+</button>
+                      <button class="radar-zoom-btn radar-zoom-in">+</button>
                     </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; margin-top:2px; font-size:8px; font-family:'Roboto Mono', monospace; border-top:1px solid rgba(255,255,255,0.05); padding-top:4px; color:rgba(255,255,255,0.55); margin-bottom: 2px;">
@@ -784,9 +784,9 @@
                     </svg>
                     <!-- Floating Glassmorphic HUD Zoom Controls -->
                     <div class="radar-zoom-controls" style="position: absolute; bottom: 8px; right: 8px; display: flex; gap: 4px; z-index: 10; align-items: center; background: rgba(5, 15, 25, 0.65); border: 1px solid rgba(0, 242, 255, 0.25); border-radius: 6px; padding: 2px 4px; backdrop-filter: blur(4px);">
-                      <button onclick="window.changeRadarZoom(-0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">−</button>
+                      <button class="radar-zoom-btn radar-zoom-out">−</button>
                       <span style="color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 8px; font-weight: bold; min-width: 32px; text-align: center; user-select: none; border-left: 1px solid rgba(0, 242, 255, 0.15); border-right: 1px solid rgba(0, 242, 255, 0.15); padding: 0 4px;">${radarZoomLevel.toFixed(2)}x</span>
-                      <button onclick="window.changeRadarZoom(0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">+</button>
+                      <button class="radar-zoom-btn radar-zoom-in">+</button>
                     </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; margin-top:2px; font-size:8px; font-family:'Roboto Mono', monospace; border-top:1px solid rgba(255,255,255,0.05); padding-top:4px; color:rgba(255,255,255,0.55); margin-bottom: 6px;">
@@ -814,7 +814,7 @@
               const isLocked = lockedFlightCallsign === callsign;
 
               radarSvg += `
-                <div class="stocks-ticker-row" style="padding: 6px 10px; font-size: 11px; cursor: pointer; ${isLocked ? 'border-color: #00ff88; background: rgba(0, 255, 136, 0.06);' : ''}" onclick="window.selectFlightTarget('${callsign}', ${altitude}, ${speed})">
+                <div class="stocks-ticker-row radar-flight-row" style="padding: 6px 10px; font-size: 11px; cursor: pointer; ${isLocked ? 'border-color: #00ff88; background: rgba(0, 255, 136, 0.06);' : ''}" data-callsign="${callsign}" data-altitude="${altitude}" data-speed="${speed}">
                   <span style="font-weight:700; color:${isMonitoring ? 'rgba(255,255,255,0.35)' : (isLocked ? '#00ff88' : 'rgba(255,255,255,0.85)')};">${labelText}</span>
                   <span style="color:${isMonitoring ? 'rgba(255,255,255,0.3)' : (isLocked ? '#00ff88' : colorText)}; font-weight:700;">${isLocked ? '🔒 LOCKED ON' : valText}</span>
                 </div>
@@ -834,6 +834,42 @@
             }
             
             dynamicContentEl.innerHTML = radarSvg;
+
+            // Bind programmatic CSP-compliant event listeners to dynamic elements
+            const outBtn = dynamicContentEl.querySelector('.radar-zoom-out');
+            if (outBtn) {
+              outBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.changeRadarZoom(-0.25);
+              });
+            }
+            const inBtn = dynamicContentEl.querySelector('.radar-zoom-in');
+            if (inBtn) {
+              inBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.changeRadarZoom(0.25);
+              });
+            }
+            const targets = dynamicContentEl.querySelectorAll('.radar-target');
+            targets.forEach(tgt => {
+              tgt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const callsign = tgt.getAttribute('data-callsign');
+                const altitude = parseInt(tgt.getAttribute('data-altitude'), 10);
+                const speed = parseInt(tgt.getAttribute('data-speed'), 10);
+                window.selectFlightTarget(callsign, altitude, speed);
+              });
+            });
+            const rows = dynamicContentEl.querySelectorAll('.radar-flight-row');
+            rows.forEach(row => {
+              row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const callsign = row.getAttribute('data-callsign');
+                const altitude = parseInt(row.getAttribute('data-altitude'), 10);
+                const speed = parseInt(row.getAttribute('data-speed'), 10);
+                window.selectFlightTarget(callsign, altitude, speed);
+              });
+            });
 
           } else {
             // Megatech Stocks / Fallback: 3 Main Cards + Trade Flow List
