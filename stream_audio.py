@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 
-API_URL = "https://meet-live-concierge-649226456677.us-central1.run.app"
+API_URL = "CONCIERGE_API_URL_PLACEHOLDER"
 KEY = os.environ.get("STAGE_API_KEY", "")
 
 SAMPLE_RATE = 16000

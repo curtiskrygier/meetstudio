@@ -17,8 +17,8 @@ import httpx
 import os
 import sys
 
-MCP_URL = "https://meet-live-concierge-649226456677.us-central1.run.app/mcp"
-API_URL = "https://meet-live-concierge-649226456677.us-central1.run.app"
+MCP_URL = "CONCIERGE_API_URL_PLACEHOLDER/mcp"
+API_URL = "CONCIERGE_API_URL_PLACEHOLDER"
 KEY = os.environ.get("STAGE_API_KEY", "")
 
 SPACE = ""

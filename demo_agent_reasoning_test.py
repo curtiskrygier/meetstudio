@@ -15,9 +15,9 @@ import httpx
 from google import genai
 from google.genai import types
 
-API_URL = os.environ.get("CONCIERGE_API_URL", "https://meet-live-concierge-649226456677.us-central1.run.app")
-KEY = os.environ.get("STAGE_API_KEY", "50WNPPSa7n5VhzN05aoyfXepxrlQCF5W3GQrl1Q3ex0")
-PROJECT = os.environ.get("GEMINI_PROJECT", "agent-archi")
+API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
+KEY = os.environ.get("STAGE_API_KEY", "meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA")
+PROJECT = os.environ.get("GEMINI_PROJECT", "centered-planet-497209-r5")
 LOCATION = os.environ.get("REGION", "us-central1")
 
 def get_active_space() -> str:

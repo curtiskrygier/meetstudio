@@ -17,8 +17,51 @@ import os
 import sys
 import httpx
 
-API_URL = os.environ.get("CONCIERGE_API_URL", "https://meet-live-concierge-649226456677.us-central1.run.app")
-KEY = os.environ.get("STAGE_API_KEY", "50WNPPSa7n5VhzN05aoyfXepxrlQCF5W3GQrl1Q3ex0")
+# ───────────────────────────────────────────────────────────
+# 212Trading Backend Market Services Integration
+# ───────────────────────────────────────────────────────────
+_T212_LOADED = False
+_GET_QUOTE_FN = None
+
+try:
+    # Append the 212Trading directory to sys.path
+    t212_path = "/home/curtis/gemini/212Trading"
+    if t212_path not in sys.path:
+        sys.path.append(t212_path)
+    
+    # Configure Application Default Credentials for local Secret Manager usage
+    if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+        adc_path = "/home/curtis/.config/gcloud/application_default_credentials.json"
+        if os.path.exists(adc_path):
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = adc_path
+            
+    # Pre-fetch T212 API credentials from Google Secret Manager for fallback
+    try:
+        from google.cloud import secretmanager
+        sm_client = secretmanager.SecretManagerServiceClient()
+        project_id = "431547562459"
+        
+        for s_name in ["T212_API_KEY", "T212_API_SECRET"]:
+            if s_name not in os.environ:
+                try:
+                    name = f"projects/{project_id}/secrets/{s_name}/versions/latest"
+                    val = sm_client.access_secret_version(request={"name": name}).payload.data.decode("UTF-8")
+                    os.environ[s_name] = val
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Import the unified market data quote fetcher
+    from backend.services.market_data import get_quote as t212_get_quote
+    _GET_QUOTE_FN = t212_get_quote
+    _T212_LOADED = True
+    print("✨ Successfully integrated with 212Trading backend market services.", file=sys.stderr)
+except Exception as e:
+    print(f"⚠️ Could not load 212Trading backend market services: {e}", file=sys.stderr)
+
+API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
+KEY = os.environ.get("STAGE_API_KEY", "meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA")
 FAST_MODE = os.environ.get("FAST_MODE", "true").lower() not in ("0", "false", "no")
 IMAGEN_MODEL = os.environ.get("IMAGEN_MODEL", "imagen-3.0-generate-002")
 
@@ -75,6 +118,32 @@ async def launch_emoji_burst(client: httpx.AsyncClient, space_id: str, emojis: l
         await asyncio.sleep(0.12)  # Stagger floats for maximum aesthetics
 
 async def get_live_stock_price(client: httpx.AsyncClient, symbol: str, default: float) -> tuple[float, float]:
+    # Map symbols to full T212 format to ensure 100% correct resolution by MultiSourceProvider
+    ticker_map = {
+        "GOOG": "GOOGL_US_EQ",
+        "NVDA": "NVDA_US_EQ",
+        "MSFT": "MSFT_US_EQ",
+        "AAPL": "AAPL_US_EQ",
+        "AMZN": "AMZN_US_EQ",
+        "META": "META_US_EQ",
+        "TSM": "TSM_US_EQ",
+    }
+    t212_ticker = ticker_map.get(symbol.upper(), f"{symbol.upper()}_US_EQ")
+
+    if _T212_LOADED and _GET_QUOTE_FN:
+        try:
+            quote = await _GET_QUOTE_FN(t212_ticker)
+            if quote:
+                p = quote.get("price")
+                prev = quote.get("prev_close") or p
+                change_pct = quote.get("change_pct")
+                if change_pct is None:
+                    change_pct = ((p - prev) / prev * 100) if prev else 0.0
+                return float(p), float(change_pct)
+        except Exception as e:
+            print(f"⚠️ T212 integration quote fetch failed for {t212_ticker}: {e}", file=sys.stderr)
+            
+    # Fallback to local Yahoo Finance method
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"

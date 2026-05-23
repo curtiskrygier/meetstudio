@@ -22,7 +22,36 @@
     let lockedFlightCallsign = null;
     let lockedFlightAltitude = 0;
     let lockedFlightSpeed = 0;
+    let radarZoomLevel = 1.0;
     let renderDashboardGlobal = () => {};
+
+    window.changeRadarZoom = function(amount) {
+      const prevZoom = radarZoomLevel;
+      radarZoomLevel = Math.max(0.5, Math.min(3.0, radarZoomLevel + amount));
+      if (radarZoomLevel !== prevZoom) {
+        try {
+          if (audioCtx) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const startFreq = amount > 0 ? 600 : 800;
+            const endFreq = amount > 0 ? 900 : 500;
+            osc.frequency.setValueAtTime(startFreq, now);
+            osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.1);
+            gain.gain.setValueAtTime(0.04, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.1);
+          }
+        } catch (e) {
+          console.error("Audio beep error:", e);
+        }
+        renderDashboardGlobal();
+      }
+    };
 
     window.selectFlightTarget = function(callsign, altitude, speed) {
       lockedFlightCallsign = callsign;
@@ -600,19 +629,19 @@
                   <div class="radar-container" style="flex: 1; height: 165px; min-height: 165px; margin-bottom: 4px;">
                     <svg viewBox="0 0 200 200" style="width: 100%; height: 100%; display: block;">
                       <!-- Concentric radar distance rings -->
-                      <circle cx="100" cy="100" r="20" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
-                      <circle cx="100" cy="100" r="45" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
-                      <circle cx="100" cy="100" r="70" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
-                      <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
+                      <circle cx="100" cy="100" r="${20 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
+                      <circle cx="100" cy="100" r="${45 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
+                      <circle cx="100" cy="100" r="${70 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
+                      <circle cx="100" cy="100" r="${95 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
                       
                       <!-- Radar crosshairs -->
                       <line x1="100" y1="5" x2="100" y2="195" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                       <line x1="5" y1="100" x2="195" y2="100" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                       
                       <!-- LFBO Runway vectors oriented at 320 degrees -->
-                      <line x1="85" y1="120" x2="115" y2="80" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
-                      <line x1="90" y1="122" x2="120" y2="82" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
-                      <text x="122" y="84" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
+                      <line x1="${100 - 15 * radarZoomLevel}" y1="${100 + 20 * radarZoomLevel}" x2="${100 + 15 * radarZoomLevel}" y2="${100 - 20 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
+                      <line x1="${100 - 10 * radarZoomLevel}" y1="${100 + 22 * radarZoomLevel}" x2="${100 + 20 * radarZoomLevel}" y2="${100 - 18 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
+                      <text x="${100 + 22 * radarZoomLevel}" y="${100 - 16 * radarZoomLevel}" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
 
                       <!-- Sweeping radar line animation -->
                       <line x1="100" y1="100" x2="100" y2="5" class="radar-sweep-line" style="transform-origin: 100px 100px;" stroke="rgba(0, 242, 255, 0.35)" stroke-width="1"/>
@@ -630,19 +659,19 @@
                 <div class="radar-container" style="flex: 1; height: 95px; min-height: 95px; margin-bottom: 4px;">
                   <svg viewBox="0 0 300 120" style="width: 100%; height: 100%; display: block;">
                     <!-- Concentric radar distance rings -->
-                    <circle cx="150" cy="60" r="15" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
-                    <circle cx="150" cy="60" r="35" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
-                    <circle cx="150" cy="60" r="55" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
-                    <circle cx="150" cy="60" r="75" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
+                    <circle cx="150" cy="60" r="${15 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
+                    <circle cx="150" cy="60" r="${35 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
+                    <circle cx="150" cy="60" r="${55 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
+                    <circle cx="150" cy="60" r="${75 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
                     
                     <!-- Radar crosshairs -->
                     <line x1="150" y1="5" x2="150" y2="115" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                     <line x1="75" y1="60" x2="225" y2="60" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                     
                     <!-- LFBO Runway vectors oriented at 320 degrees -->
-                    <line x1="135" y1="80" x2="165" y2="40" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
-                    <line x1="140" y1="82" x2="170" y2="42" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
-                    <text x="172" y="44" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
+                    <line x1="${150 - 15 * radarZoomLevel}" y1="${60 + 20 * radarZoomLevel}" x2="${150 + 15 * radarZoomLevel}" y2="${60 - 20 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
+                    <line x1="${150 - 10 * radarZoomLevel}" y1="${60 + 22 * radarZoomLevel}" x2="${150 + 20 * radarZoomLevel}" y2="${60 - 18 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
+                    <text x="${150 + 22 * radarZoomLevel}" y="${60 - 16 * radarZoomLevel}" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
 
                     <!-- Sweeping radar line animation -->
                     <line x1="150" y1="60" x2="150" y2="5" class="radar-sweep-line" style="transform-origin: 150px 60px;" stroke="rgba(0, 242, 255, 0.35)" stroke-width="1"/>
@@ -672,7 +701,7 @@
               const maxAlt = isStretched ? 5000 : 6000;
               
               // Calculate radar positioning (Lower altitude = closer to airport center, zoomed in)
-              const dist = Math.min(maxDist, Math.max(15, (altitude / maxAlt) * maxDist));
+              const dist = Math.max(5, (altitude / maxAlt) * maxDist * radarZoomLevel);
               // Deterministic angle based on callsign letters
               let angleCode = 0;
               for (let i = 0; i < callsign.length; i++) angleCode += callsign.charCodeAt(i);
@@ -729,6 +758,12 @@
             if (isStretched) {
               radarSvg += `
                     </svg>
+                    <!-- Floating Glassmorphic HUD Zoom Controls -->
+                    <div class="radar-zoom-controls" style="position: absolute; bottom: 8px; right: 8px; display: flex; gap: 4px; z-index: 10; align-items: center; background: rgba(5, 15, 25, 0.65); border: 1px solid rgba(0, 242, 255, 0.25); border-radius: 6px; padding: 2px 4px; backdrop-filter: blur(4px);">
+                      <button onclick="window.changeRadarZoom(-0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">−</button>
+                      <span style="color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 8px; font-weight: bold; min-width: 32px; text-align: center; user-select: none; border-left: 1px solid rgba(0, 242, 255, 0.15); border-right: 1px solid rgba(0, 242, 255, 0.15); padding: 0 4px;">${radarZoomLevel.toFixed(2)}x</span>
+                      <button onclick="window.changeRadarZoom(0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">+</button>
+                    </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; margin-top:2px; font-size:8px; font-family:'Roboto Mono', monospace; border-top:1px solid rgba(255,255,255,0.05); padding-top:4px; color:rgba(255,255,255,0.55); margin-bottom: 2px;">
                     <span>LFBO RADAR CONSOLE</span>
@@ -747,6 +782,12 @@
             } else {
               radarSvg += `
                     </svg>
+                    <!-- Floating Glassmorphic HUD Zoom Controls -->
+                    <div class="radar-zoom-controls" style="position: absolute; bottom: 8px; right: 8px; display: flex; gap: 4px; z-index: 10; align-items: center; background: rgba(5, 15, 25, 0.65); border: 1px solid rgba(0, 242, 255, 0.25); border-radius: 6px; padding: 2px 4px; backdrop-filter: blur(4px);">
+                      <button onclick="window.changeRadarZoom(-0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">−</button>
+                      <span style="color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 8px; font-weight: bold; min-width: 32px; text-align: center; user-select: none; border-left: 1px solid rgba(0, 242, 255, 0.15); border-right: 1px solid rgba(0, 242, 255, 0.15); padding: 0 4px;">${radarZoomLevel.toFixed(2)}x</span>
+                      <button onclick="window.changeRadarZoom(0.25); event.stopPropagation();" style="background: none; border: none; color: #00f2ff; font-family: 'Roboto Mono', monospace; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(0, 242, 255, 0.15)'" onmouseout="this.style.background='none'">+</button>
+                    </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; margin-top:2px; font-size:8px; font-family:'Roboto Mono', monospace; border-top:1px solid rgba(255,255,255,0.05); padding-top:4px; color:rgba(255,255,255,0.55); margin-bottom: 6px;">
                     <span>LFBO RADAR CONSOLE // APP STAGES</span>
