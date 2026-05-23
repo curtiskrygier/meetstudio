@@ -12,16 +12,42 @@ I jumped back in last week, spent most of a weekend refining it, and got it to a
 
 ## What it does
 
-| Feature | Description |
-|---|---|
-| **Voice concierge** | Hears all meeting participants via the Meet Media API and responds by voice using Gemini Live |
-| **Architect mode** | Converts spoken architecture discussion into a real-time D2 diagram, rendered live on the Meet main stage for all participants |
-| **Main stage broadcast** | Diagrams and documents pushed to everyone in the meeting simultaneously |
-| **Workspace agent** | Voice-activated creation of Google Docs and Sheets, Drive search, and Calendar lookup — acting as the signed-in user |
-| **Google Search** | Live web-grounded responses via Gemini's native search tool |
-| **Theme modes** | Matrix, Blueprint, Neon, Corporate and others — triggered by voice ("go matrix") |
-| **Save to Drive** | One-click export of diagrams to a structured "Meet Recordings" folder in the user's Drive |
-| **Live transcript** | Real-time voice transcription shown in the side panel and broadcast to the main stage |
+### 🎙️ Voice Concierge
+Hears all meeting participants via the Meet Media API and responds by voice using Gemini Live.
+
+### 📐 Architect Mode
+Converts spoken architecture discussion into real-time D2 diagrams, rendered live on the Meet main stage for all participants.
+
+### 🎛️ Advanced View Layouts
+Rearrange the stage dynamically with `single`, `split`, and `grid` layouts to view terminal sessions, diagrams, notepad, and docs concurrently.
+
+### 🖌️ Interactive Drawings & Laser Dot
+Highlight details with a resolution-independent pulsing laser pointer or draw directly on a transparent stage overlay.
+
+### 🤝 Collaborative Markdown Notepad
+Interactive, live-updated markdown notepad widget supporting text append or overwrite directly from CLI or API.
+
+### 💻 Local Terminal Streaming
+Stream stdout and stderr of local shell commands live into the Meet stage for real-time demonstration or collaborative debugging.
+
+### 💼 Workspace Agent
+Voice-activated creation of Google Docs and Sheets, Drive search, and Calendar lookup — acting as the signed-in user.
+
+### 🔍 Google Search
+Live web-grounded responses via Gemini's native search tool.
+
+### 🎨 Custom Theme Presets
+Matrix, Cyberpunk, Glassmorphism, Blueprint, Neon, and Corporate styling modes — triggered by voice or API.
+
+### 🔊 Integrated Soundboard
+Synthesize soundboard presets (applause, buzzer, chime, etc.) right into the active meeting session.
+
+### 💾 Save to Drive
+One-click export of diagrams and transcripts to a structured "Meet Recordings" folder in the user's Drive.
+
+### 💬 Live Transcript
+Real-time voice transcription shown in the side panel and broadcast to the main stage.
+
 
 ---
 

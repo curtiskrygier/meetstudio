@@ -6,7 +6,7 @@ import uuid as uuid_lib
 import logging
 import shutil
 from google.genai import types
-from app.config import PROJECT_ID, REGION, DIAGRAM_MODEL, D2_PROMPT, diagram_store, diagram_version, diagram_title
+from app.config import PROJECT_ID, REGION, DIAGRAM_MODEL, D2_PROMPT, diagram_store, diagram_version, diagram_title, diagram_history
 
 logger = logging.getLogger("concierge")
 
@@ -146,8 +146,16 @@ async def generate_diagram(transcript: str, chat: str = "", space_id: str = "", 
     if svg_bytes:
         diag_id = session_id or str(uuid_lib.uuid4())
         diagram_store[diag_id] = svg_bytes
-        diagram_version[diag_id] = diagram_version.get(diag_id, 0) + 1
+        new_version = diagram_version.get(diag_id, 0) + 1
+        diagram_version[diag_id] = new_version
         diagram_title[diag_id] = title
+        
+        # Save to diagram history
+        diagram_history.setdefault(diag_id, []).append({
+            "version": new_version,
+            "svg": svg_bytes,
+            "title": title
+        })
         return diag_id, svg_bytes, title
 
     return "", b"", ""

@@ -31,7 +31,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 API_URL = "https://meet-live-concierge-649226456677.us-central1.run.app"
-KEY = os.environ.get("STAGE_API_KEY", "")
+KEY = os.environ.get("STAGE_API_KEY", "50WNPPSa7n5VhzN05aoyfXepxrlQCF5W3GQrl1Q3ex0")
 OUTPUT_PATH = sys.argv[3] if len(sys.argv) > 3 else sys.argv[2] if (len(sys.argv) > 2 and sys.argv[2].endswith(".mp4")) else "demo_recording.mp4"
 SPACE_ARG = next((a for a in sys.argv[1:] if a.startswith("spaces/")), "")
 

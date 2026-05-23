@@ -247,6 +247,16 @@
       }
     }
 
+    function unmuteYoutube(panelIdx) {
+      const iframeEl = document.getElementById(`stage-panel-iframe-${panelIdx}`);
+      if (iframeEl && iframeEl.contentWindow) {
+        iframeEl.contentWindow.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+        iframeEl.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+      }
+      document.getElementById(`unmute-overlay-${panelIdx}`)?.remove();
+    }
+    window.unmuteYoutube = unmuteYoutube;
+
     function setupYoutubeAutoplay(iframeEl) {
       if (!iframeEl) return;
       let attempts = 0;
@@ -938,6 +948,24 @@
           if (isAutoplay) {
             iframeEl.src = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${ytId}&modestbranding=1&enablejsapi=1`;
             setupYoutubeAutoplay(iframeEl);
+            
+            // SECURITY/UX: Add "Click to Unmute" overlay for autoplay bypass
+            const existingOverlay = document.getElementById(`unmute-overlay-${pIdx}`);
+            if (existingOverlay) existingOverlay.remove();
+            
+            const overlay = document.createElement('div');
+            overlay.id = `unmute-overlay-${pIdx}`;
+            overlay.className = 'yt-unmute-overlay';
+            overlay.innerHTML = `
+                <button onclick="unmuteYoutube(${pIdx})" style="background: rgba(0, 0, 0, 0.7); border: 1px solid var(--accent); color: white; padding: 10px 16px; border-radius: 20px; font-size: 14px; cursor: pointer; backdrop-filter: blur(8px); display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 18px;">🔈</span> Unmute Video
+                </button>
+            `;
+            overlay.style.position = 'absolute';
+            overlay.style.top = '12px';
+            overlay.style.right = '12px';
+            overlay.style.zIndex = '100';
+            document.getElementById(`image-panel-${pIdx}`).appendChild(overlay);
           } else {
             iframeEl.src = `https://www.youtube.com/embed/${ytId}?autoplay=0&mute=0&controls=1&loop=1&playlist=${ytId}&modestbranding=1&enablejsapi=1`;
             iframeEl.onload = null;

@@ -50,3 +50,4 @@ test.svg# Media files
 *.mp3
 *.m4a
 *.webm
+venv/

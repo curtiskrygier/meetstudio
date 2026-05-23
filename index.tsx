@@ -103,6 +103,356 @@ export class GdmArchitectAgent extends LitElement {
 
   private isActivityStarted = false;
 
+  // --- Official Google A2UI v0.8 Spec Compliant Interpreter Engine ---
+  private a2uiComponentBuffer = new Map<string, any>();
+  private a2uiDataModelStore = new Map<string, any>();
+
+  private resolveBoundValue(val: any): any {
+    if (!val || typeof val !== 'object') return val;
+    
+    if ('literalString' in val) {
+      if ('path' in val && val.path) {
+        this.updateDataModelPath(val.path, val.literalString);
+      }
+      return val.literalString;
+    }
+    if ('literalBoolean' in val) {
+      if ('path' in val && val.path) {
+        this.updateDataModelPath(val.path, val.literalBoolean);
+      }
+      return val.literalBoolean;
+    }
+    if ('literalNumber' in val) {
+      if ('path' in val && val.path) {
+        this.updateDataModelPath(val.path, val.literalNumber);
+      }
+      return val.literalNumber;
+    }
+    if ('literalArray' in val) {
+      if ('path' in val && val.path) {
+        this.updateDataModelPath(val.path, val.literalArray);
+      }
+      return val.literalArray;
+    }
+    
+    if ('path' in val && val.path) {
+      return this.getDataModelPath(val.path);
+    }
+    
+    return val;
+  }
+
+  private getDataModelPath(path: string): any {
+    if (!path) return undefined;
+    const parts = path.split('/').filter(p => p);
+    let current: any = this.a2uiDataModelStore;
+    for (const part of parts) {
+      if (current instanceof Map) {
+        current = current.get(part);
+      } else if (current && typeof current === 'object') {
+        current = current[part];
+      } else {
+        return undefined;
+      }
+    }
+    return current;
+  }
+
+  private updateDataModelPath(path: string, val: any) {
+    if (!path) return;
+    const parts = path.split('/').filter(p => p);
+    let current: any = this.a2uiDataModelStore;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      if (current instanceof Map) {
+        if (!current.has(part)) current.set(part, new Map());
+        current = current.get(part);
+      } else {
+        if (!current[part] || typeof current[part] !== 'object') {
+          current[part] = {};
+        }
+        current = current[part];
+      }
+    }
+    const lastPart = parts[parts.length - 1];
+    if (current instanceof Map) {
+      current.set(lastPart, val);
+    } else if (current && typeof current === 'object') {
+      current[lastPart] = val;
+    }
+  }
+
+  private parseDataModelContents(contents: any[]): any {
+    const result: Record<string, any> = {};
+    for (const entry of contents) {
+      if (!entry || !entry.key) continue;
+      if ('valueString' in entry) {
+        result[entry.key] = entry.valueString;
+      } else if ('valueBoolean' in entry) {
+        result[entry.key] = entry.valueBoolean;
+      } else if ('valueNumber' in entry) {
+        result[entry.key] = entry.valueNumber;
+      } else if ('valueMap' in entry) {
+        result[entry.key] = this.parseDataModelContents(entry.valueMap);
+      }
+    }
+    return result;
+  }
+
+  private compileStandardA2UI(rootId: string) {
+    const renderedComponents: any[] = [];
+    const visited = new Set<string>();
+
+    const traverse = (id: string) => {
+      if (visited.has(id)) return;
+      visited.add(id);
+
+      const item = this.a2uiComponentBuffer.get(id);
+      if (!item || !item.component) return;
+
+      const elementKeys = Object.keys(item.component);
+      if (elementKeys.length === 0) return;
+      const elementName = elementKeys[0];
+      const rawProps = item.component[elementName];
+
+      const resolvedProps: Record<string, any> = {};
+      for (const [k, v] of Object.entries(rawProps)) {
+        resolvedProps[k] = this.resolveBoundValue(v);
+      }
+
+      let customElement = elementName.toLowerCase();
+      if (!customElement.startsWith('gdm-') && customElement !== 'div') {
+        if (customElement === 'column') customElement = 'div';
+        else if (customElement === 'row') customElement = 'div';
+      }
+
+      renderedComponents.push({
+        id: item.id,
+        element: customElement,
+        props: resolvedProps
+      });
+
+      if (rawProps.children && rawProps.children.explicitList) {
+        for (const childId of rawProps.children.explicitList) {
+          traverse(childId);
+        }
+      } else if (rawProps.child) {
+        traverse(rawProps.child);
+      }
+    };
+
+    traverse(rootId);
+    this.components = renderedComponents;
+  }
+  // --------------------------------------------------------------------
+
+  @state() private activeTab: 'concierge' | 'widgets' = 'concierge';
+  @state() private ytUrl = '';
+  @state() private ytPanel = 1;
+  @state() private ytAutoplay = true;
+  @state() private camPanel = 1;
+  @state() private camEnabled = false;
+  @state() private chyronTitle = '';
+  @state() private chyronSub = '';
+  @state() private chyronActive = false;
+  @state() private tickerText = '';
+  @state() private tickerActive = false;
+  @state() private standbyTime = 5;
+  @state() private standbySecs = 0;
+  @state() private standbyBadge = 'STANDBY / INTERMISSION';
+  @state() private standbyTitle = 'Session Will Resume Shortly';
+  @state() private standbyDesc = 'We are taking a brief break. Streaming live from Meet Broadcast Studio.';
+  @state() private standbyActive = false;
+  @state() private activeLayout: 'single' | 'split' | 'grid' = 'single';
+  @state() private studioActive = false;
+
+  private extractYoutubeId(url: string): string {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : url;
+  }
+
+  private changeLayout(layout: 'single' | 'split' | 'grid') {
+    this.activeLayout = layout;
+    this.wsService?.sendJson({
+      type: 'view_change',
+      mode: 'image',
+      imageLayout: layout,
+      imageData: 'dashboard',
+      panel: 3,
+      label: 'Container Telemetry'
+    });
+  }
+
+  private triggerDirectView(mode: 'notepad' | 'diagram' | 'dashboard') {
+    if (mode === 'dashboard') {
+      this.wsService?.sendJson({
+        type: 'view_change',
+        mode: 'image',
+        imageData: 'dashboard',
+        panel: 3,
+        imageLayout: 'grid',
+        label: 'Container Telemetry'
+      });
+    } else if (mode === 'diagram') {
+      this.wsService?.sendJson({
+        type: 'view_change',
+        mode: 'diagram',
+        diag_id: this.diagramSessionId
+      });
+    } else {
+      this.wsService?.sendJson({
+        type: 'view_change',
+        mode: 'notepad'
+      });
+    }
+  }
+
+  private castYoutube() {
+    const raw = this.ytUrl.trim();
+    if (!raw) return;
+    const videoId = this.extractYoutubeId(raw);
+    
+    if (this.ytPanel > 2 && this.activeLayout !== 'grid') {
+      this.activeLayout = 'grid';
+    } else if (this.ytPanel === 2 && this.activeLayout === 'single') {
+      this.activeLayout = 'split';
+    }
+
+    this.wsService?.sendJson({
+      type: 'view_change',
+      mode: 'image',
+      imageData: 'youtube:' + videoId,
+      panel: this.ytPanel,
+      imageLayout: this.activeLayout,
+      label: 'YouTube Feed',
+      autoplay: this.ytAutoplay
+    });
+  }
+
+  private togglePresenterCam(enabled: boolean) {
+    this.camEnabled = enabled;
+    if (enabled) {
+      if (this.camPanel > 2 && this.activeLayout !== 'grid') {
+        this.activeLayout = 'grid';
+      } else if (this.camPanel === 2 && this.activeLayout === 'single') {
+        this.activeLayout = 'split';
+      }
+      this.wsService?.sendJson({
+        type: 'view_change',
+        mode: 'image',
+        imageData: 'camera',
+        panel: this.camPanel,
+        imageLayout: this.activeLayout,
+        label: 'Presenter Live Feed'
+      });
+    } else {
+      this.wsService?.sendJson({
+        type: 'view_change',
+        mode: 'image',
+        imageData: 'clear_camera',
+        panel: this.camPanel,
+        imageLayout: this.activeLayout
+      });
+    }
+  }
+
+  private changeCamPanel(panel: number) {
+    this.wsService?.sendJson({
+      type: 'view_change',
+      mode: 'image',
+      imageData: 'clear_camera',
+      panel: this.camPanel,
+      imageLayout: this.activeLayout
+    });
+    
+    this.camPanel = panel;
+    if (this.camEnabled) {
+      if (panel > 2 && this.activeLayout !== 'grid') {
+        this.activeLayout = 'grid';
+      } else if (panel === 2 && this.activeLayout === 'single') {
+        this.activeLayout = 'split';
+      }
+      this.wsService?.sendJson({
+        type: 'view_change',
+        mode: 'image',
+        imageData: 'camera',
+        panel: panel,
+        imageLayout: this.activeLayout,
+        label: 'Presenter Live Feed'
+      });
+    }
+  }
+
+  private toggleStudioMode(forceActive?: boolean) {
+    this.studioActive = forceActive !== undefined ? forceActive : !this.studioActive;
+    this.wsService?.sendJson({
+      type: 'studio_mode_event',
+      active: this.studioActive
+    });
+  }
+
+  private switchTab(tab: 'concierge' | 'widgets') {
+    this.activeTab = tab;
+    if (tab === 'widgets') {
+      if (this.audioEnabled) {
+        this.toggleAudio();
+      }
+      if (!this.studioActive) {
+        this.toggleStudioMode(true);
+      }
+    } else {
+      if (this.studioActive) {
+        this.toggleStudioMode(false);
+      }
+    }
+  }
+
+  private toggleChyron() {
+    this.chyronActive = !this.chyronActive;
+    this.wsService?.sendJson({
+      type: 'chyron_event',
+      active: this.chyronActive,
+      title: this.chyronTitle.trim() || 'Presenter',
+      subtitle: this.chyronSub.trim() || 'Workspace Live Stream'
+    });
+  }
+
+  private toggleTicker() {
+    this.tickerActive = !this.tickerActive;
+    this.wsService?.sendJson({
+      type: 'ticker_event',
+      active: this.tickerActive,
+      text: this.tickerText.trim() || 'Broadcasting Live'
+    });
+  }
+
+  private toggleStandby() {
+    this.standbyActive = !this.standbyActive;
+    this.wsService?.sendJson({
+      type: 'standby_event',
+      active: this.standbyActive,
+      duration: this.standbyTime,
+      seconds: this.standbySecs,
+      badge: this.standbyBadge,
+      title: this.standbyTitle,
+      description: this.standbyDesc
+    });
+  }
+
+  private triggerSound(sound: string) {
+    this.wsService?.sendJson({
+      type: 'sound_event',
+      sound: sound
+    });
+  }
+
+  private triggerEmoji(emoji: string) {
+    this.wsService?.sendJson({
+      type: 'emoji_event',
+      emoji: emoji
+    });
+  }
 
   connectedCallback() {
 
@@ -388,6 +738,47 @@ export class GdmArchitectAgent extends LitElement {
     if (msg instanceof ArrayBuffer) {
       const diagramMode = this.components.find(c => c.id === 'control_bar')?.props.diagramMode;
       if (!diagramMode) this.audioService.playChunk(msg);
+      return;
+    }
+
+    if (msg.type === 'surfaceUpdate') {
+      const data = msg as any;
+      if (data.surfaceUpdate && data.surfaceUpdate.components) {
+        for (const comp of data.surfaceUpdate.components) {
+          this.a2uiComponentBuffer.set(comp.id, comp);
+        }
+      }
+      return;
+    }
+
+    if (msg.type === 'dataModelUpdate') {
+      const data = msg as any;
+      if (data.dataModelUpdate) {
+        const dmu = data.dataModelUpdate;
+        const baseMap = this.parseDataModelContents(dmu.contents || []);
+        if (dmu.path) {
+          this.updateDataModelPath(dmu.path, baseMap);
+        } else {
+          for (const [k, v] of Object.entries(baseMap)) {
+            this.a2uiDataModelStore.set(k, v);
+          }
+        }
+      }
+      return;
+    }
+
+    if (msg.type === 'beginRendering') {
+      const data = msg as any;
+      if (data.beginRendering && data.beginRendering.root) {
+        this.compileStandardA2UI(data.beginRendering.root);
+      }
+      return;
+    }
+
+    if (msg.type === 'deleteSurface') {
+      this.components = [];
+      this.a2uiComponentBuffer.clear();
+      this.a2uiDataModelStore.clear();
       return;
     }
 
@@ -892,7 +1283,7 @@ export class GdmArchitectAgent extends LitElement {
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${GEMINI_LOGO}</div>
-          <div class="brand-name">Gemini Live<span class="live"> · concierge</span></div>
+          <div class="brand-name">Google Meet Studio</div>
         </div>
         <div class="topbar-actions">
           ${this.lastDiagramFileId ? html`
@@ -956,27 +1347,206 @@ export class GdmArchitectAgent extends LitElement {
         ` : ''}
 
         ${this.connected ? html`
-          ${this.components.map(comp => html`<div class="section">${this.renderComponent(comp)}</div>`)}
-          
-          <div class="section ui-prompt-bar">
-            <div class="ui-prompt-row">
-              <input
-                class="ctx-input ui-prompt-input"
-                type="text"
-                placeholder="Change UI or describe an image… e.g. neon robot at a meeting"
-                .value=${this.uiPromptText}
-                ?disabled=${this.uiPromptSending}
-                @input=${(e: any) => this.uiPromptText = e.target.value}
-                @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this.sendUiPrompt()}
-              />
-              <button
-                class="ctx-send"
-                ?disabled=${this.uiPromptSending || !this.uiPromptText.trim()}
-                @click=${() => this.sendUiPrompt()}>
-                ${this.uiPromptSending ? '…' : 'Apply'}
-              </button>
-            </div>
+          <div class="tabs-container">
+            <button class="tab-btn ${this.activeTab === 'concierge' ? 'active' : ''}" @click=${() => this.switchTab('concierge')}>
+              🤖 Concierge
+            </button>
+            <button class="tab-btn ${this.activeTab === 'widgets' ? 'active' : ''}" @click=${() => this.switchTab('widgets')}>
+              🎛️ Studio Mode
+            </button>
           </div>
+
+          ${this.activeTab === 'concierge' ? html`
+            ${this.components.map(comp => html`<div class="section">${this.renderComponent(comp)}</div>`)}
+            
+            <div class="section ui-prompt-bar">
+              <div class="ui-prompt-row">
+                <input
+                  class="ctx-input ui-prompt-input"
+                  type="text"
+                  placeholder="Change UI or describe an image… e.g. neon robot at a meeting"
+                  .value=${this.uiPromptText}
+                  ?disabled=${this.uiPromptSending}
+                  @input=${(e: any) => this.uiPromptText = e.target.value}
+                  @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this.sendUiPrompt()}
+                />
+                <button
+                  class="ctx-send"
+                  ?disabled=${this.uiPromptSending || !this.uiPromptText.trim()}
+                  @click=${() => this.sendUiPrompt()}>
+                  ${this.uiPromptSending ? '…' : 'Apply'}
+                </button>
+              </div>
+            </div>
+          ` : html`
+            <div class="widget-container">
+              <!-- Studio Activation & Controls -->
+              <div class="widget-card" style="border: 1px solid var(--accent-glow); box-shadow: 0 0 15px rgba(255, 0, 85, 0.15);">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-weight:bold; color:var(--accent);">🔴 Studio Broadcast Mode</span>
+                  <button class="btn-action ${this.studioActive ? 'active' : 'danger'}" @click=${() => this.toggleStudioMode()} style="width:auto; padding:6px 12px; margin:0;">
+                    ${this.studioActive ? 'Deactivate' : 'Activate Stage'}
+                  </button>
+                </div>
+                <div class="widget-subtitle" style="margin-top: 6px;">
+                  Triggers explicit audio permission prompt & camera preparation overlay on the main stage.
+                </div>
+              </div>
+
+              <!-- Grid Layout & Views -->
+              <div class="widget-card">
+                <div class="widget-title">🖥️ Grid Layout & Views</div>
+                <div class="widget-subtitle">Select the stage grid layout</div>
+                <div class="btn-grid">
+                  <button class="btn-action ${this.activeLayout === 'single' ? 'active' : ''}" @click=${() => this.changeLayout('single')}>Single</button>
+                  <button class="btn-action ${this.activeLayout === 'split' ? 'active' : ''}" @click=${() => this.changeLayout('split')}>Split (2)</button>
+                  <button class="btn-action ${this.activeLayout === 'grid' ? 'active' : ''}" @click=${() => this.changeLayout('grid')}>Grid (4)</button>
+                </div>
+                <div class="widget-subtitle" style="margin-top: 6px; margin-bottom: 2px;">Direct Activators</div>
+                <div class="btn-grid">
+                  <button class="btn-action" @click=${() => this.triggerDirectView('notepad')}>📝 Notepad</button>
+                  <button class="btn-action" @click=${() => this.triggerDirectView('diagram')}>📊 Diagram</button>
+                  <button class="btn-action" @click=${() => this.triggerDirectView('dashboard')}>📈 Telemetry</button>
+                </div>
+              </div>
+
+              <!-- Cast YouTube Feed -->
+              <div class="widget-card">
+                <div class="widget-title">📺 Cast YouTube Feed</div>
+                <div class="form-group">
+                  <span class="form-label">Video Link or ID</span>
+                  <input class="ctx-input" type="text" placeholder="https://www.youtube.com/watch?v=..." .value=${this.ytUrl} @input=${(e: any) => this.ytUrl = e.target.value} />
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <span class="form-label">Target Grid Panel</span>
+                    <select class="select-control" .value=${this.ytPanel} @change=${(e: any) => this.ytPanel = parseInt(e.target.value)}>
+                      <option value="1">Panel 1 (Top Left)</option>
+                      <option value="2">Panel 2 (Top Right)</option>
+                      <option value="3">Panel 3 (Bottom Left)</option>
+                      <option value="4">Panel 4 (Bottom Right)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="switch-row">
+                  <div class="switch-label-wrap">
+                    <span class="switch-lbl">Autoplay Video</span>
+                    <span class="switch-desc">Start playback automatically (muted)</span>
+                  </div>
+                  <label class="switch-container">
+                    <input type="checkbox" ?checked=${this.ytAutoplay} @change=${(e: any) => this.ytAutoplay = e.target.checked} />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <button class="cta" @click=${() => this.castYoutube()}>Cast to Stage Grid</button>
+              </div>
+
+              <!-- Presenter Camera Feed -->
+              <div class="widget-card">
+                <div class="widget-title">🎥 Presenter Camera Feed</div>
+                <div class="switch-row">
+                  <div class="switch-label-wrap">
+                    <span class="switch-lbl">Enable Camera Grid Stream</span>
+                    <span class="switch-desc">Acquire webcam and stream to chosen panel</span>
+                  </div>
+                  <label class="switch-container">
+                    <input type="checkbox" ?checked=${this.camEnabled} @change=${(e: any) => this.togglePresenterCam(e.target.checked)} />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="form-group" ?disabled=${!this.camEnabled}>
+                  <span class="form-label">Webcam Grid Slot</span>
+                  <select class="select-control" ?disabled=${!this.camEnabled} .value=${this.camPanel} @change=${(e: any) => this.changeCamPanel(parseInt(e.target.value))}>
+                    <option value="1">Panel 1 (Top Left)</option>
+                    <option value="2">Panel 2 (Top Right)</option>
+                    <option value="3">Panel 3 (Bottom Left)</option>
+                    <option value="4">Panel 4 (Bottom Right)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Live Chyron Lower-Third -->
+              <div class="widget-card">
+                <div class="widget-title">🏷️ Speaker Lower-Third (Chyron)</div>
+                <div class="form-group">
+                  <span class="form-label">Presenter Name / Title</span>
+                  <input class="ctx-input" type="text" placeholder="e.g. Curtis Krygier" .value=${this.chyronTitle} @input=${(e: any) => this.chyronTitle = e.target.value} />
+                </div>
+                <div class="form-group">
+                  <span class="form-label">Subtitle / Affiliation</span>
+                  <input class="ctx-input" type="text" placeholder="e.g. Lead Cloud Architect" .value=${this.chyronSub} @input=${(e: any) => this.chyronSub = e.target.value} />
+                </div>
+                <button class="btn-action ${this.chyronActive ? 'active' : ''}" @click=${() => this.toggleChyron()}>
+                  ${this.chyronActive ? '📴 Hide Lower-Third' : '🏷️ Show Lower-Third'}
+                </button>
+              </div>
+
+              <!-- Scrolling Ticker Tape -->
+              <div class="widget-card">
+                <div class="widget-title">💬 Scrolling News Ticker Tape</div>
+                <div class="form-group">
+                  <span class="form-label">Rolling Announcement Text</span>
+                  <input class="ctx-input" type="text" placeholder="e.g. Next session starts in 10 minutes..." .value=${this.tickerText} @input=${(e: any) => this.tickerText = e.target.value} />
+                </div>
+                <button class="btn-action ${this.tickerActive ? 'active' : ''}" @click=${() => this.toggleTicker()}>
+                  ${this.tickerActive ? '📴 Turn Off Ticker' : '💬 Start Scrolling Ticker'}
+                </button>
+              </div>
+
+              <!-- Intermission Slate -->
+              <div class="widget-card">
+                <div class="widget-title">⏳ Broadcast Intermission Slate</div>
+                
+                <div class="form-group">
+                  <span class="form-label">Slate Badge</span>
+                  <input class="ctx-input" type="text" placeholder="STANDBY / INTERMISSION" .value=${this.standbyBadge} @input=${(e: any) => this.standbyBadge = e.target.value} />
+                </div>
+
+                <div class="form-group">
+                  <span class="form-label">Slate Title</span>
+                  <input class="ctx-input" type="text" placeholder="Session Will Resume Shortly" .value=${this.standbyTitle} @input=${(e: any) => this.standbyTitle = e.target.value} />
+                </div>
+
+                <div class="form-group">
+                  <span class="form-label">Slate Subtitle / Description</span>
+                  <textarea class="ctx-input" style="height: 60px; resize: vertical; padding: 6px 10px;" placeholder="We are taking a brief break..." .value=${this.standbyDesc} @input=${(e: any) => this.standbyDesc = e.target.value}></textarea>
+                </div>
+
+                <div class="form-row" style="display: flex; gap: 10px;">
+                  <div class="form-group" style="flex: 1;">
+                    <span class="form-label">Minutes</span>
+                    <input class="ctx-input" type="number" min="0" max="60" .value=${this.standbyTime} @input=${(e: any) => this.standbyTime = parseInt(e.target.value) || 0} />
+                  </div>
+                  <div class="form-group" style="flex: 1;">
+                    <span class="form-label">Seconds</span>
+                    <input class="ctx-input" type="number" min="0" max="59" .value=${this.standbySecs} @input=${(e: any) => this.standbySecs = parseInt(e.target.value) || 0} />
+                  </div>
+                </div>
+
+                <button class="btn-action ${this.standbyActive ? 'active' : 'danger'}" @click=${() => this.toggleStandby()} style="margin-top: 10px;">
+                  ${this.standbyActive ? '📴 Deactivate Slate' : '⏳ Activate Countdown Slate'}
+                </button>
+              </div>
+
+              <!-- Soundboard & Emoji Reaction Rain -->
+              <div class="widget-card">
+                <div class="widget-title">🔊 Soundboard & Crowd FX</div>
+                <div class="btn-grid-2">
+                  <button class="btn-action" @click=${() => this.triggerSound('applause')}>👏 Applause</button>
+                  <button class="btn-action" @click=${() => this.triggerSound('drumroll')}>🥁 Drumroll</button>
+                  <button class="btn-action" @click=${() => this.triggerSound('buzzer')}>🚨 Buzzer</button>
+                  <button class="btn-action" @click=${() => this.triggerSound('chimes')}>🔔 Chimes</button>
+                </div>
+                <div class="widget-title" style="margin-top: 10px; margin-bottom: 2px;">💬 Emoji Reaction Rain</div>
+                <div class="reaction-grid">
+                  <button class="reaction-btn" @click=${() => this.triggerEmoji('👏')}><span style="font-size:18px">👏</span><span class="reaction-name">Clap</span></button>
+                  <button class="reaction-btn" @click=${() => this.triggerEmoji('🎉')}><span style="font-size:18px">🎉</span><span class="reaction-name">Party</span></button>
+                  <button class="reaction-btn" @click=${() => this.triggerEmoji('🔥')}><span style="font-size:18px">🔥</span><span class="reaction-name">Hot</span></button>
+                  <button class="reaction-btn" @click=${() => this.triggerEmoji('💡')}><span style="font-size:18px">💡</span><span class="reaction-name">Idea</span></button>
+                </div>
+              </div>
+            </div>
+          `}
         ` : ''}
       </div>
 

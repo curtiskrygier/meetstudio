@@ -152,4 +152,141 @@ export const mainStyles = css`
     .ui-prompt-bar { padding-top: 0; padding-bottom: 10px; }
     .ui-prompt-row { display: flex; gap: 8px; align-items: flex-start; }
     .ui-prompt-input { min-height: unset; height: 36px; resize: none; padding: 8px 12px; flex: 1; }
+
+    /* Broadcast Media Studio Sub-menu Styles */
+    .tabs-container {
+      display: flex; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--line-soft);
+      background: rgba(0,0,0,0.15); backdrop-filter: blur(10px); flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1; height: 34px; border-radius: 8px; border: 1px solid transparent;
+      background: transparent; color: var(--fg-3); font-size: 12.5px; font-weight: 600;
+      cursor: pointer; transition: all 150ms ease; display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .tab-btn:hover { color: var(--fg-2); background: rgba(255,255,255,0.02); }
+    .tab-btn.active {
+      color: var(--fg); background: var(--bg-2); border-color: var(--line);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    
+    .widget-container {
+      display: flex; flex-direction: column; gap: 16px; padding: 16px;
+    }
+    .widget-card {
+      background: var(--bg-1); border: 1px solid var(--line-soft); border-radius: var(--radius);
+      padding: 14px; display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15); transition: border-color 150ms;
+    }
+    .widget-card:hover { border-color: var(--line); }
+    .widget-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--fg-2); display: flex; align-items: center; gap: 6px; margin-bottom: 2px;
+    }
+    .widget-subtitle {
+      font-size: 11px; color: var(--fg-4); margin-top: -8px; margin-bottom: 4px;
+    }
+    
+    .btn-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    }
+    .btn-grid-2 {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+    }
+    .btn-action {
+      height: 34px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg-2); color: var(--fg-2); font-size: 11.5px; font-weight: 600;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: all 120ms ease;
+    }
+    .btn-action:hover {
+      background: var(--bg-3); border-color: var(--fg-4); color: var(--fg);
+      transform: translateY(-1px);
+    }
+    .btn-action:active { transform: translateY(0); }
+    .btn-action.active {
+      background: rgba(155,109,255,0.12); border-color: rgba(155,109,255,0.4); color: #c4a1ff;
+      box-shadow: 0 0 12px rgba(155,109,255,0.1);
+    }
+    .btn-action.active:hover {
+      background: rgba(155,109,255,0.18); border-color: rgba(155,109,255,0.6);
+    }
+    .btn-action.danger {
+      background: rgba(244,67,54,0.06); border-color: rgba(244,67,54,0.2); color: #fba49e;
+    }
+    .btn-action.danger:hover {
+      background: rgba(244,67,54,0.12); border-color: rgba(244,67,54,0.4);
+    }
+    
+    .form-row {
+      display: flex; gap: 8px; align-items: center;
+    }
+    .form-group {
+      display: flex; flex-direction: column; gap: 5px; flex: 1;
+    }
+    .form-label {
+      font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-3);
+    }
+    .ctx-input {
+      height: 34px; background: var(--bg-2); border: 1px solid var(--line-soft);
+      border-radius: 8px; padding: 0 10px; color: var(--fg); font-size: 12px;
+      transition: all 120ms; width: 100%; box-sizing: border-box;
+    }
+    .ctx-input:focus {
+      outline: none; border-color: var(--gem-1); background: var(--bg-3);
+      box-shadow: 0 0 8px rgba(66,133,244,0.15);
+    }
+    .select-control {
+      height: 34px; background: var(--bg-2); border: 1px solid var(--line-soft);
+      border-radius: 8px; padding: 0 8px; color: var(--fg-2); font-size: 12px;
+      cursor: pointer; transition: all 120ms; width: 100%; box-sizing: border-box;
+    }
+    .select-control:focus {
+      outline: none; border-color: var(--gem-1);
+    }
+    
+    /* Toggle switch */
+    .switch-row {
+      display: flex; justify-content: space-between; align-items: center; padding: 4px 0;
+    }
+    .switch-label-wrap {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .switch-lbl { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+    .switch-desc { font-size: 10px; color: var(--fg-4); }
+    
+    .switch-container {
+      position: relative; display: inline-block; width: 36px; height: 20px;
+    }
+    .switch-container input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--bg-3); border: 1px solid var(--line);
+      transition: .2s; border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 12px; width: 12px; left: 3px; bottom: 3px;
+      background-color: var(--fg-3); transition: .2s; border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: rgba(52,210,122,0.15); border-color: rgba(52,210,122,0.4);
+    }
+    input:checked + .slider:before {
+      transform: translateX(16px); background-color: var(--live);
+    }
+    
+    .reaction-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    }
+    .reaction-btn {
+      height: 42px; border-radius: 10px; border: 1px solid var(--line-soft);
+      background: var(--bg-2); font-size: 16px; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      transition: all 120ms ease;
+    }
+    .reaction-btn:hover {
+      background: var(--bg-3); border-color: var(--line); transform: scale(1.05);
+    }
+    .reaction-btn:active { transform: scale(0.95); }
+    .reaction-name { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--fg-4); letter-spacing: 0.02em; }
+    .reaction-btn:hover .reaction-name { color: var(--fg-3); }
 `;

@@ -7,12 +7,12 @@
     "https://www.googleapis.com/auth/drive.file"
   ],
   "urlFetchWhitelist": [
-    "https://YOUR_CLOUD_RUN_URL/"
+    "https://meet-live-concierge-649226456677.us-central1.run.app/"
   ],
   "runtimeVersion": "V8",
   "addOns": {
     "common": {
-      "name": "Meet Live Concierge",
+      "name": "Google Meet Studio",
       "logoUrl": "https://www.gstatic.com/images/branding/product/1x/diagram_48dp.png",
       "useLocaleFromApp": true
     },
@@ -20,9 +20,9 @@
       "web": {
         "logoUrl": "https://www.gstatic.com/images/branding/product/1x/diagram_48dp.png",
         "addOnOrigins": [
-          "https://YOUR_CLOUD_RUN_URL"
+          "https://meet-live-concierge-649226456677.us-central1.run.app"
         ],
-        "sidePanelUrl": "https://YOUR_CLOUD_RUN_URL"
+        "sidePanelUrl": "https://meet-live-concierge-649226456677.us-central1.run.app/"
       }
     }
   }

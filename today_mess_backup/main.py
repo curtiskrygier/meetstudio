@@ -45,7 +45,7 @@ THEME_PRESETS = {
     "blue":       {"--bg-0":"#050a1a","--bg-1":"#08142a","--fg":"#ccd9ff","--fg-2":"#99b3ff","--gem-1":"#4285F4","--gem-2":"#6699ff","--line":"#1a2a4a","--radius":"4px","--font":"system-ui"},
 }
 
-# Allowlists for /api/ui-prompt — fields the LLM is permitted to set
+# Allowlists for /api/ui-prompt - fields the LLM is permitted to set
 _ALLOWED_UI_FIELDS = frozenset({
     "status_text", "diagram_mode", "main_stage_view",
     "theme_preset", "theme_tokens", "layout",
@@ -70,7 +70,7 @@ from app.config import (
     current_session, current_view, stage_listeners, WORKSPACE_AGENT_ENGINE,
     UI_PROMPT_SYSTEM, active_sessions, video_queues
 )
-from app.auth import validate_google_token, check_producer_auth
+from app.auth import validate_google_token, check_producer_auth, encrypt_token, decrypt_token
 from app.utils import fetch_url, svg_to_png
 from app.drive import (
     get_calendar_meeting_name, get_or_create_meeting_folder,
@@ -135,7 +135,7 @@ def _check_image_rate(token: str):
     now = time.time()
     window = [t for t in _image_rate[token] if now - t < 60]
     if len(window) >= _IMAGE_RATE_LIMIT:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded — max 5 image requests per minute")
+        raise HTTPException(status_code=429, detail="Rate limit exceeded - max 5 image requests per minute")
     window.append(now)
     _image_rate[token] = window
 
@@ -291,7 +291,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 "required": ["title", "content"]
                             },
                             "theme_preset": {"type": "string", "enum": ["default", "matrix", "blueprint", "corporate", "neon", "minimal"]},
-                            "theme_tokens": {"type": "OBJECT", "description": "Raw CSS token overrides — use for custom colors not covered by presets"},
+                            "theme_tokens": {"type": "OBJECT", "description": "Raw CSS token overrides - use for custom colors not covered by presets"},
                             "layout": {"type": "string", "enum": ["default", "focus", "minimal", "presentation", "split"]},
                             "component_visibility": {
                                 "type": "OBJECT",
@@ -449,7 +449,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
     async with gemini_client.aio.live.connect(model=MODEL, config=config) as session:
         # Update state on successful connection
         ui_state["status_state"] = "listening"
-        ui_state["status_text"] = "Assistant connected — listening"
+        ui_state["status_text"] = "Assistant connected - listening"
         await broadcast_a2ui()
 
         stop_event = asyncio.Event()
@@ -474,23 +474,25 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             email = data.get("user_email", "")
                             token = data.get("access_token", "")
                             workspace_user[0] = email
-                            session_token[0] = token
+
+                            # SECURITY: Encrypt token at rest in memory
+                            encrypted_token = encrypt_token(token)
+                            session_token[0] = encrypted_token
                             if data.get("meeting_id"): session_space[0] = data.get("meeting_id")
-                            
+
                             # Update global session data with identity for API access
                             if session_space[0] in active_sessions:
                                 active_sessions[session_space[0]]["user_email"] = email
-                                active_sessions[session_space[0]]["access_token"] = token
-                            
+                                active_sessions[session_space[0]]["access_token"] = encrypted_token
                             logger.info(f"[ws] init user={workspace_user[0]} space={session_space[0]}")
                         
                         elif data.get("type") == "diagram_mode":
                             # Sync frontend button clicks back into backend state
                             ui_state["diagramMode"] = bool(data.get("active", False))
                             if ui_state["diagramMode"]:
-                                ui_state["status_text"] = "Gemini Agent Architect — speak your architecture description"
+                                ui_state["status_text"] = "Gemini Agent Architect - speak your architecture description"
                             else:
-                                ui_state["status_text"] = "Assistant connected — listening"
+                                ui_state["status_text"] = "Assistant connected - listening"
                             await broadcast_a2ui()
 
                         elif data.get("type") == "toggle_audio":
@@ -544,8 +546,10 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 ui_state["status_text"] = "Workspace agent: working..."
                                 await broadcast_a2ui()
                                 
-                                res = await call_workspace_agent(fc.args.get("query", ""), user_id=workspace_user[0], user_token=session_token[0])
-                                ui_state["status_text"] = "Assistant connected — listening"
+                                # Decrypt token for use in API call
+                                raw_token = decrypt_token(session_token[0])
+                                res = await call_workspace_agent(fc.args.get("query", ""), user_id=workspace_user[0], user_token=raw_token)
+                                ui_state["status_text"] = "Assistant connected - listening"
                                 await broadcast_a2ui()
                                 
                                 responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": res}))
@@ -562,8 +566,8 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                         "label": label,
                                         "content": res
                                     })
-                                    if session_token[0] and session_space[0]:
-                                        asyncio.create_task(save_doc_shortcut_to_drive(clean_url, label, session_space[0], session_token[0]))
+                                    if raw_token and session_space[0]:
+                                        asyncio.create_task(save_doc_shortcut_to_drive(clean_url, label, session_space[0], raw_token))
 
                                 # Surface auth link if workspace agent needs authorization
                                 for url in re.findall(r'https?://workspace-subagent-auth[^\s)]+', res):
@@ -615,9 +619,10 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 
                                 if "doc_data" in fc.args:
                                     raw_md = fc.args["doc_data"]["content"]
-                                    # Convert Markdown to HTML on the server
-                                    raw_html = markdown.markdown(raw_md, extensions=['extra'])
-                                    html_content = sanitize_html(raw_html)
+                                    # Convert Markdown to HTML on the server - wrap in executor as it's CPU intensive
+                                    loop = asyncio.get_event_loop()
+                                    raw_html = await loop.run_in_executor(None, lambda: markdown.markdown(raw_md, extensions=['extra']))
+                                    html_content = await loop.run_in_executor(None, sanitize_html, raw_html)
                                     
                                     ui_state.setdefault("extra_components", [])
                                     if len(ui_state["extra_components"]) >= 5:
@@ -641,8 +646,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     msg = {"type": "view_change", "mode": stage_view}
                                     if stage_view == "doc" and "doc_data" in fc.args:
                                         msg["label"] = fc.args["doc_data"]["title"]
-                                        raw_html = markdown.markdown(fc.args["doc_data"]["content"], extensions=['extra'])
-                                        msg["htmlContent"] = sanitize_html(raw_html)
+                                        loop = asyncio.get_event_loop()
+                                        raw_html = await loop.run_in_executor(None, lambda: markdown.markdown(fc.args["doc_data"]["content"], extensions=['extra']))
+                                        msg["htmlContent"] = await loop.run_in_executor(None, sanitize_html, raw_html)
                                     await broadcast_to_stage(session_space[0], msg)
                                 
                                 if fc.args.get("stage_theme"):
@@ -660,7 +666,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 prompt = fc.args.get("prompt", "")
                                 chosen_model = fc.args.get("model", None)
                                 logger.info(f"[tool] generate_image: {prompt[:60]} (model={chosen_model})")
-                                ui_state["status_text"] = "Generating image…"
+                                ui_state["status_text"] = "Generating image..."
                                 await broadcast_a2ui()
 
                                 async def _gen_broadcast(p=prompt, m=chosen_model, space=session_space[0]):
@@ -675,13 +681,13 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     except Exception as ex:
                                         logger.error(f"[tool] generate_image broadcast failed: {ex}")
                                     finally:
-                                        ui_state["status_text"] = "Assistant connected — listening"
+                                        ui_state["status_text"] = "Assistant connected - listening"
                                         await broadcast_a2ui()
 
                                 asyncio.create_task(_gen_broadcast())
                                 responses.append(types.FunctionResponse(
                                     id=fc.id, name=fc.name,
-                                    response={"result": "Image generation started — will appear on stage when ready."}
+                                    response={"result": "Image generation started - will appear on stage when ready."}
                                 ))
 
                             else:
@@ -761,7 +767,7 @@ async def create_stage_ticket(space_id: str, request: Request):
     check_producer_auth(request)
     logger.info(f"[stage-ticket] issued for {space_id} from {request.client.host}")
     ticket = secrets.token_urlsafe(32)
-    # 30-minute expiry — long enough for a full demo recording
+    # 30-minute expiry - long enough for a full demo recording
     expiry = datetime.now(timezone.utc) + timedelta(minutes=30)
     auth_tickets[ticket] = ("mcp-recording-client", expiry)
     stage_url = f"{request.base_url}main_stage.html?meeting={space_id}&ticket={ticket}"
@@ -781,7 +787,7 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", ticket:
 
 @app.websocket("/ws/stage")
 async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
-    # Stage client uses short-lived ticket — kept reusable (not popped) so reconnects work
+    # Stage client uses short-lived ticket - kept reusable (not popped) so reconnects work
     ticket_data = auth_tickets.get(ticket)
     if not ticket_data or ticket_data[1] < datetime.now(timezone.utc):
         logger.warning(f"[ws/stage] rejected: invalid or expired ticket")
@@ -805,13 +811,13 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
                 queue = video_queues.get(meeting_id, [])
                 if queue:
                     next_item = queue.pop(0)
-                    logger.info(f"[queue] video_ended — advancing to next ({len(queue)} remaining) for {meeting_id}")
+                    logger.info(f"[queue] video_ended - advancing to next ({len(queue)} remaining) for {meeting_id}")
                     await broadcast_to_stage(meeting_id, {
                         "type": "view_change", "mode": "video",
                         "url": next_item["url"], "label": next_item.get("label", "")
                     })
                 else:
-                    logger.info(f"[queue] video_ended — queue empty, returning to placeholder for {meeting_id}")
+                    logger.info(f"[queue] video_ended - queue empty, returning to placeholder for {meeting_id}")
                     await broadcast_to_stage(meeting_id, {"type": "view_change", "mode": "placeholder"})
             elif msg.get("type") == "notepad_update":
                 # Broadcast the live text updates to all OTHER connected clients
@@ -1195,7 +1201,7 @@ async def audio_inject(space_id: str, request: Request):
     for the given space. Gemini transcribes it live and captions appear on stage.
 
     Auth: Bearer <STAGE_API_KEY>
-    Body: raw PCM bytes (audio/pcm) — use ffmpeg to convert:
+    Body: raw PCM bytes (audio/pcm) - use ffmpeg to convert:
         ffmpeg -i input.wav -ar 16000 -ac 1 -f s16le output.pcm
     """
     check_producer_auth(request)
@@ -1222,10 +1228,10 @@ async def stage_audio(space_id: str, request: Request):
     """
     Broadcast audio to all stage WebSocket listeners for a space.
     The stage page decodes and plays it via Web Audio API.
-    No active Gemini session required — works whenever the stage is open.
+    No active Gemini session required - works whenever the stage is open.
 
     Auth: Bearer <STAGE_API_KEY>
-    Body: any audio format (WAV recommended, max 15MB) — sent as base64 to all stage listeners.
+    Body: any audio format (WAV recommended, max 15MB) - sent as base64 to all stage listeners.
     """
     import base64
     await broadcast_to_stage(space_id, {
