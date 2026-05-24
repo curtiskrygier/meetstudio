@@ -2033,6 +2033,8 @@
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
+          // A2UI messages are consumed by the TS engine; imperative messages fall through
+          if (window.__a2uiEngine && window.__a2uiEngine.handleMessage(msg)) return;
           handleStageMessage(msg);
         } catch (err) {}
       };

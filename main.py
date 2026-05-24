@@ -1628,6 +1628,83 @@ async def trigger_stage_poll(space_id: str, request: Request):
 
 
 
+# ── A2UI Catalog (Phase 1 allow-list) ────────────────────────────────────────
+# Component names the agent may emit via render_stage. Unknown names are rejected.
+_A2UI_CATALOG = frozenset({
+    "gdm-stage-card",
+    # Phase 2+: gdm-chyron, gdm-ticker, gdm-standby-slate, gdm-chat-card,
+    #           gdm-stage-grid, gdm-image-panel, gdm-video-panel, gdm-iframe-panel,
+    #           gdm-telemetry-dashboard, gdm-radar-view, gdm-poll-overlay,
+    #           gdm-transcript-view, gdm-notepad
+})
+
+def _validate_a2ui_surface(surface_update: dict) -> list[str]:
+    """Returns a list of validation errors; empty = valid."""
+    errors = []
+    components = surface_update.get("components", [])
+    if not components:
+        errors.append("surfaceUpdate.components is empty")
+        return errors
+    for comp in components:
+        comp_id = comp.get("id", "<no-id>")
+        component_def = comp.get("component", {})
+        if not component_def:
+            errors.append(f"Component '{comp_id}' has no component definition")
+            continue
+        element_name = next(iter(component_def)).lower()
+        if element_name not in _A2UI_CATALOG:
+            errors.append(f"Component '{element_name}' not in catalog (id={comp_id})")
+    return errors
+
+
+@app.post("/api/render-stage/{space_id:path}")
+async def render_stage(space_id: str, request: Request):
+    """
+    Emit an A2UI surfaceUpdate to the main stage — the agent-driveable render path.
+
+    Body:
+      surfaceUpdate: A2UI v0.8 surfaceUpdate payload
+        { components: [{ id, component: { "gdm-stage-card": { title, text, accent } } }] }
+      root: component id to use as the render root (default: first component's id)
+      dataModelUpdate: optional A2UI v0.8 dataModelUpdate payload
+
+    Validates component names against the catalog; rejects unknown elements.
+    """
+    check_producer_auth(request)
+    body = await request.json()
+
+    surface_update = body.get("surfaceUpdate", {})
+    errors = _validate_a2ui_surface(surface_update)
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
+
+    components = surface_update.get("components", [])
+    root_id = body.get("root") or (components[0]["id"] if components else None)
+    if not root_id:
+        raise HTTPException(status_code=422, detail={"errors": ["No root component id"]})
+
+    # Broadcast in A2UI protocol order: surfaceUpdate → (optional) dataModelUpdate → beginRendering
+    await broadcast_to_stage(space_id, {"type": "surfaceUpdate", "surfaceUpdate": surface_update})
+
+    data_model_update = body.get("dataModelUpdate")
+    if data_model_update:
+        await broadcast_to_stage(space_id, {"type": "dataModelUpdate", "dataModelUpdate": data_model_update})
+
+    await broadcast_to_stage(space_id, {"type": "beginRendering", "beginRendering": {"root": root_id}})
+
+    logger.info(f"[render-stage] {space_id} root={root_id} components={len(components)}")
+    return {"ok": True, "root": root_id, "components": len(components)}
+
+
+@app.post("/api/render-stage-clear/{space_id:path}")
+async def render_stage_clear(space_id: str, request: Request):
+    """Clear the A2UI surface on the stage (deleteSurface)."""
+    check_producer_auth(request)
+    await broadcast_to_stage(space_id, {"type": "deleteSurface"})
+    logger.info(f"[render-stage] clear {space_id}")
+    return {"ok": True}
+
+
 @app.post("/api/dashboard/{space_id:path}")
 async def set_stage_dashboard(space_id: str, request: Request):
     """
