@@ -15,13 +15,53 @@ Environment Variables:
 import asyncio
 import os
 import sys
+import glob
+
+# Auto-resolve local virtualenv site-packages if run directly from global system python
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+_venv_dirs = glob.glob(os.path.join(_base_dir, "venv", "lib", "python3.*", "site-packages"))
+for _vd in _venv_dirs:
+    if _vd not in sys.path:
+        sys.path.insert(0, _vd)
+
 import httpx
+from types import ModuleType
+from unittest.mock import MagicMock
+
+# Setup dynamic dummy modules for google.adk to bypass ADK import failures in 212Trading backend
+class AdkMockModule(ModuleType):
+    def __init__(self, name):
+        super().__init__(name)
+        self.__path__ = []
+    def __getattr__(self, name):
+        mock_val = MagicMock()
+        setattr(self, name, mock_val)
+        return mock_val
+
+class AdkMockFinder:
+    def find_spec(self, fullname, path, target=None):
+        if fullname.startswith("google.adk"):
+            from importlib.machinery import ModuleSpec
+            return ModuleSpec(fullname, AdkMockLoader())
+        return None
+
+class AdkMockLoader:
+    def create_module(self, spec):
+        mod = AdkMockModule(spec.name)
+        sys.modules[spec.name] = mod
+        return mod
+    def exec_module(self, module):
+        pass
+
+sys.meta_path.insert(0, AdkMockFinder())
+
 
 # ───────────────────────────────────────────────────────────
 # 212Trading Backend Market Services Integration
 # ───────────────────────────────────────────────────────────
 _T212_LOADED = False
 _GET_QUOTE_FN = None
+
 
 try:
     # Append the 212Trading directory to sys.path
@@ -51,6 +91,12 @@ try:
                     pass
     except Exception:
         pass
+
+    # Mock backend.agent to avoid importing dotenv, google.adk or any agent logic
+    dummy_agent = ModuleType("backend.agent")
+    dummy_agent.app = ModuleType("backend.agent.app")
+    sys.modules["backend.agent"] = dummy_agent
+    sys.modules["backend.agent.app"] = dummy_agent.app
 
     # Import the unified market data quote fetcher
     from backend.services.market_data import get_quote as t212_get_quote
@@ -116,6 +162,15 @@ async def launch_emoji_burst(client: httpx.AsyncClient, space_id: str, emojis: l
     for emo in emojis:
         await post_endpoint(client, f"/api/emoji/{space_id}", {"emoji": emo})
         await asyncio.sleep(0.12)  # Stagger floats for maximum aesthetics
+
+async def broadcast_chat_comment(client: httpx.AsyncClient, space_id: str, sender: str, text: str, avatar: str = ""):
+    """Push a single glassmorphic chat-comment card onto the main stage.
+    The backend strips a leading '/mainstage' prefix, mirroring the live audience flow."""
+    await post_endpoint(client, f"/api/chat/{space_id}", {
+        "sender": sender,
+        "text": text,
+        "avatar": avatar,
+    })
 
 async def get_live_stock_price(client: httpx.AsyncClient, symbol: str, default: float) -> tuple[float, float]:
     # Map symbols to full T212 format to ensure 100% correct resolution by MultiSourceProvider
@@ -239,47 +294,70 @@ def get_route_for_callsign(callsign: str) -> tuple[str, str]:
         h = sum(ord(c) for c in callsign) if callsign else 0
         return origins[h % len(origins)], "TLS"
 
+# OpenSky state-vector indices (https://openskynetwork.github.io/opensky-api/rest.html):
+#   1=callsign 5=longitude 6=latitude 7=baro_altitude(m) 8=on_ground
+#   9=velocity(m/s) 10=true_track(deg) 11=vertical_rate(m/s) 13=geo_altitude(m)
+MS_TO_FPM = 196.85  # m/s -> ft/min, used only to classify climb/descent for colour
+
+def flight_phase_color(vrate_fpm: int) -> str:
+    """Tint the inventory-row value by vertical rate (the radar blips use their own colours)."""
+    if vrate_fpm < -250:
+        return "#00ff88"   # green — descending / on approach
+    if vrate_fpm > 250:
+        return "#ffd60a"   # amber — climbing / departing
+    return "#00f2ff"        # cyan — level cruise
+
 async def get_live_toulouse_flights(client: httpx.AsyncClient, tick: int = 0) -> tuple[int, list[dict]]:
+    # NOTE: the stage radar renderer (main_stage.js) parses the metric strings it receives:
+    #   label  -> "Flight {CALLSIGN} (...)"   (callsign = first token after "Flight ")
+    #   value  -> "Alt: {metres}m / Spd: {kmh}km/h"
+    # Keep altitude in METRES and speed in KM/H so the radar plots real positions; the
+    # renderer converts to flight levels on screen itself.
     try:
         # Broadened bounding box covering Toulouse airspace
         resp = await client.get("https://opensky-network.org/api/states/all?lamin=43.0&lomin=0.8&lamax=44.2&lomax=2.0", headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
         if resp.status_code == 200:
             states = resp.json().get("states") or []
             flights = []
-            for idx, s in enumerate(states[:6]):
+            for idx, s in enumerate(states):
+                if s[8]:  # on_ground — only show airborne traffic
+                    continue
+                alt_m = s[7] if s[7] is not None else s[13]  # baro_altitude, fall back to geo_altitude
+                if alt_m is None:
+                    continue
                 callsign = s[1].strip() if s[1] else f"AFR{900 + idx}"
-                base_alt = int(s[5]) if s[5] else (1200 + idx * 800)
-                base_spd = int(s[9]*3.6) if s[9] else (380 + idx * 40)
-                
-                # Dynamically simulate approach descend/decelerate
-                drift_alt = max(500, base_alt - int(150 * tick))
-                drift_spd = max(240, base_spd - int(12 * tick))
-                
                 origin, dest = get_route_for_callsign(callsign)
                 flights.append({
                     "callsign": callsign,
-                    "altitude": drift_alt,
-                    "speed": drift_spd,
+                    "altitude": int(alt_m),               # metres (was wrongly read from s[5]=longitude)
+                    "speed": int((s[9] or 0) * 3.6),       # m/s -> km/h
+                    "vrate_fpm": int((s[11] or 0) * MS_TO_FPM),
                     "origin": origin,
-                    "destination": dest
+                    "destination": dest,
                 })
-            return len(states), flights
+                if len(flights) >= 6:
+                    break
+            if flights:
+                # Lowest first = closest to landing — reads as an approach sequence
+                flights.sort(key=lambda f: f["altitude"])
+                return len(states), flights
     except Exception:
         pass
 
-    # High fidelity landing approach simulations (Runway 32L/R approach sequence)
-    # The planes descend and decelerate dynamically as tick progresses from 0 to 4!
+    # High fidelity landing approach simulations (Runway 32L/R approach sequence).
+    # Planes descend and decelerate as tick progresses; vertical rate stays negative.
     fallback_flights = [
-        {"callsign": "AFR6129", "altitude": max(800, 1150 - tick * 120), "speed": max(260, 340 - tick * 15)},
-        {"callsign": "BAW373", "altitude": max(1200, 2400 - tick * 180), "speed": max(300, 430 - tick * 18)},
-        {"callsign": "EZY4218", "altitude": max(1800, 3800 - tick * 250), "speed": max(350, 510 - tick * 22)},
-        {"callsign": "RYR109B", "altitude": max(2500, 4900 - tick * 320), "speed": max(380, 560 - tick * 25)},
-        {"callsign": "DLH11A", "altitude": max(3200, 5800 - tick * 400), "speed": max(420, 620 - tick * 28)}
+        {"callsign": "AFR6129", "altitude": max(800, 1150 - tick * 120), "speed": max(260, 340 - tick * 15), "vrate_fpm": -1100},
+        {"callsign": "BAW373",  "altitude": max(1200, 2400 - tick * 180), "speed": max(300, 430 - tick * 18), "vrate_fpm": -1400},
+        {"callsign": "EZY4218", "altitude": max(1800, 3800 - tick * 250), "speed": max(350, 510 - tick * 22), "vrate_fpm": -1700},
+        {"callsign": "RYR109B", "altitude": max(2500, 4900 - tick * 320), "speed": max(380, 560 - tick * 25), "vrate_fpm": -900},
+        {"callsign": "DLH11A",  "altitude": max(3200, 5800 - tick * 400), "speed": max(420, 620 - tick * 28), "vrate_fpm": 1200},
     ]
     for f in fallback_flights:
         origin, dest = get_route_for_callsign(f["callsign"])
         f["origin"] = origin
         f["destination"] = dest
+    fallback_flights.sort(key=lambda f: f["altitude"])
     return len(fallback_flights), fallback_flights
 
 async def main():
@@ -291,7 +369,7 @@ async def main():
         print("❌ Error: No active Meet space detected. Open a Meet call and launch the side-panel first.")
         sys.exit(1)
         
-    delay = 4.0 if FAST_MODE else 12.0
+    delay = 1.8 if FAST_MODE else 12.0
     
     print(f"\n🎬  CRAY CRAY INTERACTIVE SHOWCASE  →  {space}")
     print(f"⚙️   Fast Mode: {'ENABLED ⚡' if FAST_MODE else 'DISABLED (Live Imagen generation) 🐢'}")
@@ -314,7 +392,7 @@ async def main():
             except Exception as e:
                 print(f"⚠️  Warning: Pre-generation trigger failed: {e}")
         
-        standby_seconds = 3 if FAST_MODE else 8
+        standby_seconds = 5 if FAST_MODE else 8
         print(f"🎬 Broadcasting {standby_seconds}-second Studio Intermission standby screen...")
         await post_endpoint(client, f"/api/standby/{space}", {
             "active": True,
@@ -329,7 +407,7 @@ async def main():
         # Deactivate the standby screen and morph to Phase 1
         print("🔌 Deactivating standby screen and morphing to Phase 1 showcase...")
         await post_endpoint(client, f"/api/standby/{space}", {"active": False})
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2 if FAST_MODE else 0.4)
 
         # ───────────────────────────────────────────────────────────
         # Phase 1: Single Fullscreen Slide & Dynamic Themes
@@ -368,7 +446,7 @@ async def main():
             label="Gemini Concierge"
         )
         await post_endpoint(client, f"/api/sound-event/{space}", {"sound": "chimes"})
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(0.4 if FAST_MODE else 1.5)
         
         await set_transcript(
             client, space, 
@@ -376,7 +454,7 @@ async def main():
             label="Gemini Architect"
         )
         await launch_emoji_burst(client, space, ["🤝", "🎨", "✍️"])
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(0.4 if FAST_MODE else 1.5)
         
         await post_endpoint(client, f"/api/theme-config/{space}", {"theme": "light"})
         
@@ -399,9 +477,11 @@ async def main():
         })
         
         print("💫 Sweeping laser pointer trailing highlights across A2A vector boundaries...")
-        for x_coord in range(15, 90, 5):
+        pointer_step = 10 if FAST_MODE else 5
+        pointer_sleep = 0.04 if FAST_MODE else 0.08
+        for x_coord in range(15, 90, pointer_step):
             await post_endpoint(client, f"/api/pointer/{space}", {"x": float(x_coord), "y": 45.0})
-            await asyncio.sleep(0.08)
+            await asyncio.sleep(pointer_sleep)
         
         print(f"⏳ Waiting {delay}s...")
         await asyncio.sleep(delay)
@@ -437,6 +517,9 @@ async def main():
             {"id": "re", "label": "VELO TOULOUSE"},
             {"id": "flt", "label": "FLIGHTS TLS"}
         ]
+        
+        loop_ticks = 3 if FAST_MODE else 5
+        tick_sleep = 0.5 if FAST_MODE else 2.0
 
         # Use Case 1: AI & Megatech Stocks (stk)
         print("📈 Streaming Use Case 1: AI & Megatech Stocks (stk)...")
@@ -446,7 +529,7 @@ async def main():
             label="Gemini Concierge"
         )
         stock_chart = [40, 42, 41, 44, 43, 46, 45, 48, 47, 49, 50, 49, 51, 52, 53]
-        for tick in range(5):
+        for tick in range(loop_ticks):
             nvda_p, nvda_c = await get_live_stock_price(client, "NVDA", 914.85)
             msft_p, msft_c = await get_live_stock_price(client, "MSFT", 421.90)
             goog_p, goog_c = await get_live_stock_price(client, "GOOG", 173.50)
@@ -472,7 +555,7 @@ async def main():
                 ],
                 "chart": stock_chart[-15:]
             })
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(tick_sleep)
 
         # Use Case 2: Toulouse Bike share (re)
         print("🚲 Streaming Use Case 2: Toulouse Metropole Velo Share (re)...")
@@ -482,7 +565,7 @@ async def main():
             label="Gemini Concierge"
         )
         prop_chart = [60, 61, 59, 62, 63, 62, 65, 64, 66, 68, 67, 69, 70, 71, 72]
-        for tick in range(5):
+        for tick in range(loop_ticks):
             stations = await get_live_toulouse_bikes(client)
             total_bikes = sum(s["bikes"] for s in stations)
             prop_chart.append(int(max(10, min(95, total_bikes * 3))))
@@ -502,7 +585,7 @@ async def main():
                 "metrics": metrics,
                 "chart": prop_chart[-15:]
             })
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(tick_sleep)
 
         # Use Case 3: OpenSky Airspace Telemetry (flt)
         print("✈️ Streaming Use Case 3: Toulouse Blagnac (TLS) Airspace (flt)...")
@@ -511,28 +594,51 @@ async def main():
             "✈️ Use Case 3: Live Airspace Telemetry. Sourcing commercial flight state arrays in coordinate bounding box over Toulouse-Blagnac Airport (TLS) using OpenSky Network API.",
             label="Gemini Concierge"
         )
+        # Stretch the radar to a cinematic full-stage presentation hero for the airspace segment
+        print("🛰️  Stretching airspace radar to full-stage presentation view...")
+        await post_endpoint(client, f"/api/focus-panel/{space}", {"panel": 3, "layout": "presentation"})
+        await asyncio.sleep(0.3 if FAST_MODE else 0.8)
+
         flight_chart = [20, 22, 21, 24, 23, 26, 25, 28, 27, 29, 30, 29, 31, 32, 33]
-        for tick in range(5):
+        for tick in range(loop_ticks):
             flight_count, flights = await get_live_toulouse_flights(client, tick=tick)
-            flight_chart.append(int(max(10, min(95, flight_count * 10 + 20))))
+            # Sparkline tracks the lead (lowest / closest-to-landing) flight level for an approach feel
+            lead_alt = flights[0]["altitude"] if flights else 1500
+            flight_chart.append(int(max(10, min(95, lead_alt // 100 + 10))))
             metrics = []
             for f in flights:
+                # A2UI paradigm: emit structured, typed data — the surface renders from `data`.
+                # label/value remain as a presentational + legacy-parser fallback only.
                 metrics.append({
                     "label": f"Flight {f['callsign']} ({f['origin']} ➔ {f['destination']})",
                     "value": f"Alt: {f['altitude']}m / Spd: {f['speed']}km/h",
-                    "color": "#00f2ff"
+                    "color": flight_phase_color(f["vrate_fpm"]),
+                    "data": {
+                        "kind": "flight",
+                        "callsign": f["callsign"],
+                        "altitude": f["altitude"],     # metres
+                        "speed": f["speed"],            # km/h
+                        "vrate": f["vrate_fpm"],        # ft/min (+climb / -descent)
+                        "origin": f["origin"],
+                        "destination": f["destination"],
+                    }
                 })
             while len(metrics) < 3:
-                metrics.append({"label": "Monitoring airspace", "value": "Scanning...", "color": "rgba(255,255,255,0.4)"})
-                
+                metrics.append({"label": "Monitoring airspace", "value": "Scanning…", "color": "rgba(255,255,255,0.4)"})
+
             await post_endpoint(client, f"/api/dashboard/{space}", {
                 "tabs": TABS_CONFIG,
                 "activeTabId": "flt",
-                "title": f"✈️ Live TLS Airspace Telemetry — Active Flights: {flight_count}",
+                "title": f"✈️ Live TLS Airspace Telemetry — Airborne in sector: {flight_count}",
                 "metrics": metrics,
                 "chart": flight_chart[-15:]
             })
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(tick_sleep)
+
+        # Revert the radar back to its Panel 3 grid cell before moving on to Panel 4
+        print("↩️  Reverting airspace radar to Panel 3 grid cell...")
+        await post_endpoint(client, f"/api/focus-panel/{space}", {"panel": 3, "layout": "grid"})
+        await asyncio.sleep(0.3 if FAST_MODE else 0.8)
 
         # Set up Panel 4 with direct youtube embed (LWGJA9i18Co) and start autoplay
         await post_endpoint(client, f"/api/image", {
@@ -578,7 +684,7 @@ async def main():
             "values": [0, 0, 0, 0]
         })
         await launch_emoji_burst(client, space, ["🗳️", "📊", "🔥"])
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(1.0 if FAST_MODE else 2.0)
 
         # Simulate live voting progress
         print("🗳️ Simulating real-time incoming audience votes...")
@@ -602,7 +708,7 @@ async def main():
                 ],
                 "values": [v1, v2, v3, v4]
             })
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.25 if FAST_MODE else 0.5)
         
         print(f"⏳ Waiting {delay}s...")
         await asyncio.sleep(delay)
@@ -610,6 +716,37 @@ async def main():
         # Hide poll
         await post_endpoint(client, f"/api/poll/{space}", {"active": False})
         
+        # ───────────────────────────────────────────────────────────
+        # Phase 5: Live Stage Chat Overlay Integration
+        # ───────────────────────────────────────────────────────────
+        print("\n▶  PHASE 5: LIVE STAGE CHAT OVERLAY")
+        await set_transcript(
+            client, space, 
+            "With our active side panel connected, it is now possible to share comments on the main stage as high-fidelity glassmorphic overlay elements.",
+            label="Gemini Concierge"
+        )
+        await asyncio.sleep(0.6 if FAST_MODE else 2.5)
+        
+        # Fire a realistic burst of live audience chat comments reacting to the demo
+        print("💬 Broadcasting a live burst of audience chat comments...")
+        audience_comments = [
+            ("Audience Member", "wow I had no idea Google Meet was so versatile!"),
+            ("Priya — Product", "The live telemetry grid is 🔥 — is that streaming from real APIs?"),
+            ("Marc Dubois", "Those Toulouse bike-share numbers are actually live?! incredible 🚲"),
+            ("Sofia (Investor)", "Love the real-time NVDA + MSFT ticker. Killer demo 📈"),
+            ("Capt. Lindqvist", "Tracking live TLS approach traffic inside a Meet call. Mind blown ✈️"),
+            # Leading '/mainstage' is stripped server-side — mirrors the live audience prefix flow
+            ("Dana K.", "/mainstage this glassmorphic overlay is gorgeous ✨"),
+        ]
+        comment_gap = 0.7 if FAST_MODE else 2.0
+        for i, (sender, text) in enumerate(audience_comments):
+            await broadcast_chat_comment(client, space, sender, text)
+            # Sprinkle reaction emojis mid-burst to keep the stage lively
+            if i in (1, 3):
+                await launch_emoji_burst(client, space, ["💬", "👏"])
+            await asyncio.sleep(comment_gap)
+        await asyncio.sleep(delay)
+
         # ───────────────────────────────────────────────────────────
         # Concluding Phase: Clear Focus & Celebration
         # ───────────────────────────────────────────────────────────

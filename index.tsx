@@ -265,6 +265,57 @@ export class GdmArchitectAgent extends LitElement {
   @state() private standbyActive = false;
   @state() private activeLayout: 'single' | 'split' | 'grid' = 'single';
   @state() private studioActive = false;
+  @state() private simulatedSender = 'Audience Member';
+  @state() private simulatedText = 'wow I had no idea Google Meet was so versatile!';
+  @state() private chatSpaceIdInput = '';
+  @state() private chatSpaceId = '';
+  private lastSeenChatMsgName = '';
+  private lastSeenChatMsgTime = '';
+  private chatPollInterval: ReturnType<typeof setInterval> | null = null;
+
+  private parseChatSpaceId(input: string): string {
+    const trimmed = input.trim();
+    if (!trimmed) return '';
+    
+    let parsed = trimmed;
+    try {
+      if (trimmed.includes('//')) {
+        const url = new URL(trimmed);
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        const hashParts = url.hash.split('/').filter(Boolean);
+        
+        if (pathParts.includes('chat') || pathParts.includes('room') || pathParts.includes('space')) {
+          const index = Math.max(pathParts.indexOf('chat'), pathParts.indexOf('room'), pathParts.indexOf('space'));
+          if (index !== -1 && pathParts[index + 1]) {
+            parsed = pathParts[index + 1];
+          }
+        } else if (hashParts.includes('chat') || hashParts.includes('space') || hashParts.includes('room')) {
+          const index = Math.max(hashParts.indexOf('chat'), hashParts.indexOf('space'), hashParts.indexOf('room'));
+          if (index !== -1 && hashParts[index + 1]) {
+            parsed = hashParts[index + 1];
+          }
+        } else {
+          parsed = pathParts[pathParts.length - 1] || trimmed;
+        }
+      }
+    } catch (e) {}
+    
+    parsed = parsed.split('?')[0].split('#')[0];
+    if (parsed.startsWith('spaces/')) {
+      return parsed;
+    }
+    return `spaces/${parsed}`;
+  }
+
+  private handleChatSpaceIdInput(val: string) {
+    this.chatSpaceIdInput = val;
+    this.chatSpaceId = this.parseChatSpaceId(val);
+    console.log('[concierge] Parsed Chat Space ID:', this.chatSpaceId);
+    if (this.chatPollInterval) {
+      this.startChatPolling();
+    }
+  }
+
 
   private extractYoutubeId(url: string): string {
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -282,6 +333,20 @@ export class GdmArchitectAgent extends LitElement {
       panel: 3,
       label: 'Container Telemetry'
     });
+  }
+
+  private clearMainStage() {
+    const broadcastMsg = {
+      type: 'clear_mainstage',
+      layout: 'grid-3',
+      focus_panel: 1
+    };
+    if (this.wsService?.readyState === WebSocket.OPEN) {
+      this.wsService?.sendJson(broadcastMsg);
+    }
+    if (this.sidePanelClient) {
+      this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
+    }
   }
 
   private triggerDirectView(mode: 'notepad' | 'diagram' | 'dashboard') {
@@ -425,6 +490,138 @@ export class GdmArchitectAgent extends LitElement {
       active: this.tickerActive,
       text: this.tickerText.trim() || 'Broadcasting Live'
     });
+  }
+
+  private sendSimulatedComment() {
+    const sender = this.simulatedSender.trim() || 'Producer';
+    const text = this.simulatedText.trim();
+    if (!text) return;
+
+    const broadcastMsg = {
+      type: 'chat_comment',
+      sender,
+      text,
+      avatar: ''
+    };
+
+    if (this.wsService?.readyState === WebSocket.OPEN) {
+      this.wsService?.sendJson(broadcastMsg);
+    }
+
+    if (this.sidePanelClient) {
+      this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
+    }
+
+    this.simulatedText = ''; // Clear text input after broadcast
+  }
+
+  private async pollGoogleChat() {
+    if (!this.accessToken) return;
+    const targetSpace = this.chatSpaceId ? this.chatSpaceId : (this.meetingId ? (this.meetingId.startsWith('spaces/') ? this.meetingId : `spaces/${this.meetingId}`) : '');
+    if (!targetSpace) return;
+    try {
+      // Order DESC so page 1 is always the most-recent messages. With ASC ordering
+      // a continuous-chat space with >100 messages of history would only ever return
+      // the oldest 100 on page 1, and new arrivals (at the tail) would never be seen.
+      const resp = await this.authenticatedFetch(
+        `https://chat.googleapis.com/v1/${targetSpace}/messages?pageSize=50&orderBy=${encodeURIComponent('createTime desc')}`
+      );
+      if (!resp.ok) {
+        console.warn('[concierge] pollGoogleChat API status:', resp.status);
+        return;
+      }
+      const data = await resp.json();
+      const rawMessages = data.messages || []; // newest-first (createTime desc)
+
+      if (rawMessages.length === 0) return;
+
+      // First run: just initialize last seen message to the latest in the space
+      if (!this.lastSeenChatMsgName) {
+        const latest = rawMessages[0];
+        this.lastSeenChatMsgName = latest.name || '';
+        this.lastSeenChatMsgTime = latest.createTime || '';
+        console.log('[concierge] Chat poller initialized with latest msg:', this.lastSeenChatMsgName);
+        return;
+      }
+
+      // Find any new messages since last check, then reverse to chronological order
+      // (oldest first) so cards render on the stage in the order they were typed.
+      const newMessages = rawMessages.filter((m: any) => {
+        // Must be strictly after our last seen message time or have a different unique resource name
+        if (m.name === this.lastSeenChatMsgName) return false;
+        if (this.lastSeenChatMsgTime && m.createTime <= this.lastSeenChatMsgTime) return false;
+        return true;
+      }).reverse();
+
+      if (newMessages.length > 0) {
+        console.log(`[concierge] Polled ${newMessages.length} new Google Chat messages`);
+        for (const m of newMessages) {
+          const sender = m.sender?.displayName || m.sender?.name || 'Unknown';
+          const text = m.text || m.formattedText || '';
+          const avatar = m.sender?.avatarUrl || m.sender?.avatarUri || '';
+
+          if (text) {
+            const trimmedText = text.trim();
+            const lowerText = trimmedText.toLowerCase();
+
+            // Support the hardcoded demo messages
+            const isHardcodedExample =
+              lowerText === 'wow i had no idea google meet was so versatile!' ||
+              lowerText === 'welcome everyone to the meet broadcast studio live event!' ||
+              lowerText === 'airspace radar telemetry is running at 10.0x zoom!';
+
+            const hasPrefix = lowerText.startsWith('/mainstage');
+
+            if (isHardcodedExample || hasPrefix) {
+              let cleanText = trimmedText;
+              if (hasPrefix) {
+                // Strip "/mainstage" (case-insensitive)
+                cleanText = trimmedText.substring('/mainstage'.length).trim();
+              }
+
+              const broadcastMsg = {
+                type: 'chat_comment',
+                sender,
+                text: cleanText,
+                avatar
+              };
+
+              console.log('[concierge] Promoting chat message to main stage:', broadcastMsg);
+
+              if (this.wsService?.readyState === WebSocket.OPEN) {
+                this.wsService?.sendJson(broadcastMsg);
+              }
+
+              if (this.sidePanelClient) {
+                this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
+              }
+            } else {
+              console.log('[concierge] Ignored regular chat message (no /mainstage prefix or demo preset matches):', text);
+            }
+          }
+        }
+
+        // Update last seen to the absolute latest message
+        const absoluteLatest = newMessages[newMessages.length - 1];
+        this.lastSeenChatMsgName = absoluteLatest.name || '';
+        this.lastSeenChatMsgTime = absoluteLatest.createTime || '';
+      }
+    } catch (e) {
+      console.warn('[concierge] pollGoogleChat error:', e);
+    }
+  }
+
+  private startChatPolling() {
+    if (this.chatPollInterval) {
+      clearInterval(this.chatPollInterval);
+    }
+    // Initial fetch to mark last seen and avoid flooding old messages
+    this.pollGoogleChat();
+    // Poll every 4 seconds
+    this.chatPollInterval = setInterval(() => {
+      this.pollGoogleChat();
+    }, 4000);
+    console.log('[concierge] Google Chat periodic poller started (4s interval)');
   }
 
   private toggleStandby() {
@@ -681,6 +878,7 @@ export class GdmArchitectAgent extends LitElement {
           this.connecting = false;
           this.status = 'Assistant is ready';
           this.startVolumeAnalysis();
+          this.startChatPolling();
         }
       });
 
@@ -876,6 +1074,10 @@ export class GdmArchitectAgent extends LitElement {
     if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
     if (this.speechSilenceTimer) clearTimeout(this.speechSilenceTimer);
     if (this.diagramInterval) clearInterval(this.diagramInterval);
+    if (this.chatPollInterval) {
+      clearInterval(this.chatPollInterval);
+      this.chatPollInterval = null;
+    }
     
     this.components = [];
     this.wsService?.disconnect();
@@ -1020,11 +1222,12 @@ export class GdmArchitectAgent extends LitElement {
   }
 
   private async fetchChatMessages(): Promise<string> {
-    if (!this.accessToken || !this.meetingId) return '';
+    if (!this.accessToken) return '';
+    const targetSpace = this.chatSpaceId ? this.chatSpaceId : (this.meetingId ? (this.meetingId.startsWith('spaces/') ? this.meetingId : `spaces/${this.meetingId}`) : '');
+    if (!targetSpace) return '';
     try {
-      const spaceId = this.meetingId.startsWith('spaces/') ? this.meetingId : `spaces/${this.meetingId}`;
       const resp = await this.authenticatedFetch(
-        `https://chat.googleapis.com/v1/${spaceId}/messages?pageSize=100&orderBy=createTime asc`
+        `https://chat.googleapis.com/v1/${targetSpace}/messages?pageSize=100&orderBy=${encodeURIComponent('createTime asc')}`
       );
       if (!resp.ok) {
         console.warn('[concierge] chat API', resp.status);
@@ -1408,6 +1611,9 @@ export class GdmArchitectAgent extends LitElement {
                   <button class="btn-action" @click=${() => this.triggerDirectView('diagram')}>📊 Diagram</button>
                   <button class="btn-action" @click=${() => this.triggerDirectView('dashboard')}>📈 Telemetry</button>
                 </div>
+                <div style="margin-top: 8px;">
+                  <button class="btn-action" @click=${() => this.clearMainStage()} style="width: 100%; border-color: rgba(255, 0, 85, 0.4); color: #ff3b30; font-weight: bold; background: rgba(255, 0, 85, 0.05); cursor: pointer; transition: all 0.2s;">🧹 Clear Main Stage</button>
+                </div>
               </div>
 
               <!-- Cast YouTube Feed -->
@@ -1490,6 +1696,49 @@ export class GdmArchitectAgent extends LitElement {
                 </div>
                 <button class="btn-action ${this.tickerActive ? 'active' : ''}" @click=${() => this.toggleTicker()}>
                   ${this.tickerActive ? '📴 Turn Off Ticker' : '💬 Start Scrolling Ticker'}
+                </button>
+              </div>
+
+              <!-- Live Chat Broadcaster -->
+              <div class="widget-card">
+                <div class="widget-title">💬 Live Chat Broadcaster</div>
+                <div class="widget-subtitle">Post a custom, glassmorphic comment card on the main stage</div>
+                <div class="form-group">
+                  <span class="form-label" style="display: flex; justify-content: space-between;">
+                    Google Chat Space URL / ID
+                    <span style="opacity: 0.7; font-weight: normal; font-size: 10px; color: ${this.chatSpaceId ? '#4caf50' : '#e0a030'};">
+                      ${this.chatSpaceId ? '🔗 Polling this Chat space' : '⚠️ Paste the meeting\'s Chat space URL'}
+                    </span>
+                  </span>
+                  <input class="ctx-input" type="text" placeholder="Paste the linked Chat space URL (chat.google.com/room/...)" .value=${this.chatSpaceIdInput} @input=${(e: any) => this.handleChatSpaceIdInput(e.target.value)} />
+                  <span class="form-label" style="font-size: 10px; opacity: 0.6; margin-top: 4px; display: block; font-weight: normal;">
+                    Requires continuous meeting chat ON. Open the meeting's Chat space and paste its URL here — Meet's in-call chat is not readable by ID alone.
+                  </span>
+                </div>
+                <div class="form-group">
+                  <span class="form-label">Sender Display Name</span>
+                  <input class="ctx-input" type="text" placeholder="e.g. Curtis Krygier" .value=${this.simulatedSender} @input=${(e: any) => this.simulatedSender = e.target.value} />
+                </div>
+                <div class="form-group">
+                  <span class="form-label">Comment Message</span>
+                  <input class="ctx-input" type="text" placeholder="Type message to broadcast..." .value=${this.simulatedText} @input=${(e: any) => this.simulatedText = e.target.value} @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this.sendSimulatedComment()} />
+                </div>
+                <div style="margin-top: -6px; margin-bottom: 12px;">
+                  <span class="form-label" style="font-size: 10px; margin-bottom: 4px; display: block; opacity: 0.7;">Suggested Presets</span>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button class="btn-action" style="height: 24px; padding: 0 8px; font-size: 10px; flex: 1; min-width: 120px;" @click=${() => { this.simulatedSender = 'Audience Member'; this.simulatedText = 'wow I had no idea Google Meet was so versatile!'; }}>
+                      💡 "wow I had no idea..."
+                    </button>
+                    <button class="btn-action" style="height: 24px; padding: 0 8px; font-size: 10px; flex: 1; min-width: 120px;" @click=${() => { this.simulatedSender = 'Producer'; this.simulatedText = 'Welcome everyone to the Meet Broadcast Studio live event!'; }}>
+                      🎙️ "Welcome everyone..."
+                    </button>
+                    <button class="btn-action" style="height: 24px; padding: 0 8px; font-size: 10px; flex: 1; min-width: 120px;" @click=${() => { this.simulatedSender = 'Flight Analyst'; this.simulatedText = 'Airspace radar telemetry is running at 10.0x zoom!'; }}>
+                      ✈️ "Airspace radar telemetry..."
+                    </button>
+                  </div>
+                </div>
+                <button class="cta" @click=${() => this.sendSimulatedComment()} ?disabled=${!this.simulatedText.trim()}>
+                  💬 Broadcast Comment
                 </button>
               </div>
 

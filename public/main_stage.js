@@ -22,12 +22,12 @@
     let lockedFlightCallsign = null;
     let lockedFlightAltitude = 0;
     let lockedFlightSpeed = 0;
-    let radarZoomLevel = 1.0;
+    let radarZoomLevel = 10.0;
     let renderDashboardGlobal = () => {};
 
     window.changeRadarZoom = function(amount) {
       const prevZoom = radarZoomLevel;
-      radarZoomLevel = Math.max(0.5, Math.min(3.0, radarZoomLevel + amount));
+      radarZoomLevel = Math.max(0.5, Math.min(10.0, radarZoomLevel + amount));
       if (radarZoomLevel !== prevZoom) {
         try {
           if (audioCtx) {
@@ -136,8 +136,8 @@
             </svg>
           </div>
           <div>
-            <div style="font-weight:600; color:rgba(255,255,255,0.8); margin-bottom:4px">Waiting for Architecture Description</div>
-            <div style="font-size:12px">Describe your architecture to generate a new diagram</div>
+            <div style="font-weight:600; color:rgba(255,255,255,0.9); margin-bottom:4px">Awaiting Design Description</div>
+            <div style="font-size:12px; color:rgba(255,255,255,0.5)">Say or type something to dynamically build the stage system architecture</div>
           </div>
         </div>`;
     }
@@ -529,7 +529,7 @@
           const msg = customDashboardState;
           viewData = {
             title: msg.title || 'Custom Telemetry',
-            metrics: (msg.metrics || []).map(m => ({ label: m.label, value: m.value, color: m.color })),
+            metrics: (msg.metrics || []).map(m => ({ label: m.label, value: m.value, color: m.color, data: m.data })),
             chartValue: msg.chartValue !== undefined ? msg.chartValue : 50
           };
           if (msg.chart && Array.isArray(msg.chart)) {
@@ -610,13 +610,30 @@
           } else if (viewType === 'radar') {
             // Check if panel layout is stretched (grid-3 or fullscreen single)
             const layoutAttr = document.getElementById('view-image')?.getAttribute('data-image-layout');
-            const isStretched = ['grid-3', 'single'].includes(layoutAttr);
+            const isStretched = ['grid-3', 'single', 'presentation'].includes(layoutAttr);
             
             // Plot dynamic aircraft / radar target plots
             const flights = (customDashboardState && customDashboardState.metrics) ? customDashboardState.metrics : [
               {label: "Flight AFR6129 (NCE ➔ TLS)", value: "Alt: 1450m / Spd: 420km/h", color: "#00f2ff"},
               {label: "Flight BAW373 (LHR ➔ TLS)", value: "Alt: 3200m / Spd: 510km/h", color: "#00f2ff"}
             ];
+
+            // A2UI paradigm: prefer the structured `data` object; fall back to scraping
+            // the display strings only for legacy/preset payloads that omit it.
+            const flightFields = (f) => {
+              const d = f.data || {};
+              const altMatch = f.value ? f.value.match(/Alt:\s*(\d+)m/i) : null;
+              const spdMatch = f.value ? f.value.match(/Spd:\s*(\d+)km\/h/i) : null;
+              const callsign = d.callsign || (f.label || '').replace(/^Flight\s+/i, '').split(' ')[0];
+              return {
+                callsign,
+                altitude: d.altitude != null ? d.altitude : (altMatch ? parseInt(altMatch[1]) : 1500),
+                speed: d.speed != null ? d.speed : (spdMatch ? parseInt(spdMatch[1]) : 400),
+                vrate: d.vrate != null ? d.vrate : 0,
+              };
+            };
+            // Blip colour by vertical rate: green descending, amber climbing, cyan level.
+            const blipColor = (vrate) => vrate < -250 ? '#00ff88' : (vrate > 250 ? '#ffd60a' : '#00f2ff');
 
             let radarSvg = "";
             if (isStretched) {
@@ -629,19 +646,19 @@
                   <div class="radar-container" style="flex: 1; height: 165px; min-height: 165px; margin-bottom: 4px;">
                     <svg viewBox="0 0 200 200" style="width: 100%; height: 100%; display: block;">
                       <!-- Concentric radar distance rings -->
-                      <circle cx="100" cy="100" r="${20 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
-                      <circle cx="100" cy="100" r="${45 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
-                      <circle cx="100" cy="100" r="${70 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
-                      <circle cx="100" cy="100" r="${95 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
+                      <circle cx="100" cy="100" r="20" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
+                      <circle cx="100" cy="100" r="45" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
+                      <circle cx="100" cy="100" r="70" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
+                      <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
                       
                       <!-- Radar crosshairs -->
                       <line x1="100" y1="5" x2="100" y2="195" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                       <line x1="5" y1="100" x2="195" y2="100" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                       
                       <!-- LFBO Runway vectors oriented at 320 degrees -->
-                      <line x1="${100 - 15 * radarZoomLevel}" y1="${100 + 20 * radarZoomLevel}" x2="${100 + 15 * radarZoomLevel}" y2="${100 - 20 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
-                      <line x1="${100 - 10 * radarZoomLevel}" y1="${100 + 22 * radarZoomLevel}" x2="${100 + 20 * radarZoomLevel}" y2="${100 - 18 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
-                      <text x="${100 + 22 * radarZoomLevel}" y="${100 - 16 * radarZoomLevel}" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
+                      <line x1="${100 - 15 * (radarZoomLevel / 10.0)}" y1="${100 + 20 * (radarZoomLevel / 10.0)}" x2="${100 + 15 * (radarZoomLevel / 10.0)}" y2="${100 - 20 * (radarZoomLevel / 10.0)}" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
+                      <line x1="${100 - 10 * (radarZoomLevel / 10.0)}" y1="${100 + 22 * (radarZoomLevel / 10.0)}" x2="${100 + 20 * (radarZoomLevel / 10.0)}" y2="${100 - 18 * (radarZoomLevel / 10.0)}" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
+                      <text x="${100 + 22 * (radarZoomLevel / 10.0)}" y="${100 - 16 * (radarZoomLevel / 10.0)}" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
 
                       <!-- Sweeping radar line animation -->
                       <line x1="100" y1="100" x2="100" y2="5" class="radar-sweep-line" style="transform-origin: 100px 100px;" stroke="rgba(0, 242, 255, 0.35)" stroke-width="1"/>
@@ -659,19 +676,19 @@
                 <div class="radar-container" style="flex: 1; height: 95px; min-height: 95px; margin-bottom: 4px;">
                   <svg viewBox="0 0 300 120" style="width: 100%; height: 100%; display: block;">
                     <!-- Concentric radar distance rings -->
-                    <circle cx="150" cy="60" r="${15 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
-                    <circle cx="150" cy="60" r="${35 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
-                    <circle cx="150" cy="60" r="${55 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
-                    <circle cx="150" cy="60" r="${75 * radarZoomLevel}" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
+                    <circle cx="150" cy="60" r="15" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
+                    <circle cx="150" cy="60" r="35" fill="none" stroke="rgba(0, 242, 255, 0.15)" stroke-width="0.5"/>
+                    <circle cx="150" cy="60" r="55" fill="none" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5" stroke-dasharray="2 2"/>
+                    <circle cx="150" cy="60" r="75" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5"/>
                     
                     <!-- Radar crosshairs -->
                     <line x1="150" y1="5" x2="150" y2="115" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                     <line x1="75" y1="60" x2="225" y2="60" stroke="rgba(0, 242, 255, 0.1)" stroke-width="0.5"/>
                     
                     <!-- LFBO Runway vectors oriented at 320 degrees -->
-                    <line x1="${150 - 15 * radarZoomLevel}" y1="${60 + 20 * radarZoomLevel}" x2="${150 + 15 * radarZoomLevel}" y2="${60 - 20 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
-                    <line x1="${150 - 10 * radarZoomLevel}" y1="${60 + 22 * radarZoomLevel}" x2="${150 + 20 * radarZoomLevel}" y2="${60 - 18 * radarZoomLevel}" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
-                    <text x="${150 + 22 * radarZoomLevel}" y="${60 - 16 * radarZoomLevel}" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
+                    <line x1="${150 - 15 * (radarZoomLevel / 10.0)}" y1="${60 + 20 * (radarZoomLevel / 10.0)}" x2="${150 + 15 * (radarZoomLevel / 10.0)}" y2="${60 - 20 * (radarZoomLevel / 10.0)}" stroke="rgba(0, 242, 255, 0.3)" stroke-width="1.5" stroke-dasharray="3 2"/>
+                    <line x1="${150 - 10 * (radarZoomLevel / 10.0)}" y1="${60 + 22 * (radarZoomLevel / 10.0)}" x2="${150 + 20 * (radarZoomLevel / 10.0)}" y2="${60 - 18 * (radarZoomLevel / 10.0)}" stroke="rgba(0, 242, 255, 0.15)" stroke-width="1" stroke-dasharray="3 2"/>
+                    <text x="${150 + 22 * (radarZoomLevel / 10.0)}" y="${60 - 16 * (radarZoomLevel / 10.0)}" fill="rgba(0, 242, 255, 0.4)" font-size="5px" font-family="monospace">LFBO 32L/R</text>
 
                     <!-- Sweeping radar line animation -->
                     <line x1="150" y1="60" x2="150" y2="5" class="radar-sweep-line" style="transform-origin: 150px 60px;" stroke="rgba(0, 242, 255, 0.35)" stroke-width="1"/>
@@ -687,21 +704,21 @@
 
             flights.forEach((f, idx) => {
               if (!f.label || f.label.includes("Monitoring")) return;
-              // Normalize clean callsign
-              const callsign = f.label.replace(/^Flight\s+/i, '').split(' ')[0];
-              const altParts = f.value.match(/Alt:\s*(\d+)m/i);
-              const spdParts = f.value.match(/Spd:\s*(\d+)km\/h/i);
-              const altitude = altParts ? parseInt(altParts[1]) : 1500;
-              const speed = spdParts ? parseInt(spdParts[1]) : 400;
-              
+              // Structured-first extraction (A2UI), regex fallback for legacy payloads
+              const ff = flightFields(f);
+              const callsign = ff.callsign;
+              const altitude = ff.altitude;
+              const speed = ff.speed;
+              const targetColor = blipColor(ff.vrate);
+
               // Coordinates centered at (100, 100) for stretched or (150, 60) for regular
               const cx = isStretched ? 100 : 150;
               const cy = isStretched ? 100 : 60;
-              const maxDist = isStretched ? 90 : 70;
+              const maxDist = isStretched ? 90 : 50;
               const maxAlt = isStretched ? 5000 : 6000;
               
               // Calculate radar positioning (Lower altitude = closer to airport center, zoomed in)
-              const dist = Math.max(5, (altitude / maxAlt) * maxDist * radarZoomLevel);
+              const dist = Math.max(5, (altitude / maxAlt) * maxDist * (radarZoomLevel / 10.0));
               // Deterministic angle based on callsign letters
               let angleCode = 0;
               for (let i = 0; i < callsign.length; i++) angleCode += callsign.charCodeAt(i);
@@ -723,11 +740,11 @@
               radarSvg += `
                 <g class="radar-target" style="animation-delay: ${idx * 0.4}s; cursor: pointer;" data-callsign="${callsign}" data-altitude="${altitude}" data-speed="${speed}">
                   ${brackets}
-                  <circle cx="${x}" cy="${y}" r="2.5" fill="${isLocked ? '#00f2ff' : '#00ff88'}"/>
-                  <circle cx="${x}" cy="${y}" r="5" fill="none" stroke="${isLocked ? '#00f2ff' : '#00ff88'}" stroke-width="0.5" opacity="0.4"/>
-                  <line x1="${x}" y1="${y}" x2="${x - (speed/120) * Math.cos(rad)}" y2="${y - (speed/120) * Math.sin(rad)}" stroke="${isLocked ? '#00f2ff' : '#00ff88'}" stroke-width="0.75" stroke-dasharray="1 1" opacity="0.7"/>
-                  <text x="${x + 6}" y="${y - 1}" fill="${isLocked ? '#00f2ff' : '#00ff88'}" font-size="5.5px" font-family="'Roboto Mono', monospace" font-weight="700">${callsign}</text>
-                  <text x="${x + 6}" y="${y + 4}" fill="${isLocked ? 'rgba(0, 242, 255, 0.7)' : 'rgba(0, 255, 136, 0.7)'}" font-size="4.5px" font-family="'Roboto Mono', monospace">FL${Math.round(altitude/100)} / ${speed}kmh</text>
+                  <circle cx="${x}" cy="${y}" r="2.5" fill="${isLocked ? '#00f2ff' : targetColor}"/>
+                  <circle cx="${x}" cy="${y}" r="5" fill="none" stroke="${isLocked ? '#00f2ff' : targetColor}" stroke-width="0.5" opacity="0.4"/>
+                  <line x1="${x}" y1="${y}" x2="${x - (speed/120) * Math.cos(rad)}" y2="${y - (speed/120) * Math.sin(rad)}" stroke="${isLocked ? '#00f2ff' : targetColor}" stroke-width="0.75" stroke-dasharray="1 1" opacity="0.7"/>
+                  <text x="${x + 6}" y="${y - 1}" fill="${isLocked ? '#00f2ff' : targetColor}" font-size="5.5px" font-family="'Roboto Mono', monospace" font-weight="700">${callsign}</text>
+                  <text x="${x + 6}" y="${y + 4}" fill="${isLocked ? 'rgba(0, 242, 255, 0.7)' : 'rgba(0, 255, 136, 0.7)'}" font-size="4.5px" font-family="'Roboto Mono', monospace">FL${Math.round(altitude * 3.28084 / 100)} / ${speed}kmh</text>
                 </g>
               `;
             });
@@ -741,7 +758,7 @@
                     <line x1="0" y1="8" x2="85" y2="8" stroke="rgba(0, 255, 136, 0.2)" stroke-width="0.5" />
                     <text x="5" y="6" fill="#00ff88" font-size="4.5px" font-family="'Roboto Mono', monospace" font-weight="700">TARGET ACQUIRED</text>
                     <text x="5" y="14" fill="rgba(255,255,255,0.9)" font-size="5px" font-family="'Roboto Mono', monospace">CALLSIGN: ${lockedFlightCallsign}</text>
-                    <text x="5" y="21" fill="rgba(255,255,255,0.7)" font-size="4.5px" font-family="'Roboto Mono', monospace">ALTITUDE: FL${Math.round(lockedFlightAltitude/100)}</text>
+                    <text x="5" y="21" fill="rgba(255,255,255,0.7)" font-size="4.5px" font-family="'Roboto Mono', monospace">ALTITUDE: FL${Math.round(lockedFlightAltitude * 3.28084 / 100)}</text>
                     <text x="5" y="28" fill="rgba(255,255,255,0.7)" font-size="4.5px" font-family="'Roboto Mono', monospace">AIRSPEED: ${lockedFlightSpeed} KMH</text>
                     <text x="55" y="28" fill="#00ff88" font-size="5px" font-family="'Roboto Mono', monospace" font-weight="700">LOCK ON</text>
                   </g>
@@ -805,11 +822,10 @@
               const valText = f.value;
               const colorText = f.color || "#00f2ff";
               
-              const callsign = f.label.replace(/^Flight\s+/i, '').split(' ')[0];
-              const altParts = f.value.match(/Alt:\s*(\d+)m/i);
-              const spdParts = f.value.match(/Spd:\s*(\d+)km\/h/i);
-              const altitude = altParts ? parseInt(altParts[1]) : 1500;
-              const speed = spdParts ? parseInt(spdParts[1]) : 400;
+              const ff = flightFields(f);
+              const callsign = ff.callsign;
+              const altitude = ff.altitude;
+              const speed = ff.speed;
 
               const isLocked = lockedFlightCallsign === callsign;
 
@@ -968,6 +984,7 @@
             else if (currentLayout === 'split' && i <= 2) p.classList.remove('hidden');
             else if (currentLayout === 'grid') p.classList.remove('hidden');
             else if (currentLayout === 'grid-3' && i <= 3) p.classList.remove('hidden');
+            else if (currentLayout === 'presentation') p.classList.remove('hidden');
             else p.classList.add('hidden');
           }
         }
@@ -1120,7 +1137,7 @@
       }
     }
 
-    function setFocusedPanel(panelIdx) {
+    function setFocusedPanel(panelIdx, preventBroadcast = false) {
       for (let i = 1; i <= 4; i++) {
         const p = document.getElementById(`image-panel-${i}`);
         if (p) {
@@ -1130,6 +1147,13 @@
             p.classList.remove('focused');
           }
         }
+      }
+      // Sync back to sidepanel/server if needed, unless preventBroadcast is true
+      if (!preventBroadcast && stageWS && stageWS.readyState === WebSocket.OPEN) {
+        stageWS.send(JSON.stringify({
+          type: 'focus_panel',
+          panel: panelIdx
+        }));
       }
     }
 
@@ -1148,6 +1172,61 @@
           el.addEventListener('animationend', () => el.remove());
         }, i * 120);
       }
+    }
+
+    function displayChatComment(sender, text, avatar) {
+      const overlay = document.getElementById('stage-chat-overlay');
+      if (!overlay) return;
+
+      const card = document.createElement('div');
+      card.className = 'stage-chat-card';
+
+      const avatarEl = document.createElement('div');
+      avatarEl.className = 'stage-chat-card-avatar';
+      if (avatar && (avatar.startsWith('http') || avatar.startsWith('/'))) {
+        const img = document.createElement('img');
+        img.src = avatar;
+        img.alt = sender;
+        avatarEl.appendChild(img);
+      } else {
+        avatarEl.textContent = (sender || 'U').charAt(0).toUpperCase();
+      }
+
+      const contentEl = document.createElement('div');
+      contentEl.className = 'stage-chat-card-content';
+
+      const senderEl = document.createElement('div');
+      senderEl.className = 'stage-chat-card-sender';
+      senderEl.textContent = sender || 'Anonymous';
+
+      const textEl = document.createElement('div');
+      textEl.className = 'stage-chat-card-text';
+      textEl.textContent = text || '';
+
+      contentEl.appendChild(senderEl);
+      contentEl.appendChild(textEl);
+
+      card.appendChild(avatarEl);
+      card.appendChild(contentEl);
+
+      overlay.appendChild(card);
+
+      // Keep only last 4 visible comments
+      while (overlay.children.length > 4) {
+        overlay.children[0].remove();
+      }
+
+      // Cleanup lifecycle after 6 seconds
+      setTimeout(() => {
+        card.classList.add('fade-out');
+        const handleRemoval = () => {
+          card.removeEventListener('animationend', handleRemoval);
+          card.remove();
+        };
+        card.addEventListener('animationend', handleRemoval);
+        // Safety fallback in case transition/animation doesn't fire
+        setTimeout(() => card.remove(), 1000);
+      }, 6000);
     }
 
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1521,6 +1600,19 @@
       if (r2) r2.addEventListener('click', () => castVote(2));
       if (r3) r3.addEventListener('click', () => castVote(3));
       if (r4) r4.addEventListener('click', () => castVote(4));
+
+      // Click listeners for direct main stage focusing:
+      for (let i = 1; i <= 4; i++) {
+        const p = document.getElementById(`image-panel-${i}`);
+        if (p) {
+          if (!p._clickBound) {
+            p._clickBound = true;
+            p.addEventListener('click', () => {
+              setFocusedPanel(i);
+            });
+          }
+        }
+      }
     });
     // Just in case DOMContentLoaded has already fired, bind immediately too
     const r1 = document.getElementById('poll-opt-row-1');
@@ -1532,251 +1624,274 @@
     if (r3) r3.addEventListener('click', () => castVote(3));
     if (r4) r4.addEventListener('click', () => castVote(4));
 
+    for (let i = 1; i <= 4; i++) {
+      const p = document.getElementById(`image-panel-${i}`);
+      if (p) {
+        if (!p._clickBound) {
+          p._clickBound = true;
+          p.addEventListener('click', () => {
+            setFocusedPanel(i);
+          });
+        }
+      }
+    }
+
     let stageWS = null;
 
-    function connectStageWS() {
-      if (!meetingId) return;
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&ticket=${encodeURIComponent(ticket)}`);
-      stageWS = ws;
-      
-      ws.onopen = () => console.log('[stage] Caption broadcast connected');
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.type === 'transcript') {
-            updateTranscript(msg);
-          } else if (msg.type === 'emoji_reaction' || msg.type === 'emoji_event') {
-            launchEmoji(msg.emoji || '👏');
-          } else if (msg.type === 'layout_event') {
-            const layer = document.getElementById('content-layer');
-            if (layer) {
-              layer.setAttribute('data-layout', msg.layout || 'single');
+    function handleStageMessage(msg) {
+      if (!msg) return;
+      try {
+        if (msg.type === 'transcript') {
+          updateTranscript(msg);
+        } else if (msg.type === 'chat_comment') {
+          displayChatComment(msg.sender, msg.text, msg.avatar);
+        } else if (msg.type === 'emoji_reaction' || msg.type === 'emoji_event') {
+          launchEmoji(msg.emoji || '👏');
+        } else if (msg.type === 'layout_event') {
+          const layer = document.getElementById('content-layer');
+          if (layer) {
+            layer.setAttribute('data-layout', msg.layout || 'single');
+          }
+          const wrap = document.getElementById('view-image');
+          if (wrap) {
+            const targetLayout = msg.layout || 'single';
+            wrap.setAttribute('data-image-layout', targetLayout);
+            for (let i = 1; i <= 4; i++) {
+              const p = document.getElementById(`image-panel-${i}`);
+              if (p) {
+                if (targetLayout === 'single' && i === 1) p.classList.remove('hidden');
+                else if (targetLayout === 'split' && i <= 2) p.classList.remove('hidden');
+                else if (targetLayout === 'grid') p.classList.remove('hidden');
+                else if (targetLayout === 'grid-3' && i <= 3) p.classList.remove('hidden');
+                else if (targetLayout === 'presentation') p.classList.remove('hidden');
+                else p.classList.add('hidden');
+              }
             }
-          } else if (msg.type === 'poll_event') {
-            const widget = document.getElementById('stage-poll-widget');
-            if (widget) {
-              if (msg.active) {
-                if (msg.question) document.getElementById('poll-question-text').textContent = msg.question;
-                
-                const opt1 = msg.opt1 || (msg.options && msg.options[0]) || '';
-                const opt2 = msg.opt2 || (msg.options && msg.options[1]) || '';
-                const opt3 = msg.opt3 || (msg.options && msg.options[2]) || '';
-                const opt4 = msg.opt4 || (msg.options && msg.options[3]) || '';
+          }
+        } else if (msg.type === 'poll_event') {
+          const widget = document.getElementById('stage-poll-widget');
+          if (widget) {
+            if (msg.active) {
+              if (msg.question) document.getElementById('poll-question-text').textContent = msg.question;
+              
+              const opt1 = msg.opt1 || (msg.options && msg.options[0]) || '';
+              const opt2 = msg.opt2 || (msg.options && msg.options[1]) || '';
+              const opt3 = msg.opt3 || (msg.options && msg.options[2]) || '';
+              const opt4 = msg.opt4 || (msg.options && msg.options[3]) || '';
 
-                if (opt1) document.getElementById('poll-opt-label-1').textContent = opt1;
-                if (opt2) document.getElementById('poll-opt-label-2').textContent = opt2;
-                
-                const r3 = document.getElementById('poll-opt-row-3');
-                if (opt3) {
-                  document.getElementById('poll-opt-label-3').textContent = opt3;
-                  if (r3) r3.classList.remove('hidden');
-                  hasOpt3 = true;
-                } else {
-                  if (r3) r3.classList.add('hidden');
-                  hasOpt3 = false;
-                }
-                
-                const r4 = document.getElementById('poll-opt-row-4');
-                if (opt4) {
-                  document.getElementById('poll-opt-label-4').textContent = opt4;
-                  if (r4) r4.classList.remove('hidden');
-                  hasOpt4 = true;
-                } else {
-                  if (r4) r4.classList.add('hidden');
-                  hasOpt4 = false;
-                }
-
-                lastVal1 = msg.val1 !== undefined ? msg.val1 : (msg.values && msg.values[0] !== undefined ? msg.values[0] : 0);
-                lastVal2 = msg.val2 !== undefined ? msg.val2 : (msg.values && msg.values[1] !== undefined ? msg.values[1] : 0);
-                lastVal3 = msg.val3 !== undefined ? msg.val3 : (msg.values && msg.values[2] !== undefined ? msg.values[2] : 0);
-                lastVal4 = msg.val4 !== undefined ? msg.val4 : (msg.values && msg.values[3] !== undefined ? msg.values[3] : 0);
-                
-                redrawPollUI();
-                
-                widget.classList.remove('hidden');
+              if (opt1) document.getElementById('poll-opt-label-1').textContent = opt1;
+              if (opt2) document.getElementById('poll-opt-label-2').textContent = opt2;
+              
+              const r3 = document.getElementById('poll-opt-row-3');
+              if (opt3) {
+                document.getElementById('poll-opt-label-3').textContent = opt3;
+                if (r3) r3.classList.remove('hidden');
+                hasOpt3 = true;
               } else {
-                widget.classList.add('hidden');
-                userVotedOption = null; // Reset user vote when poll closes/resets
-              }
-            }
-          } else if (msg.type === 'studio_mode_event') {
-            const modal = document.getElementById('stage-activation-modal');
-            if (modal) {
-              if (msg.active) {
-                modal.classList.remove('hidden');
-              } else {
-                modal.classList.add('hidden');
-              }
-            }
-          } else if (msg.type === 'stage_camera_frame') {
-            const imgEl = document.getElementById(`stage-image-${msg.panel}`);
-            if (imgEl) {
-              imgEl.src = msg.data;
-              imgEl.classList.remove('hidden');
-              // Hide the local webcam video on this slot if there is one to allow the frame stream to be visible
-              const localVideoEl = document.getElementById(`stage-panel-video-${msg.panel}`);
-              if (localVideoEl) localVideoEl.classList.add('hidden');
-            }
-          } else if (msg.type === 'theme_event') {
-            document.documentElement.className = `theme-${msg.theme || 'darkflow'}`;
-          } else if (msg.type === 'dashboard_event') {
-            customDashboardState = msg;
-            telemetryMode = msg.activeTabId || msg.mode || 'stk';
-            if (msg.tabs && Array.isArray(msg.tabs)) {
-              activeTabs = msg.tabs;
-            }
-            if (autoRotationInterval) {
-              clearInterval(autoRotationInterval);
-              autoRotationInterval = null;
-            }
-            renderDashboard();
-          } else if (msg.type === 'pointer_event') {
-            const dot = document.getElementById('laser-pointer-dot');
-            if (dot) {
-              if (msg.active !== false) {
-                const xVal = parseFloat(msg.x);
-                const yVal = parseFloat(msg.y);
-                dot.style.left = `${xVal}%`;
-                dot.style.top = `${yVal}%`;
-                dot.classList.add('active');
-
-                // Add to laser tracing trail
-                pointerHistory.push({ x: xVal, y: yVal, age: 0 });
-                if (!isDrawingTrail) {
-                  isDrawingTrail = true;
-                  requestAnimationFrame(drawPointerTrail);
-                }
-
-                if (dot.laserTimeout) clearTimeout(dot.laserTimeout);
-                dot.laserTimeout = setTimeout(() => dot.classList.remove('active'), 2000);
-              } else {
-                dot.classList.remove('active');
-              }
-            }
-          } else if (msg.type === 'draw_event') {
-            if (ctx && canvas) {
-              if (msg.action === 'clear') {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-              } else if (msg.action === 'line') {
-                ctx.beginPath();
-                ctx.strokeStyle = msg.color || '#ff003c';
-                ctx.lineWidth = msg.lineWidth || 3;
-                ctx.lineCap = 'round';
-                const x1 = (msg.x1 / 100) * canvas.width;
-                const y1 = (msg.y1 / 100) * canvas.height;
-                const x2 = (msg.x2 / 100) * canvas.width;
-                const y2 = (msg.y2 / 100) * canvas.height;
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                ctx.stroke();
-              } else if (msg.action === 'rect') {
-                ctx.beginPath();
-                ctx.strokeStyle = msg.color || '#ff003c';
-                ctx.lineWidth = msg.lineWidth || 3;
-                const x = (msg.x / 100) * canvas.width;
-                const y = (msg.y / 100) * canvas.height;
-                const w = (msg.w / 100) * canvas.width;
-                const h = (msg.h / 100) * canvas.height;
-                ctx.strokeRect(x, y, w, h);
-              } else if (msg.action === 'text') {
-                ctx.font = msg.font || '20px "Courier New"';
-                ctx.fillStyle = msg.color || '#ff003c';
-                const x = (msg.x / 100) * canvas.width;
-                const y = (msg.y / 100) * canvas.height;
-                ctx.fillText(msg.text || '', x, y);
-              }
-            }
-          } else if (msg.type === 'notepad_event') {
-            const bodyEl = document.getElementById('notepad-body');
-            if (bodyEl) {
-              const isFocused = document.activeElement === bodyEl;
-              let start = 0, end = 0;
-              if (isFocused) {
-                start = bodyEl.selectionStart;
-                end = bodyEl.selectionEnd;
+                if (r3) r3.classList.add('hidden');
+                hasOpt3 = false;
               }
               
-              const newText = msg.text || '';
-              if (msg.action === 'overwrite') {
-                bodyEl.value = newText;
-              } else if (msg.action === 'append') {
-                bodyEl.value += newText;
-              }
-              
-              if (isFocused) {
-                bodyEl.setSelectionRange(start, end);
-              }
-            }
-          } else if (msg.type === 'theme_change') {
-            console.log('[stage] Applying theme change...');
-            Object.entries(msg.tokens).forEach(([k, v]) => {
-              document.documentElement.style.setProperty(k, v);
-            });
-          } else if (msg.type === 'audio') {
-            if (msg.data) playAudioChunk(msg.data);
-          } else if (msg.type === 'sound_event') {
-            if (msg.sound) triggerSoundEffect(msg.sound);
-          } else if (msg.type === 'chyron_event') {
-            const chyron = document.getElementById('stage-chyron');
-            if (chyron) {
-              if (msg.active) {
-                document.getElementById('chyron-title').textContent = msg.title || '';
-                document.getElementById('chyron-sub').textContent = msg.subtitle || '';
-                chyron.classList.remove('hidden');
+              const r4 = document.getElementById('poll-opt-row-4');
+              if (opt4) {
+                document.getElementById('poll-opt-label-4').textContent = opt4;
+                if (r4) r4.classList.remove('hidden');
+                hasOpt4 = true;
               } else {
-                chyron.classList.add('hidden');
+                if (r4) r4.classList.add('hidden');
+                hasOpt4 = false;
               }
-            }
-          } else if (msg.type === 'ticker_event') {
-            const ticker = document.getElementById('stage-ticker');
-            if (ticker) {
-              if (msg.active) {
-                document.getElementById('ticker-content').textContent = msg.text || '';
-                ticker.classList.remove('hidden');
-              } else {
-                ticker.classList.add('hidden');
-              }
-            }
-          } else if (msg.type === 'standby_event') {
-            const standby = document.getElementById('stage-standby');
-            if (standby) {
-              if (msg.active) {
-                // Update customizable texts
-                const badgeEl = document.getElementById('standby-badge');
-                const titleEl = document.getElementById('standby-title');
-                const subtitleEl = document.getElementById('standby-subtitle');
-                
-                if (badgeEl && msg.badge !== undefined) badgeEl.textContent = msg.badge;
-                if (titleEl && msg.title !== undefined) titleEl.textContent = msg.title;
-                if (subtitleEl && msg.description !== undefined) subtitleEl.textContent = msg.description;
 
-                standby.classList.remove('hidden');
-                
-                // Clear any running interval first
-                if (standbyInterval) clearInterval(standbyInterval);
-                
-                let secondsLeft = (parseInt(msg.duration) || 0) * 60 + (parseInt(msg.seconds) || 0);
-                if (secondsLeft <= 0) secondsLeft = 300; // fallback to 5 minutes
-                
-                const displayEl = document.getElementById('standby-timer-display');
-                
-                const updateDisplay = () => {
-                  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
-                  const ss = String(secondsLeft % 60).padStart(2, '0');
-                  if (displayEl) displayEl.textContent = `${mm}:${ss}`;
-                };
-                
-                updateDisplay();
-                standbyInterval = setInterval(() => {
-                  if (secondsLeft > 0) {
-                    secondsLeft--;
-                    updateDisplay();
-                  } else {
-                    clearInterval(standbyInterval);
-                    standbyInterval = null;
-                  }
-                }, 1000);
+              lastVal1 = msg.val1 !== undefined ? msg.val1 : (msg.values && msg.values[0] !== undefined ? msg.values[0] : 0);
+              lastVal2 = msg.val2 !== undefined ? msg.val2 : (msg.values && msg.values[1] !== undefined ? msg.values[1] : 0);
+              lastVal3 = msg.val3 !== undefined ? msg.val3 : (msg.values && msg.values[2] !== undefined ? msg.values[2] : 0);
+              lastVal4 = msg.val4 !== undefined ? msg.val4 : (msg.values && msg.values[3] !== undefined ? msg.values[3] : 0);
+              
+              redrawPollUI();
+              
+              widget.classList.remove('hidden');
+            } else {
+              widget.classList.add('hidden');
+              userVotedOption = null; // Reset user vote when poll closes/resets
+            }
+          }
+        } else if (msg.type === 'studio_mode_event') {
+          const modal = document.getElementById('stage-activation-modal');
+          if (modal) {
+            if (msg.active) {
+              modal.classList.remove('hidden');
+            } else {
+              modal.classList.add('hidden');
+            }
+          }
+        } else if (msg.type === 'stage_camera_frame') {
+          const imgEl = document.getElementById(`stage-image-${msg.panel}`);
+          if (imgEl) {
+            imgEl.src = msg.data;
+            imgEl.classList.remove('hidden');
+            // Hide the local webcam video on this slot if there is one to allow the frame stream to be visible
+            const localVideoEl = document.getElementById(`stage-panel-video-${msg.panel}`);
+            if (localVideoEl) localVideoEl.classList.add('hidden');
+          }
+        } else if (msg.type === 'theme_event') {
+          document.documentElement.className = `theme-${msg.theme || 'darkflow'}`;
+        } else if (msg.type === 'dashboard_event') {
+          customDashboardState = msg;
+          telemetryMode = msg.activeTabId || msg.mode || 'stk';
+          if (msg.tabs && Array.isArray(msg.tabs)) {
+            activeTabs = msg.tabs;
+          }
+          if (autoRotationInterval) {
+            clearInterval(autoRotationInterval);
+            autoRotationInterval = null;
+          }
+          renderDashboard();
+        } else if (msg.type === 'pointer_event') {
+          const dot = document.getElementById('laser-pointer-dot');
+          if (dot) {
+            if (msg.active !== false) {
+              const xVal = parseFloat(msg.x);
+              const yVal = parseFloat(msg.y);
+              dot.style.left = `${xVal}%`;
+              dot.style.top = `${yVal}%`;
+              dot.classList.add('active');
+
+              // Add to laser tracing trail
+              pointerHistory.push({ x: xVal, y: yVal, age: 0 });
+              if (!isDrawingTrail) {
+                isDrawingTrail = true;
+                requestAnimationFrame(drawPointerTrail);
+              }
+
+              if (dot.laserTimeout) clearTimeout(dot.laserTimeout);
+              dot.laserTimeout = setTimeout(() => dot.classList.remove('active'), 2000);
+            } else {
+              dot.classList.remove('active');
+            }
+          }
+        } else if (msg.type === 'draw_event') {
+          if (ctx && canvas) {
+            if (msg.action === 'clear') {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+            } else if (msg.action === 'line') {
+              ctx.beginPath();
+              ctx.strokeStyle = msg.color || '#ff003c';
+              ctx.lineWidth = msg.lineWidth || 3;
+              ctx.lineCap = 'round';
+              const x1 = (msg.x1 / 100) * canvas.width;
+              const y1 = (msg.y1 / 100) * canvas.height;
+              const x2 = (msg.x2 / 100) * canvas.width;
+              const y2 = (msg.y2 / 100) * canvas.height;
+              ctx.moveTo(x1, y1);
+              ctx.lineTo(x2, y2);
+              ctx.stroke();
+            } else if (msg.action === 'rect') {
+              ctx.beginPath();
+              ctx.strokeStyle = msg.color || '#ff003c';
+              ctx.lineWidth = msg.lineWidth || 3;
+              const x = (msg.x / 100) * canvas.width;
+              const y = (msg.y / 100) * canvas.height;
+              const w = (msg.w / 100) * canvas.width;
+              const h = (msg.h / 100) * canvas.height;
+              ctx.strokeRect(x, y, w, h);
+            } else if (msg.action === 'text') {
+              ctx.font = msg.font || '20px "Courier New"';
+              ctx.fillStyle = msg.color || '#ff003c';
+              const x = (msg.x / 100) * canvas.width;
+              const y = (msg.y / 100) * canvas.height;
+              ctx.fillText(msg.text || '', x, y);
+            }
+          }
+        } else if (msg.type === 'notepad_event') {
+          const bodyEl = document.getElementById('notepad-body');
+          if (bodyEl) {
+            const isFocused = document.activeElement === bodyEl;
+            let start = 0, end = 0;
+            if (isFocused) {
+              start = bodyEl.selectionStart;
+              end = bodyEl.selectionEnd;
+            }
+            
+            const newText = msg.text || '';
+            if (msg.action === 'overwrite') {
+              bodyEl.value = newText;
+            } else if (msg.action === 'append') {
+              bodyEl.value += newText;
+            }
+            
+            if (isFocused) {
+              bodyEl.setSelectionRange(start, end);
+            }
+          }
+        } else if (msg.type === 'theme_change') {
+          console.log('[stage] Applying theme change...');
+          Object.entries(msg.tokens).forEach(([k, v]) => {
+            document.documentElement.style.setProperty(k, v);
+          });
+        } else if (msg.type === 'audio') {
+          if (msg.data) playAudioChunk(msg.data);
+        } else if (msg.type === 'sound_event') {
+          if (msg.sound) triggerSoundEffect(msg.sound);
+        } else if (msg.type === 'chyron_event') {
+          const chyron = document.getElementById('stage-chyron');
+          if (chyron) {
+            if (msg.active) {
+              document.getElementById('chyron-title').textContent = msg.title || '';
+              document.getElementById('chyron-sub').textContent = msg.subtitle || '';
+              chyron.classList.remove('hidden');
+            } else {
+              chyron.classList.add('hidden');
+            }
+          }
+        } else if (msg.type === 'ticker_event') {
+          const ticker = document.getElementById('stage-ticker');
+          if (ticker) {
+            if (msg.active) {
+              document.getElementById('ticker-content').textContent = msg.text || '';
+              ticker.classList.remove('hidden');
+            } else {
+              ticker.classList.add('hidden');
+            }
+          }
+        } else if (msg.type === 'standby_event') {
+          const standby = document.getElementById('stage-standby');
+          if (standby) {
+            if (msg.active) {
+              // Update customizable texts
+              const badgeEl = document.getElementById('standby-badge');
+              const titleEl = document.getElementById('standby-title');
+              const subtitleEl = document.getElementById('standby-subtitle');
+              
+              if (badgeEl && msg.badge !== undefined) badgeEl.textContent = msg.badge;
+              if (titleEl && msg.title !== undefined) titleEl.textContent = msg.title;
+              if (subtitleEl && msg.description !== undefined) subtitleEl.textContent = msg.description;
+
+              standby.classList.remove('hidden');
+              
+              // Clear any running interval first
+              if (standbyInterval) clearInterval(standbyInterval);
+              
+              let secondsLeft = (parseInt(msg.duration) || 0) * 60 + (parseInt(msg.seconds) || 0);
+              if (secondsLeft <= 0) secondsLeft = 300; // fallback to 5 minutes
+              
+              const displayEl = document.getElementById('standby-timer-display');
+              
+              const updateDisplay = () => {
+                const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
+                const ss = String(secondsLeft % 60).padStart(2, '0');
+                if (displayEl) displayEl.textContent = `${mm}:${ss}`;
+              };
+              
+              updateDisplay();
+              standbyInterval = setInterval(() => {
+                if (secondsLeft > 0) {
+                  secondsLeft--;
+                  updateDisplay();
+                } else {
+                  clearInterval(standbyInterval);
+                  standbyInterval = null;
+                }
+              }, 1000);
               } else {
                 standby.classList.add('hidden');
                 if (standbyInterval) {
@@ -1789,7 +1904,76 @@
             const frameImg = document.getElementById('browser-frame');
             if (frameImg) frameImg.src = msg.data;
           } else if (msg.type === 'focus_panel') {
+            // Optional layout switch (e.g. stretch a panel to 'presentation' then revert
+            // to 'grid') WITHOUT clearing panel content — keeps the live dashboard intact.
+            if (msg.layout) {
+              const wrap = document.getElementById('view-image');
+              if (wrap) {
+                const targetLayout = msg.layout;
+                wrap.setAttribute('data-image-layout', targetLayout);
+                for (let i = 1; i <= 4; i++) {
+                  const p = document.getElementById(`image-panel-${i}`);
+                  if (!p) continue;
+                  if (targetLayout === 'single' && i === 1) p.classList.remove('hidden');
+                  else if (targetLayout === 'split' && i <= 2) p.classList.remove('hidden');
+                  else if (targetLayout === 'grid') p.classList.remove('hidden');
+                  else if (targetLayout === 'grid-3' && i <= 3) p.classList.remove('hidden');
+                  else if (targetLayout === 'presentation') p.classList.remove('hidden');
+                  else p.classList.add('hidden');
+                }
+              }
+            }
             setFocusedPanel(msg.panel);
+          } else if (msg.type === 'clear_mainstage') {
+            // Revert stage to black background with one focused panel
+            for (let i = 1; i <= 4; i++) {
+              panelSources[i] = null;
+              const imgEl = document.getElementById(`stage-image-${i}`);
+              if (imgEl) {
+                imgEl.removeAttribute('src');
+                imgEl.classList.add('hidden');
+              }
+              const iframeEl = document.getElementById(`stage-panel-iframe-${i}`);
+              if (iframeEl) {
+                iframeEl.removeAttribute('src');
+                iframeEl.classList.add('hidden');
+              }
+              const videoEl = document.getElementById(`stage-panel-video-${i}`);
+              if (videoEl) {
+                videoEl.classList.add('hidden');
+                videoEl.src = '';
+                if (activeCameraStreams[i]) {
+                  try {
+                    activeCameraStreams[i].getTracks().forEach(track => track.stop());
+                  } catch(e){}
+                  delete activeCameraStreams[i];
+                }
+                videoEl.srcObject = null;
+              }
+              const dashboardEl = document.getElementById(`stage-dashboard-${i}`);
+              if (dashboardEl) {
+                dashboardEl.classList.add('hidden');
+              }
+            }
+            deactivateDashboardTelemetry();
+            const wrap = document.getElementById('view-image');
+            if (wrap) {
+              const targetLayout = msg.layout || 'grid-3';
+              wrap.setAttribute('data-image-layout', targetLayout);
+              for (let i = 1; i <= 4; i++) {
+                const p = document.getElementById(`image-panel-${i}`);
+                if (p) {
+                  if (targetLayout === 'single' && i === 1) p.classList.remove('hidden');
+                  else if (targetLayout === 'split' && i <= 2) p.classList.remove('hidden');
+                  else if (targetLayout === 'grid') p.classList.remove('hidden');
+                  else if (targetLayout === 'grid-3' && i <= 3) p.classList.remove('hidden');
+                  else if (targetLayout === 'presentation') p.classList.remove('hidden');
+                  else p.classList.add('hidden');
+                }
+              }
+            }
+            setView('image');
+            setFocusedPanel(msg.focus_panel || 1, true);
           } else if (msg.type === 'view_change') {
             if (msg.mode === 'diagram') {
               if (diagramId !== msg.diag_id) {
@@ -1815,6 +1999,7 @@
               playVideo(msg.url);
             }
             if (msg.mode === 'terminal' && msg.terminal_data !== undefined) {
+              setView('terminal');
               updateTerminal(msg.terminal_data, msg.append);
             }
             setView(msg.mode);
@@ -1833,6 +2018,22 @@
               }
             }
           }
+      } catch (err) {
+        console.error('[stage-dispatcher] Error processing event:', err);
+      }
+    }
+
+    function connectStageWS() {
+      if (!meetingId) return;
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&ticket=${encodeURIComponent(ticket)}`);
+      stageWS = ws;
+      
+      ws.onopen = () => console.log('[stage] Caption broadcast connected');
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          handleStageMessage(msg);
         } catch (err) {}
       };
       ws.onclose = () => setTimeout(connectStageWS, 3000);
@@ -1918,38 +2119,10 @@
         client.on('frameToFrameMessage', (arg) => {
           try {
             const msg = JSON.parse(arg.payload);
-            if (msg.type === 'transcript') {
-              updateTranscript(msg);
-            } else if (msg.type === 'view_change') {
-              if (msg.mode === 'diagram') {
-                if (diagramId !== msg.diag_id) {
-                  diagramId = msg.diag_id;
-                  knownVersion = 0;
-                  if (!msg.svg) showDiagramPlaceholder();
-                }
-              }
-              setView(msg.mode);
-              if (msg.mode === 'doc') {
-                document.getElementById('doc-link').href = msg.url || '#';
-                document.getElementById('doc-title').textContent = msg.label || 'Document Ready';
-                const previewEl = document.getElementById('doc-preview');
-                if (previewEl) {
-                  if (msg.htmlContent) {
-                    previewEl.innerHTML = DOMPurify.sanitize(msg.htmlContent);
-                    previewEl.classList.remove('hidden');
-                  } else if (msg.content) {
-                    previewEl.textContent = msg.content;
-                    previewEl.classList.remove('hidden');
-                  }
-                }
-              } else if (msg.mode === 'diagram') {
-                if (msg.svg) {
-                  renderInlineSVG(msg.svg);
-                  knownVersion = msg.version;
-                }
-              }
-            }
-          } catch (e) {}
+            handleStageMessage(msg);
+          } catch (e) {
+            console.error('[stage-dispatcher] Error processing frameToFrameMessage:', e);
+          }
         });
       } catch (e) { console.warn('Meet SDK init failed:', e); }
     })();

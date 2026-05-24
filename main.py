@@ -501,7 +501,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             ui_state["videoEnabled"] = not ui_state["videoEnabled"]
                             await broadcast_a2ui()
                             
-                        elif data.get("type") in ("view_change", "sound_event", "layout_event", "focus_panel", "chyron_event", "ticker_event", "standby_event", "emoji_event", "studio_mode_event", "stage_camera_frame"):
+                        elif data.get("type") in ("view_change", "sound_event", "layout_event", "focus_panel", "chyron_event", "ticker_event", "standby_event", "emoji_event", "studio_mode_event", "stage_camera_frame", "chat_comment"):
                             await broadcast_to_stage(session_space[0], data)
             except Exception:
                 stop_event.set()
@@ -606,9 +606,12 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     current_theme.update(fc.args["theme_tokens"])
                                 ui_state["theme"] = current_theme
 
-                                # Layout & Visibility
                                 if "layout" in fc.args:
                                     ui_state["layout"] = fc.args["layout"]
+                                    await broadcast_to_stage(session_space[0], {
+                                        "type": "layout_event",
+                                        "layout": fc.args["layout"]
+                                    })
                                 if "component_visibility" in fc.args:
                                     cv = fc.args["component_visibility"]
                                     ui_state.setdefault("visibility", {}).update(cv)
@@ -939,7 +942,12 @@ async def ui_prompt(payload: dict = Body(...), token: str = Depends(token_requir
             if "theme_preset" in args:
                 ui_state["theme"].update(THEME_PRESETS[args["theme_preset"]])
             if "theme_tokens" in args: ui_state["theme"].update(args["theme_tokens"])
-            if "layout" in args: ui_state["layout"] = args["layout"]
+            if "layout" in args:
+                ui_state["layout"] = args["layout"]
+                await broadcast_to_stage(space_id, {
+                    "type": "layout_event",
+                    "layout": args["layout"]
+                })
             if "component_visibility" in args:
                 ui_state.setdefault("visibility", {}).update(args["component_visibility"])
             
@@ -1482,6 +1490,49 @@ async def set_stage_theme_config(space_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/chat/{space_id:path}")
+async def set_stage_chat(space_id: str, request: Request):
+    """
+    Broadcasts a custom chat comment card onto the stage.
+    """
+    check_producer_auth(request)
+    body = await request.json()
+    text = body.get("text", "")
+    if text.strip().lower().startswith("/mainstage"):
+        text = text.strip()[len("/mainstage"):].strip()
+    await broadcast_to_stage(space_id, {
+        "type": "chat_comment",
+        "sender": body.get("sender", "Audience Member"),
+        "text": text,
+        "avatar": body.get("avatar", "")
+    })
+    return {"ok": True}
+
+
+@app.post("/api/chat")
+@app.post("/api/chat/")
+async def set_stage_chat_fallback(request: Request):
+    """
+    Fallback when space_id is omitted. Broadcasts to all active stages or default.
+    """
+    check_producer_auth(request)
+    body = await request.json()
+    text = body.get("text", "")
+    if text.strip().lower().startswith("/mainstage"):
+        text = text.strip()[len("/mainstage"):].strip()
+    payload = {
+        "type": "chat_comment",
+        "sender": body.get("sender", "Audience Member"),
+        "text": text,
+        "avatar": body.get("avatar", "")
+    }
+    active_spaces = list(stage_listeners.keys()) if stage_listeners else ["default"]
+    for sp in active_spaces:
+        await broadcast_to_stage(sp, payload)
+    return {"ok": True}
+
+
+
 @app.post("/api/transcript/{space_id:path}")
 async def set_stage_transcript(space_id: str, request: Request):
     """
@@ -1539,10 +1590,14 @@ async def set_stage_focus_panel(space_id: str, request: Request):
     """
     check_producer_auth(request)
     body = await request.json()
-    await broadcast_to_stage(space_id, {
+    msg = {
         "type": "focus_panel",
         "panel": body.get("panel", 0)
-    })
+    }
+    # Optional layout switch (e.g. stretch to 'presentation', revert to 'grid')
+    if body.get("layout"):
+        msg["layout"] = body["layout"]
+    await broadcast_to_stage(space_id, msg)
     return {"ok": True}
 
 
