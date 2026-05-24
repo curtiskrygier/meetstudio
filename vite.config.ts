@@ -13,6 +13,12 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
+      rollupOptions: {
+        input: {
+          index: path.resolve(__dirname, 'index.html'),
+          main_stage: path.resolve(__dirname, 'main_stage.html'),
+        },
+      },
     },
     define: {
       'process.env.CLIENT_ID': JSON.stringify(env.CLIENT_ID || process.env.CLIENT_ID || ''),

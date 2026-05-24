@@ -213,10 +213,13 @@
       </div>
       <textarea id="notepad-body" class="notepad-textarea" placeholder="Type collaborative notes here..."></textarea>
     </div>
-    
+
     <!-- Real-time Glassmorphic Chat Overlay -->
     <div id="stage-chat-overlay" class="stage-chat-overlay"></div>
   </div>
+
+  <!-- A2UI Stage Root — managed by main_stage.ts / A2UIEngine -->
+  <div id="a2ui-stage-root"></div>
 
   <!-- Drawing Canvas Overlay -->
   <canvas id="drawing-canvas"></canvas>
@@ -267,7 +270,7 @@
       <div class="standby-badge">STUDIO ACTIVATION</div>
       <h1 class="standby-title" style="font-size:24px; margin-bottom:10px; line-height: 1.2;">Activate Google Meet Studio</h1>
       <p class="standby-subtitle" style="font-size:14px; margin-bottom:24px; line-height:1.5;">Unlock professional features, live camera feeds, and synchronized audio overrides.</p>
-      
+
       <div style="display:flex; flex-direction:column; gap:12px; width:100%;">
         <button id="modal-unlock-audio" class="activate-btn" style="margin:0; width:100%; font-size:13px; font-weight:700;">🔊 Enable Audio & Media Engine</button>
         <button id="modal-unlock-camera" class="activate-btn" style="margin:0; width:100%; font-size:13px; font-weight:700; background:linear-gradient(135deg, #ff0055, #00f2ff); border-color:#ff0055; color:#fff;">📷 Grant Camera Access</button>
@@ -288,7 +291,9 @@
     </div>
   </div>
 
-
+  <!-- Legacy stage renderer — kept for dual-protocol during A2UI migration -->
   <script src="main_stage.js"></script>
+  <!-- A2UI stage module — handles surfaceUpdate/dataModelUpdate/beginRendering/deleteSurface -->
+  <script type="module" src="./main_stage.ts"></script>
 </body>
 </html>

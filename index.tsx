@@ -8,6 +8,7 @@ import { MeetConnectionState } from './types/enums';
 // Modular Services
 import { AudioService } from './internal/services/audio_service';
 import { WebSocketService, WebSocketMessage } from './internal/services/websocket_service';
+import { A2UIEngine } from './internal/a2ui/engine';
 
 // Modular Components
 import './internal/components/gdm_transcript_view';
@@ -103,148 +104,8 @@ export class GdmArchitectAgent extends LitElement {
 
   private isActivityStarted = false;
 
-  // --- Official Google A2UI v0.8 Spec Compliant Interpreter Engine ---
-  private a2uiComponentBuffer = new Map<string, any>();
-  private a2uiDataModelStore = new Map<string, any>();
-
-  private resolveBoundValue(val: any): any {
-    if (!val || typeof val !== 'object') return val;
-    
-    if ('literalString' in val) {
-      if ('path' in val && val.path) {
-        this.updateDataModelPath(val.path, val.literalString);
-      }
-      return val.literalString;
-    }
-    if ('literalBoolean' in val) {
-      if ('path' in val && val.path) {
-        this.updateDataModelPath(val.path, val.literalBoolean);
-      }
-      return val.literalBoolean;
-    }
-    if ('literalNumber' in val) {
-      if ('path' in val && val.path) {
-        this.updateDataModelPath(val.path, val.literalNumber);
-      }
-      return val.literalNumber;
-    }
-    if ('literalArray' in val) {
-      if ('path' in val && val.path) {
-        this.updateDataModelPath(val.path, val.literalArray);
-      }
-      return val.literalArray;
-    }
-    
-    if ('path' in val && val.path) {
-      return this.getDataModelPath(val.path);
-    }
-    
-    return val;
-  }
-
-  private getDataModelPath(path: string): any {
-    if (!path) return undefined;
-    const parts = path.split('/').filter(p => p);
-    let current: any = this.a2uiDataModelStore;
-    for (const part of parts) {
-      if (current instanceof Map) {
-        current = current.get(part);
-      } else if (current && typeof current === 'object') {
-        current = current[part];
-      } else {
-        return undefined;
-      }
-    }
-    return current;
-  }
-
-  private updateDataModelPath(path: string, val: any) {
-    if (!path) return;
-    const parts = path.split('/').filter(p => p);
-    let current: any = this.a2uiDataModelStore;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      if (current instanceof Map) {
-        if (!current.has(part)) current.set(part, new Map());
-        current = current.get(part);
-      } else {
-        if (!current[part] || typeof current[part] !== 'object') {
-          current[part] = {};
-        }
-        current = current[part];
-      }
-    }
-    const lastPart = parts[parts.length - 1];
-    if (current instanceof Map) {
-      current.set(lastPart, val);
-    } else if (current && typeof current === 'object') {
-      current[lastPart] = val;
-    }
-  }
-
-  private parseDataModelContents(contents: any[]): any {
-    const result: Record<string, any> = {};
-    for (const entry of contents) {
-      if (!entry || !entry.key) continue;
-      if ('valueString' in entry) {
-        result[entry.key] = entry.valueString;
-      } else if ('valueBoolean' in entry) {
-        result[entry.key] = entry.valueBoolean;
-      } else if ('valueNumber' in entry) {
-        result[entry.key] = entry.valueNumber;
-      } else if ('valueMap' in entry) {
-        result[entry.key] = this.parseDataModelContents(entry.valueMap);
-      }
-    }
-    return result;
-  }
-
-  private compileStandardA2UI(rootId: string) {
-    const renderedComponents: any[] = [];
-    const visited = new Set<string>();
-
-    const traverse = (id: string) => {
-      if (visited.has(id)) return;
-      visited.add(id);
-
-      const item = this.a2uiComponentBuffer.get(id);
-      if (!item || !item.component) return;
-
-      const elementKeys = Object.keys(item.component);
-      if (elementKeys.length === 0) return;
-      const elementName = elementKeys[0];
-      const rawProps = item.component[elementName];
-
-      const resolvedProps: Record<string, any> = {};
-      for (const [k, v] of Object.entries(rawProps)) {
-        resolvedProps[k] = this.resolveBoundValue(v);
-      }
-
-      let customElement = elementName.toLowerCase();
-      if (!customElement.startsWith('gdm-') && customElement !== 'div') {
-        if (customElement === 'column') customElement = 'div';
-        else if (customElement === 'row') customElement = 'div';
-      }
-
-      renderedComponents.push({
-        id: item.id,
-        element: customElement,
-        props: resolvedProps
-      });
-
-      if (rawProps.children && rawProps.children.explicitList) {
-        for (const childId of rawProps.children.explicitList) {
-          traverse(childId);
-        }
-      } else if (rawProps.child) {
-        traverse(rawProps.child);
-      }
-    };
-
-    traverse(rootId);
-    this.components = renderedComponents;
-  }
-  // --------------------------------------------------------------------
+  // A2UI v0.8 engine — shared with the main stage (internal/a2ui/engine.ts)
+  private a2uiEngine = new A2UIEngine(components => { this.components = components; });
 
   @state() private activeTab: 'concierge' | 'widgets' = 'concierge';
   @state() private ytUrl = '';
@@ -939,46 +800,7 @@ export class GdmArchitectAgent extends LitElement {
       return;
     }
 
-    if (msg.type === 'surfaceUpdate') {
-      const data = msg as any;
-      if (data.surfaceUpdate && data.surfaceUpdate.components) {
-        for (const comp of data.surfaceUpdate.components) {
-          this.a2uiComponentBuffer.set(comp.id, comp);
-        }
-      }
-      return;
-    }
-
-    if (msg.type === 'dataModelUpdate') {
-      const data = msg as any;
-      if (data.dataModelUpdate) {
-        const dmu = data.dataModelUpdate;
-        const baseMap = this.parseDataModelContents(dmu.contents || []);
-        if (dmu.path) {
-          this.updateDataModelPath(dmu.path, baseMap);
-        } else {
-          for (const [k, v] of Object.entries(baseMap)) {
-            this.a2uiDataModelStore.set(k, v);
-          }
-        }
-      }
-      return;
-    }
-
-    if (msg.type === 'beginRendering') {
-      const data = msg as any;
-      if (data.beginRendering && data.beginRendering.root) {
-        this.compileStandardA2UI(data.beginRendering.root);
-      }
-      return;
-    }
-
-    if (msg.type === 'deleteSurface') {
-      this.components = [];
-      this.a2uiComponentBuffer.clear();
-      this.a2uiDataModelStore.clear();
-      return;
-    }
+    if (this.a2uiEngine.handleMessage(msg)) return;
 
     if (msg.type === 'A2UI_STATE') {
       const a2ui = msg as any;
@@ -1080,6 +902,7 @@ export class GdmArchitectAgent extends LitElement {
     }
     
     this.components = [];
+    this.a2uiEngine.clear();
     this.wsService?.disconnect();
     this.audioService.disconnect();
     
