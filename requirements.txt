@@ -10,3 +10,7 @@ markdown==3.4.1
 bleach>=6.1.0
 pydantic==2.13.3
 python-multipart>=0.0.9
+python-dotenv
+pandas
+numpy
+yfinance

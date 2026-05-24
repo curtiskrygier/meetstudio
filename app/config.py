@@ -110,7 +110,7 @@ Example of correct flat structure (follow this exactly):
 "FastAPI" -> "Google Drive": "Save file"
 
 STRICT: If context is empty or contains no architecture, output ONLY:
-"Waiting for Architecture Description...".shape: rectangle
+"Interactive Diagram Stage".shape: rectangle
 
 Meeting context:
 {context}

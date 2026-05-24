@@ -17,8 +17,8 @@ import httpx
 import os
 import sys
 
-MCP_URL = "CONCIERGE_API_URL_PLACEHOLDER/mcp"
-API_URL = "CONCIERGE_API_URL_PLACEHOLDER"
+API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER").rstrip("/")
+MCP_URL = f"{API_URL}/mcp"
 KEY = os.environ.get("STAGE_API_KEY", "")
 
 SPACE = ""
@@ -165,6 +165,26 @@ async def main():
     )
     # "congrats" auto-triggers 🎉
     await wait(3500)
+
+    # ═══════════════════════════════════════════════════════════
+    # ACT II.B — Live Comments on Main Stage
+    # ═══════════════════════════════════════════════════════════
+    print("\n▶  ACT II.B — LIVE COMMENTS ON STAGE\n")
+
+    await tx(
+        "For interactive events, it is now possible to share comments on the main stage "
+        "as modern glassmorphic overlays with smooth sliding animations.",
+        "user", 2000
+    )
+    await wait(4000)
+
+    print("  → Firing custom live chat comment...")
+    await call("send_chat_comment", {
+        "space_id": SPACE,
+        "sender": "Audience Member",
+        "text": "wow I had no idea Google Meet was so versatile!"
+    })
+    await wait(5000)
 
     # ═══════════════════════════════════════════════════════════
     # ACT III — Live Architecture Diagram

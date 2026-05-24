@@ -115,6 +115,35 @@ _TOOLS = [
             },
             "required": ["space_id", "emoji"]
         }
+    },
+    {
+        "name": "send_chat_comment",
+        "description": (
+            "Broadcast a chat comment card onto the Meet main stage. "
+            "Appears as a sleek floating glassmorphic card in the corner of the stage."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": {
+                    "type": "string",
+                    "description": "Google Meet space ID of the active session"
+                },
+                "sender": {
+                    "type": "string",
+                    "description": "The display name of the comment sender (e.g. 'Audience Member')"
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The text content of the comment"
+                },
+                "avatar": {
+                    "type": "string",
+                    "description": "Optional URL to an avatar image"
+                }
+            },
+            "required": ["space_id", "text"]
+        }
     }
 ]
 
@@ -273,6 +302,24 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn, genera
 
             asyncio.create_task(_generate_and_broadcast())
             return _tool_text(req_id, f"Image generation started for {space_id} — will appear when ready.")
+
+        if name == "send_chat_comment":
+            space_id = (args.get("space_id") or "").strip()
+            sender = (args.get("sender") or "Audience Member").strip()
+            text = (args.get("text") or "").strip()
+            avatar = (args.get("avatar") or "").strip()
+
+            if not space_id or not text:
+                return _tool_error(req_id, "space_id and text are required")
+
+            await broadcast_fn(space_id, {
+                "type": "chat_comment",
+                "sender": sender,
+                "text": text,
+                "avatar": avatar
+            })
+            logger.info(f"[mcp] send_chat_comment to {space_id} by {sender}: {text[:60]}")
+            return _tool_text(req_id, f"Chat comment sent to {space_id}.")
 
         return _rpc_error(req_id, -32601, f"Unknown tool: {name}")
 

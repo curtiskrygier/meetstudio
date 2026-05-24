@@ -151,7 +151,40 @@
     <div id="stage-poll-widget" class="poll-widget hidden">
       <div class="poll-header">📊 Audience Interactive Poll</div>
       <div class="poll-question" id="poll-question-text">Which UI system should we load next?</div>
-      <div class="poll-options" id="poll-options-container"></div>
+      <div class="poll-options" id="poll-options-container">
+        <!-- Option 1 -->
+        <div class="poll-option-row" id="poll-opt-row-1">
+          <div class="poll-option-label" id="poll-opt-label-1">Option 1</div>
+          <div class="poll-progress-bg">
+            <div class="poll-progress-bar" id="poll-bar-1" style="width: 0%;"></div>
+          </div>
+          <div class="poll-percent" id="poll-percent-1">0%</div>
+        </div>
+        <!-- Option 2 -->
+        <div class="poll-option-row" id="poll-opt-row-2">
+          <div class="poll-option-label" id="poll-opt-label-2">Option 2</div>
+          <div class="poll-progress-bg">
+            <div class="poll-progress-bar" id="poll-bar-2" style="width: 0%;"></div>
+          </div>
+          <div class="poll-percent" id="poll-percent-2">0%</div>
+        </div>
+        <!-- Option 3 (Initially Hidden, Toggled by JS) -->
+        <div class="poll-option-row hidden" id="poll-opt-row-3">
+          <div class="poll-option-label" id="poll-opt-label-3">Option 3</div>
+          <div class="poll-progress-bg">
+            <div class="poll-progress-bar" id="poll-bar-3" style="width: 0%;"></div>
+          </div>
+          <div class="poll-percent" id="poll-percent-3">0%</div>
+        </div>
+        <!-- Option 4 (Initially Hidden, Toggled by JS) -->
+        <div class="poll-option-row hidden" id="poll-opt-row-4">
+          <div class="poll-option-label" id="poll-opt-label-4">Option 4</div>
+          <div class="poll-progress-bg">
+            <div class="poll-progress-bar" id="poll-bar-4" style="width: 0%;"></div>
+          </div>
+          <div class="poll-percent" id="poll-percent-4">0%</div>
+        </div>
+      </div>
     </div>
 
     <!-- View 6: Video / YouTube -->
@@ -180,6 +213,9 @@
       </div>
       <textarea id="notepad-body" class="notepad-textarea" placeholder="Type collaborative notes here..."></textarea>
     </div>
+    
+    <!-- Real-time Glassmorphic Chat Overlay -->
+    <div id="stage-chat-overlay" class="stage-chat-overlay"></div>
   </div>
 
   <!-- Drawing Canvas Overlay -->

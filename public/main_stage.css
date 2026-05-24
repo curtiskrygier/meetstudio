@@ -231,6 +231,7 @@ body {
 
 /* AI Image View (Supports adaptive layouts) */
 .image-wrap {
+  position: relative; /* Set as reference point for absolute centering of focused panels */
   width: 100%;
   height: 100%;
   background: #000;
@@ -243,6 +244,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.image-wrap[data-image-layout="single"] .image-panel {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
 }
 
 .image-wrap[data-image-layout="split"] {
@@ -277,6 +286,144 @@ body {
   display: none !important;
 }
 
+/* --- Presentation Layout Grid System --- */
+.image-wrap[data-image-layout="presentation"] {
+  display: grid;
+  grid-template-columns: 4fr 1fr;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+/* Case A: No focused panel, or Panel 1 is focused */
+.image-wrap[data-image-layout="presentation"]:not(:has(.image-panel.focused)) #image-panel-1,
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-1.focused) #image-panel-1 {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+}
+.image-wrap[data-image-layout="presentation"]:not(:has(.image-panel.focused)) #image-panel-2,
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-1.focused) #image-panel-2 {
+  grid-column: 2;
+  grid-row: 1;
+}
+.image-wrap[data-image-layout="presentation"]:not(:has(.image-panel.focused)) #image-panel-3,
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-1.focused) #image-panel-3 {
+  grid-column: 2;
+  grid-row: 2;
+}
+.image-wrap[data-image-layout="presentation"]:not(:has(.image-panel.focused)) #image-panel-4,
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-1.focused) #image-panel-4 {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+/* Case B: Panel 2 is focused */
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-2.focused) #image-panel-2 {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-2.focused) #image-panel-1 {
+  grid-column: 2;
+  grid-row: 1;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-2.focused) #image-panel-3 {
+  grid-column: 2;
+  grid-row: 2;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-2.focused) #image-panel-4 {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+/* Case C: Panel 3 is focused */
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-3.focused) #image-panel-3 {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-3.focused) #image-panel-1 {
+  grid-column: 2;
+  grid-row: 1;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-3.focused) #image-panel-2 {
+  grid-column: 2;
+  grid-row: 2;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-3.focused) #image-panel-4 {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+/* Case D: Panel 4 is focused */
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-4.focused) #image-panel-4 {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-4.focused) #image-panel-1 {
+  grid-column: 2;
+  grid-row: 1;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-4.focused) #image-panel-2 {
+  grid-column: 2;
+  grid-row: 2;
+}
+.image-wrap[data-image-layout="presentation"]:has(#image-panel-4.focused) #image-panel-3 {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+/* Specific presentation panel layout styles */
+.image-wrap[data-image-layout="presentation"] .image-panel:not(.focused) {
+  opacity: 0.65;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 300ms ease;
+}
+.image-wrap[data-image-layout="presentation"] .image-panel:not(.focused):hover {
+  opacity: 1;
+  border-color: var(--primary-accent, #00f2ff);
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.25);
+  transform: translateY(-2px);
+}
+
+/* Override absolute positioning for focused panels in presentation mode */
+.image-wrap[data-image-layout="presentation"] .image-panel.focused {
+  position: relative !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-color: var(--primary-accent, #00f2ff) !important;
+  box-shadow: 0 0 30px rgba(0, 242, 255, 0.4), 0 12px 40px rgba(0, 0, 0, 0.6) !important;
+  transform: none !important;
+  z-index: 10 !important;
+}
+
+/* Presentation main image uses contain to see full slides */
+.image-wrap[data-image-layout="presentation"] .image-panel.focused .stage-image,
+.image-wrap[data-image-layout="presentation"]:not(:has(.image-panel.focused)) #image-panel-1 .stage-image {
+  object-fit: contain !important;
+}
+
+/* Presentation thumbnails use cover to look neat and clean */
+.image-wrap[data-image-layout="presentation"] .image-panel:not(.focused) .stage-image {
+  object-fit: cover !important;
+}
+
+/* Explicit Grid Cell Assignments to prevent background shifts when focused cell is absolute */
+.image-wrap[data-image-layout="split"] #image-panel-1 { grid-column: 1; grid-row: 1; }
+.image-wrap[data-image-layout="split"] #image-panel-2 { grid-column: 2; grid-row: 1; }
+
+.image-wrap[data-image-layout="grid"] #image-panel-1 { grid-column: 1; grid-row: 1; }
+.image-wrap[data-image-layout="grid"] #image-panel-2 { grid-column: 2; grid-row: 1; }
+.image-wrap[data-image-layout="grid"] #image-panel-3 { grid-column: 1; grid-row: 2; }
+.image-wrap[data-image-layout="grid"] #image-panel-4 { grid-column: 2; grid-row: 2; }
+
+.image-wrap[data-image-layout="grid-3"] #image-panel-1 { grid-column: 1; grid-row: 1; }
+.image-wrap[data-image-layout="grid-3"] #image-panel-2 { grid-column: 2; grid-row: 1; }
+.image-wrap[data-image-layout="grid-3"] #image-panel-3 { grid-column: span 2; grid-row: 2; }
+
+
 .image-panel {
   position: relative;
   width: 100%;
@@ -299,10 +446,30 @@ body {
   box-shadow: 0 0 30px rgba(255, 0, 85, 0.4), 0 12px 40px rgba(0, 0, 0, 0.6);
 }
 
-.image-wrap:has(.image-panel.focused) .image-panel:not(.focused) {
-  opacity: 0.4;
-  filter: grayscale(30%) blur(1px);
+/* Focused Hero Tile transition in multi-panel layout */
+.image-wrap:not([data-image-layout="single"]):not([data-image-layout="presentation"]) .image-panel.focused {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: calc(100% - 48px) !important;
+  height: auto !important;
+  max-width: calc(100% - 48px) !important;
+  max-height: calc(100% - 48px) !important;
+  aspect-ratio: 16 / 9 !important;
+  z-index: 500 !important;
+  background: rgba(10, 11, 16, 0.98) !important; /* solid premium backdrop to block out background panels */
+  backdrop-filter: blur(25px) !important;
+  border-color: var(--primary-accent, #00f2ff) !important; /* glowing cyan */
+  box-shadow: 0 0 50px rgba(0, 242, 255, 0.6), 0 20px 60px rgba(0, 0, 0, 0.95) !important;
 }
+
+.image-wrap:not([data-image-layout="single"]):not([data-image-layout="presentation"]):has(.image-panel.focused) .image-panel:not(.focused) {
+  opacity: 0.35 !important;
+  filter: grayscale(40%) blur(2px) !important;
+  pointer-events: none !important;
+}
+
 
 
 .stage-image {
@@ -803,6 +970,27 @@ body {
 #content-layer[data-layout="grid-3"] > #image-panel-4 {
   display: none !important;
 }
+
+#content-layer[data-layout="presentation"] {
+  display: flex !important;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: stretch;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 16px;
+  gap: 16px;
+}
+#content-layer[data-layout="presentation"] > div {
+  display: flex !important;
+  flex: 1;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+
 
 /* Canvas Overlay Layer for drawing */
 #drawing-canvas {
@@ -1400,6 +1588,115 @@ body {
 }
 .radar-zoom-btn:hover {
   background: rgba(0, 242, 255, 0.15) !important;
+}
+
+/* Real-time Glassmorphic Chat Overlay styling */
+.stage-chat-overlay {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  width: 380px;
+  max-height: calc(100% - 80px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 12px;
+  pointer-events: none; /* Let clicks pass through if empty */
+  z-index: 500; /* Ensure it floats above other overlays */
+}
+
+.stage-chat-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(12, 13, 16, 0.72);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid #00f2ff; /* Sleek cyber-cyan left accent border */
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  pointer-events: auto; /* Allow interacting with card if needed, e.g. text selection */
+  animation: slideUpFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.stage-chat-card.fade-out {
+  animation: slideOutFadeOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stage-chat-card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #00f2ff;
+  text-shadow: 0 0 6px rgba(0, 242, 255, 0.4);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.stage-chat-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stage-chat-card-content {
+  flex: 1;
+  min-width: 0; /* Prevents text overflow */
+}
+
+.stage-chat-card-sender {
+  font-size: 12px;
+  font-weight: 700;
+  color: #00f2ff;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 6px rgba(0, 242, 255, 0.3);
+}
+
+.stage-chat-card-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.9);
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+@keyframes slideUpFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes slideOutFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
 }
 
 

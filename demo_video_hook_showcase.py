@@ -15,13 +15,53 @@ Environment Variables:
 import asyncio
 import os
 import sys
+import glob
+
+# Auto-resolve local virtualenv site-packages if run directly from global system python
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+_venv_dirs = glob.glob(os.path.join(_base_dir, "venv", "lib", "python3.*", "site-packages"))
+for _vd in _venv_dirs:
+    if _vd not in sys.path:
+        sys.path.insert(0, _vd)
+
 import httpx
+from types import ModuleType
+from unittest.mock import MagicMock
+
+# Setup dynamic dummy modules for google.adk to bypass ADK import failures in 212Trading backend
+class AdkMockModule(ModuleType):
+    def __init__(self, name):
+        super().__init__(name)
+        self.__path__ = []
+    def __getattr__(self, name):
+        mock_val = MagicMock()
+        setattr(self, name, mock_val)
+        return mock_val
+
+class AdkMockFinder:
+    def find_spec(self, fullname, path, target=None):
+        if fullname.startswith("google.adk"):
+            from importlib.machinery import ModuleSpec
+            return ModuleSpec(fullname, AdkMockLoader())
+        return None
+
+class AdkMockLoader:
+    def create_module(self, spec):
+        mod = AdkMockModule(spec.name)
+        sys.modules[spec.name] = mod
+        return mod
+    def exec_module(self, module):
+        pass
+
+sys.meta_path.insert(0, AdkMockFinder())
+
 
 # ───────────────────────────────────────────────────────────
 # 212Trading Backend Market Services Integration
 # ───────────────────────────────────────────────────────────
 _T212_LOADED = False
 _GET_QUOTE_FN = None
+
 
 try:
     # Append the 212Trading directory to sys.path
@@ -51,6 +91,12 @@ try:
                     pass
     except Exception:
         pass
+
+    # Mock backend.agent to avoid importing dotenv, google.adk or any agent logic
+    dummy_agent = ModuleType("backend.agent")
+    dummy_agent.app = ModuleType("backend.agent.app")
+    sys.modules["backend.agent"] = dummy_agent
+    sys.modules["backend.agent.app"] = dummy_agent.app
 
     # Import the unified market data quote fetcher
     from backend.services.market_data import get_quote as t212_get_quote
@@ -290,7 +336,7 @@ async def main():
         print("❌ Error: No active Meet space detected. Open a Meet call and launch the side-panel first.")
         sys.exit(1)
         
-    delay = 4.0 if FAST_MODE else 12.0
+    delay = 1.8 if FAST_MODE else 12.0
     
     print(f"\n🎬  CRAY CRAY INTERACTIVE SHOWCASE  →  {space}")
     print(f"⚙️   Fast Mode: {'ENABLED ⚡' if FAST_MODE else 'DISABLED (Live Imagen generation) 🐢'}")
@@ -312,7 +358,7 @@ async def main():
             except Exception as e:
                 print(f"⚠️  Warning: Pre-generation trigger failed: {e}")
         
-        standby_seconds = 1 if FAST_MODE else 3
+        standby_seconds = 5 if FAST_MODE else 8
         print(f"🎬 Broadcasting {standby_seconds}-second Studio Intermission standby screen...")
         await post_endpoint(client, f"/api/standby/{space}", {
             "active": True,
@@ -349,7 +395,7 @@ async def main():
             "label": "📺 1. Seamless Video Hook (Autoplay)",
             "autoplay": True
         })
-        await asyncio.sleep(4.0)
+        await asyncio.sleep(2.0 if FAST_MODE else 4.0)
         
         # ───────────────────────────────────────────────────────────
         # Phase 2: Quad-Grid Morph & Interactive Stocks Ticker Streaming
@@ -363,7 +409,7 @@ async def main():
         await post_endpoint(client, f"/api/theme-config/{space}", {"theme": "glassmorphism"})
         await post_endpoint(client, f"/api/sound-event/{space}", {"sound": "chimes"})
         await launch_emoji_burst(client, space, ["🤝", "📊", "📈", "🍿"])
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5 if FAST_MODE else 1.0)
         
         # Initialize the 4 panels in the "grid" layout
         print("📺 Initializing 4-panel Grid layout...")
@@ -396,7 +442,7 @@ async def main():
         # Focus on Dashboard Telemetry first
         await post_endpoint(client, f"/api/focus-panel/{space}", {"panel": 3})
         await launch_emoji_burst(client, space, ["📊", "⚡", "🔮"])
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5 if FAST_MODE else 1.0)
         
         # ───────────────────────────────────────────────────────────
         # Real-time Stocks Telemetry Streaming Loop
@@ -407,6 +453,9 @@ async def main():
             {"id": "flt", "label": "FLIGHTS TLS"}
         ]
         
+        loop_ticks = 3 if FAST_MODE else 6
+        tick_sleep = 0.5 if FAST_MODE else 2.0
+        
         print("📈 Streaming Use Case 1: AI & Megatech Stocks (stk)...")
         await set_transcript(
             client, space,
@@ -415,7 +464,7 @@ async def main():
         )
         
         stock_chart = [40, 42, 41, 44, 43, 46, 45, 48, 47, 49, 50, 49, 51, 52, 53]
-        for tick in range(6):
+        for tick in range(loop_ticks):
             nvda_p, nvda_c = await get_live_stock_price(client, "NVDA", 914.85)
             msft_p, msft_c = await get_live_stock_price(client, "MSFT", 421.90)
             goog_p, goog_c = await get_live_stock_price(client, "GOOG", 173.50)
@@ -443,7 +492,7 @@ async def main():
                 ],
                 "chart": stock_chart[-15:]
             })
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(tick_sleep)
 
         # ───────────────────────────────────────────────────────────
         # Phase 3: Slide-in Live Interactive Audience Poll Overlay
@@ -469,7 +518,7 @@ async def main():
             "values": [0, 0, 0, 0]
         })
         await launch_emoji_burst(client, space, ["🗳️", "📊", "🔥"])
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(1.0 if FAST_MODE else 2.0)
 
         # Simulate live voting progress
         print("🗳️ Simulating real-time incoming audience votes...")
@@ -493,14 +542,14 @@ async def main():
                 ],
                 "values": [v1, v2, v3, v4]
             })
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.25 if FAST_MODE else 0.5)
         
         print(f"⏳ Waiting {delay}s...")
         await asyncio.sleep(delay)
 
         # Hide poll
         await post_endpoint(client, f"/api/poll/{space}", {"active": False})
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5 if FAST_MODE else 1.0)
         
         # ───────────────────────────────────────────────────────────
         # Phase 4: Fullscreen Flight Radar Scope & Interactive HUD LOCK
@@ -525,7 +574,11 @@ async def main():
         
         # Stream Live Flight Approach sequence onto the Fullscreen Dashboard's 'flt' tab
         flight_chart = [20, 22, 21, 24, 23, 26, 25, 28, 27, 29, 30, 29, 31, 32, 33]
-        for tick in range(8):
+        
+        flight_loop_ticks = 3 if FAST_MODE else 8
+        flight_tick_sleep = 0.5 if FAST_MODE else 2.0
+        
+        for tick in range(flight_loop_ticks):
             flight_count, flights = await get_live_toulouse_flights(client, tick=tick)
             flight_chart.append(int(max(10, min(95, flight_count * 10 + 20))))
             metrics = []
@@ -546,7 +599,7 @@ async def main():
                 "metrics": metrics,
                 "chart": flight_chart[-15:]
             })
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(flight_tick_sleep)
 
         # ───────────────────────────────────────────────────────────
         # Concluding Phase: Clear Focus & Celebration

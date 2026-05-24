@@ -4,7 +4,9 @@
   "oauthScopes": [
     "https://www.googleapis.com/auth/script.external_request",
     "https://www.googleapis.com/auth/meetings.space.readonly",
-    "https://www.googleapis.com/auth/drive.file"
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/chat.messages.readonly",
+    "https://www.googleapis.com/auth/chat.spaces.readonly"
   ],
   "urlFetchWhitelist": [
     "CONCIERGE_API_URL_PLACEHOLDER/"
