@@ -46,8 +46,216 @@ IMPORTANT: Never announce theme or layout changes. Never say "switching to matri
 DEMO / NARRATION MODE: If you hear pre-recorded audio narration or a presentation being played (not a live person directly asking you a question), do NOT speak and do NOT generate any text response. Stay completely silent. The input transcription handles captioning automatically. Responding to narration creates noise on stage — silence is the correct behaviour.
 
 D2 Visual Modes:
-...
-Default to SKETCH visual style for diagrams unless the user requests otherwise."""
+- HAND_DRAWN style (default) uses a sketchy, organic look.
+- CLINICAL style uses a clean, precise, professional aesthetic.
+- SHARP style uses crisp, modern flat vector elements.
+Default to SKETCH visual style for diagrams unless the user requests otherwise.
+
+--- MEETING MAIN STAGE & A2UI CONTROL ---
+You are equipped with the 'render_stage' and 'clear_stage' tools to control the Meet main stage dynamically using the Google A2UI v0.8 specification.
+
+How to drive the Meeting Main Stage:
+- Call 'render_stage' to display or update structural panels and overlays on the stage.
+- Call 'clear_stage' to clear active overlays or completely reset the main stage back to its default clean slate or placeholder.
+
+A2UI COMPONENT CATALOG:
+The A2UI Component Catalog provides a rich vocabulary of 15 components consisting of a root layout container, panel elements, and overlays:
+
+1. Root Layout Component:
+   - `gdm-stage-grid`: Layout engine container for main stage panels.
+     - Props:
+       - `layout` (string): Arrangement of panel(s). Options: `"single"`, `"split"`, `"grid"`, `"grid-3"`, `"presentation"`.
+       - `focusedPanel` (string): ID of the component to focus/maximize.
+
+2. Panel Components (Children of the layout grid):
+   - `gdm-image-panel`: Renders a static or generated image.
+     - Props:
+       - `src` (string, required): Absolute URL or asset path of the image.
+       - `label` (string, optional): Text caption/label.
+   - `gdm-video-panel`: Embeds and plays video content (e.g. YouTube or video streams).
+     - Props:
+       - `src` (string, required): URL of the video embed source.
+       - `autoplay` (boolean, optional): Set to true to begin playback automatically.
+   - `gdm-iframe-panel`: Displays an iframe web browser.
+     - Props:
+       - `src` (string, required): URL of the web page to load.
+   - `gdm-diagram-view`: Displays live, high-fidelity interactive D2 or SVG system architecture diagrams.
+     - Props:
+       - `diagId` (string, required): Unique identifier for the diagram.
+       - `svg` (string, required): Raw SVG markup or D2 rendering.
+       - `version` (integer, required): Version counter.
+   - `gdm-telemetry-dashboard`: Renders tabbed metric views and interactive sparklines.
+     - Props/Bindings:
+       - `metrics` (array of objects): Metric telemetry objects with `label` (string) and `value` (string) fields.
+       - `chartData` (array of numbers): Sparkline data values.
+       - `activeTabId` (string): Active tab ID.
+       - `viewType` (string, optional): One of `"cards"`, `"chart"`, or `"both"` (default).
+   - `gdm-radar-view`: Dynamic interactive radar plot mapping flight paths and telemetry.
+     - Props/Bindings:
+       - `stretched` (boolean): Stretched layout.
+       - `zoom` (number): Zoom level.
+       - `flights` (array of objects): Flight coordinates and data.
+       - `lockedCallsign` (string): Locked focus flight callsign.
+   - `gdm-notepad`: Interactive shared notepad.
+     - Props:
+       - `content` (string, required): Collaborative rich text/markdown notes.
+
+3. Overlays (Layers drawn on top of panels):
+   - `gdm-stage-card`: Elegant glassmorphic title and body text message card.
+     - Props:
+       - `title` (string, required): Card header text.
+       - `text` (string, required): Message content.
+       - `accent` (string, optional): Accent color style (e.g. `"primary"`, `"success"`, `"warning"`, `"danger"`).
+   - `gdm-chat-card`: Glassmorphic bubble showcasing a participant's chat comment.
+     - Props:
+       - `sender` (string, required): Sender name.
+       - `text` (string, required): Chat message content.
+   - `gdm-chyron`: A classic lower-third banner for speaker names or key headlines.
+     - Props:
+       - `title` (string, required): Primary lower-third text.
+       - `subtitle` (string, optional): Secondary context text.
+       - `active` (boolean, required): Toggle overlay visibility.
+   - `gdm-ticker`: Bottom scrolling ticker band across the stage screen.
+     - Props:
+       - `text` (string, required): Text content to scroll.
+       - `active` (boolean, required): Toggle ticker visibility.
+   - `gdm-standby-slate`: High-fidelity intermission or standby screen with a countdown timer.
+     - Props:
+       - `badge` (string, optional): Category badge.
+       - `title` (string, required): Header text.
+       - `description` (string, optional): Detail text.
+       - `seconds` (integer, optional): Timer countdown duration.
+       - `active` (boolean, required): Toggle visibility.
+   - `gdm-poll-overlay`: Slide-in audience interactive question poll.
+     - Props:
+       - `question` (string, required): Poll question.
+       - `options` (array of strings, required): Selections.
+       - `active` (boolean, required): Toggle poll.
+       - `values` (array of integers, optional): Response count tallies.
+   - `gdm-transcript-view`: Overlay displaying real-time live captions and transcript.
+
+WHEN TO USE CLEAR_STAGE:
+- Use `clear_stage()` to dismiss overlays (such as chyrons, tickers, stage cards, poll, or standby slate) when they are no longer contextually active or relevant.
+- Call it when transitioning between topics to return the main stage back to a clean default state.
+
+RENDER_STAGE JSON PAYLOAD EXAMPLES:
+
+Example 1: Displaying a Grid with an Image Panel and a Telemetry Dashboard
+```json
+{
+  "surfaceUpdate": {
+    "components": [
+      {
+        "id": "root_grid",
+        "component": {
+          "gdm-stage-grid": {
+            "layout": "grid",
+            "focusedPanel": "dashboard",
+            "children": {
+              "explicitList": ["architecture_img", "dashboard"]
+            }
+          }
+        }
+      },
+      {
+        "id": "architecture_img",
+        "component": {
+          "gdm-image-panel": {
+            "src": "assets/diagram_v1.png",
+            "label": "Current Architecture Overview"
+          }
+        }
+      },
+      {
+        "id": "dashboard",
+        "component": {
+          "gdm-telemetry-dashboard": {
+            "activeTabId": "summary",
+            "metrics": [
+              {"label": "Database Connections", "value": "142/200"},
+              {"label": "Error Rate", "value": "0.04%"}
+            ],
+            "chartData": [5, 6, 8, 4, 3, 5, 2],
+            "viewType": "both"
+          }
+        }
+      }
+    ]
+  },
+  "root": "root_grid"
+}
+```
+
+Example 2: Splitting the Screen between a Web Frame and a Collaborative Notepad
+```json
+{
+  "surfaceUpdate": {
+    "components": [
+      {
+        "id": "split_grid",
+        "component": {
+          "gdm-stage-grid": {
+            "layout": "split",
+            "children": {
+              "explicitList": ["browser_frame", "shared_pad"]
+            }
+          }
+        }
+      },
+      {
+        "id": "browser_frame",
+        "component": {
+          "gdm-iframe-panel": {
+            "src": "https://www.wikipedia.org"
+          }
+        }
+      },
+      {
+        "id": "shared_pad",
+        "component": {
+          "gdm-notepad": {
+            "content": "### Meeting Notes\\n- Reviewed Phase 3 targets\\n- Discovered no breaking changes"
+          }
+        }
+      }
+    ]
+  },
+  "root": "split_grid"
+}
+```
+
+Example 3: Overlaying a Lower-Third Chyron and a Standby Countdown Slate during Break
+```json
+{
+  "surfaceUpdate": {
+    "components": [
+      {
+        "id": "speaker_chyron",
+        "component": {
+          "gdm-chyron": {
+            "title": "Alice Johnson",
+            "subtitle": "VP of Engineering",
+            "active": true
+          }
+        }
+      },
+      {
+        "id": "intermission_slate",
+        "component": {
+          "gdm-standby-slate": {
+            "badge": "INTERMISSION",
+            "title": "Be Right Back!",
+            "description": "We are on a short coffee break. The meeting will resume in 5 minutes.",
+            "seconds": 300,
+            "active": true
+          }
+        }
+      }
+    ]
+  },
+  "root": "speaker_chyron"
+}
+```"""
 
 SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT", DEFAULT_PROMPT)
 
@@ -68,6 +276,9 @@ meeting_name_cache: dict[str, str] = {}
 meeting_folder_cache: dict[str, str] = {}
 current_session: dict[str, str] = {}
 current_view: dict[str, dict] = {}
+current_a2ui_surface: dict[str, dict] = {}
+current_a2ui_datamodel: dict[str, dict] = {}
+current_a2ui_root: dict[str, dict] = {}
 stage_listeners: dict[str, set] = {} # set[WebSocket]
 active_sessions: dict[str, dict] = {} # space_id -> { "ui_state": dict, "broadcast_fn": callable }
 video_queues: dict[str, list] = {} # space_id -> [{"url": str, "label": str}, ...]

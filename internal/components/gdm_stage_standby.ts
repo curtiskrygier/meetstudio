@@ -1,5 +1,5 @@
 import { LitElement, css, html } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { customElement, property, state } from 'lit/decorators.js';
 
 @customElement('gdm-standby-slate')
 export class GdmStageStandby extends LitElement {
@@ -8,6 +8,43 @@ export class GdmStageStandby extends LitElement {
   @property({ type: String }) description = '';
   @property({ type: Number }) seconds = 0;
   @property({ type: Boolean, reflect: true }) active = false;
+
+  @state() private _currentSeconds = 0;
+  private _timerId: any = null;
+
+  willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
+    if (changedProperties.has('seconds') || changedProperties.has('active')) {
+      if (this.active && this.seconds > 0) {
+        this._currentSeconds = this.seconds;
+        this._startCountdown();
+      } else {
+        this._stopCountdown();
+      }
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._stopCountdown();
+  }
+
+  private _startCountdown() {
+    this._stopCountdown();
+    this._timerId = setInterval(() => {
+      if (this._currentSeconds > 0) {
+        this._currentSeconds--;
+      } else {
+        this._stopCountdown();
+      }
+    }, 1000);
+  }
+
+  private _stopCountdown() {
+    if (this._timerId !== null) {
+      clearInterval(this._timerId);
+      this._timerId = null;
+    }
+  }
 
   static styles = css`
     :host {
@@ -112,8 +149,8 @@ export class GdmStageStandby extends LitElement {
           <div class="badge">${this.badge}</div>
           <div class="title">${this.title}</div>
           ${this.description ? html`<div class="description">${this.description}</div>` : ''}
-          ${this.seconds > 0 ? html`
-            <div class="countdown">${this.formatSeconds(this.seconds)}</div>
+          ${this._currentSeconds > 0 ? html`
+            <div class="countdown">${this.formatSeconds(this._currentSeconds)}</div>
             <div class="pulse-line"></div>
           ` : ''}
         </div>

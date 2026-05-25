@@ -1699,4 +1699,18 @@ body {
   }
 }
 
+/* A2UI Stage Root Overlay Layout */
+#a2ui-stage-root {
+  position: absolute;
+  top: 48px;
+  left: 0;
+  width: 100%;
+  height: calc(100vh - 48px);
+  pointer-events: none;
+  z-index: 200;
+}
+#a2ui-stage-root > * {
+  pointer-events: auto;
+}
+
 

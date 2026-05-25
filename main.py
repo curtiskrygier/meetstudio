@@ -68,7 +68,8 @@ from app.config import (
     PROJECT_ID, REGION, MODEL, VOICE, SYSTEM_PROMPT,
     gemini_client, diagram_store, diagram_version, diagram_title,
     current_session, current_view, stage_listeners, WORKSPACE_AGENT_ENGINE,
-    UI_PROMPT_SYSTEM, active_sessions, video_queues
+    UI_PROMPT_SYSTEM, active_sessions, video_queues,
+    current_a2ui_surface, current_a2ui_datamodel, current_a2ui_root
 )
 from app.auth import validate_google_token, check_producer_auth
 from app.utils import fetch_url, svg_to_png
@@ -80,6 +81,7 @@ from app.diagrams import generate_diagram, render_d2
 from app.images import generate_image, image_cache
 from app.mcp_server import handle_mcp
 from app.reactions import detect_emojis
+from app.a2ui_catalog import A2UI_CATALOG, validate_a2ui_surface
 
 from google.genai import types
 
@@ -160,13 +162,25 @@ async def token_or_api_key_required(token: str = Depends(get_token_from_header))
 
 async def broadcast_to_stage(meeting_id: str, message: dict, exclude_ws: WebSocket = None):
     if not meeting_id: return
-    if message.get("type") == "view_change":
+    msg_type = message.get("type")
+    if msg_type == "view_change":
         current_view[meeting_id] = message
+    elif msg_type == "surfaceUpdate":
+        current_a2ui_surface[meeting_id] = message
+    elif msg_type == "dataModelUpdate":
+        current_a2ui_datamodel[meeting_id] = message
+    elif msg_type == "beginRendering":
+        current_a2ui_root[meeting_id] = message
+    elif msg_type == "deleteSurface":
+        current_a2ui_surface.pop(meeting_id, None)
+        current_a2ui_datamodel.pop(meeting_id, None)
+        current_a2ui_root.pop(meeting_id, None)
+
     if meeting_id not in stage_listeners:
         logger.info(f"[stage_ws] No listeners for {meeting_id}")
         return
     payload = json.dumps(message)
-    logger.info(f"[stage_ws] Broadcasting {message.get('type')} to {len(stage_listeners[meeting_id])} listeners")
+    logger.info(f"[stage_ws] Broadcasting {msg_type} to {len(stage_listeners[meeting_id])} listeners")
     for ws in list(stage_listeners[meeting_id]):
         if ws == exclude_ws:
             continue
@@ -796,7 +810,18 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
     if meeting_id not in stage_listeners: stage_listeners[meeting_id] = set()
     stage_listeners[meeting_id].add(websocket)
     logger.info(f"[stage_ws] NEW listener for {meeting_id}. Total: {len(stage_listeners[meeting_id])}")
-    if meeting_id in current_view: await websocket.send_text(json.dumps(current_view[meeting_id]))
+    
+    # Replay cached legacy view state
+    if meeting_id in current_view:
+        await websocket.send_text(json.dumps(current_view[meeting_id]))
+
+    # Replay cached A2UI layout protocol sequence
+    if meeting_id in current_a2ui_surface:
+        await websocket.send_text(json.dumps(current_a2ui_surface[meeting_id]))
+    if meeting_id in current_a2ui_datamodel:
+        await websocket.send_text(json.dumps(current_a2ui_datamodel[meeting_id]))
+    if meeting_id in current_a2ui_root:
+        await websocket.send_text(json.dumps(current_a2ui_root[meeting_id]))
     try:
         while True:
             raw = await websocket.receive_text()
@@ -1628,48 +1653,6 @@ async def trigger_stage_poll(space_id: str, request: Request):
 
 
 
-# ── A2UI Catalog (Phase 1 allow-list) ────────────────────────────────────────
-# Component names the agent may emit via render_stage. Unknown names are rejected.
-_A2UI_CATALOG = frozenset({
-    # Phase 1
-    "gdm-stage-card",
-    # Phase 2 — static overlays
-    "gdm-chyron",
-    "gdm-ticker",
-    "gdm-standby-slate",
-    "gdm-chat-card",
-    # Phase 2 — layout + media panels
-    "gdm-stage-grid",
-    "gdm-image-panel",
-    "gdm-video-panel",
-    "gdm-iframe-panel",
-    # Phase 2 — data-bound + interactive
-    "gdm-transcript-view",
-    "gdm-telemetry-dashboard",
-    "gdm-radar-view",
-    "gdm-poll-overlay",
-    "gdm-notepad",
-})
-
-def _validate_a2ui_surface(surface_update: dict) -> list[str]:
-    """Returns a list of validation errors; empty = valid."""
-    errors = []
-    components = surface_update.get("components", [])
-    if not components:
-        errors.append("surfaceUpdate.components is empty")
-        return errors
-    for comp in components:
-        comp_id = comp.get("id", "<no-id>")
-        component_def = comp.get("component", {})
-        if not component_def:
-            errors.append(f"Component '{comp_id}' has no component definition")
-            continue
-        element_name = next(iter(component_def)).lower()
-        if element_name not in _A2UI_CATALOG:
-            errors.append(f"Component '{element_name}' not in catalog (id={comp_id})")
-    return errors
-
-
 @app.post("/api/render-stage/{space_id:path}")
 async def render_stage(space_id: str, request: Request):
     """
@@ -1687,7 +1670,7 @@ async def render_stage(space_id: str, request: Request):
     body = await request.json()
 
     surface_update = body.get("surfaceUpdate", {})
-    errors = _validate_a2ui_surface(surface_update)
+    errors = validate_a2ui_surface(surface_update)
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
 

@@ -2028,7 +2028,8 @@
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${proto}://${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&ticket=${encodeURIComponent(ticket)}`);
       stageWS = ws;
-      
+      window.__stageWS = ws;
+
       ws.onopen = () => console.log('[stage] Caption broadcast connected');
       ws.onmessage = (e) => {
         try {

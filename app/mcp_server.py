@@ -7,6 +7,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.auth import check_producer_auth
+from app.a2ui_catalog import validate_a2ui_surface
 
 logger = logging.getLogger("concierge")
 
@@ -143,6 +144,49 @@ _TOOLS = [
                 }
             },
             "required": ["space_id", "text"]
+        }
+    },
+    {
+        "name": "render_stage",
+        "description": (
+            "Render or update interactive A2UI components on the main stage. "
+            "Validates component names against the catalog before broadcasting."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": {
+                    "type": "string",
+                    "description": "Google Meet space ID of the active session (e.g. spaces/abc123)"
+                },
+                "surfaceUpdate": {
+                    "type": "object",
+                    "description": "A2UI v0.8 surfaceUpdate payload containing components"
+                },
+                "root": {
+                    "type": "string",
+                    "description": "Optional component id to use as the render root. Defaults to the first component's id."
+                },
+                "dataModelUpdate": {
+                    "type": "object",
+                    "description": "Optional A2UI v0.8 dataModelUpdate payload"
+                }
+            },
+            "required": ["space_id", "surfaceUpdate"]
+        }
+    },
+    {
+        "name": "clear_stage",
+        "description": "Clear the A2UI stage layout completely (deleteSurface).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": {
+                    "type": "string",
+                    "description": "Google Meet space ID of the active session (e.g. spaces/abc123)"
+                }
+            },
+            "required": ["space_id"]
         }
     }
 ]
@@ -320,6 +364,49 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn, genera
             })
             logger.info(f"[mcp] send_chat_comment to {space_id} by {sender}: {text[:60]}")
             return _tool_text(req_id, f"Chat comment sent to {space_id}.")
+
+        if name == "render_stage":
+            space_id = (args.get("space_id") or "").strip()
+            surface_update = args.get("surfaceUpdate") or {}
+            root_id = (args.get("root") or "").strip()
+            data_model_update = args.get("dataModelUpdate")
+
+            if not space_id:
+                return _tool_error(req_id, "space_id is required")
+
+            # Validate surfaceUpdate with validate_a2ui_surface
+            errors = validate_a2ui_surface(surface_update)
+            if errors:
+                return _tool_error(req_id, f"Validation failed: {', '.join(errors)}")
+
+            components = surface_update.get("components", [])
+            if not root_id:
+                if components:
+                    root_id = components[0].get("id")
+                if not root_id:
+                    return _tool_error(req_id, "No root component id can be resolved")
+
+            # Sequence broadcast updates: surfaceUpdate -> dataModelUpdate (if provided) -> beginRendering
+            await broadcast_fn(space_id, {"type": "surfaceUpdate", "surfaceUpdate": surface_update})
+
+            if data_model_update:
+                await broadcast_fn(space_id, {"type": "dataModelUpdate", "dataModelUpdate": data_model_update})
+
+            await broadcast_fn(space_id, {"type": "beginRendering", "beginRendering": {"root": root_id}})
+
+            logger.info(f"[mcp] render_stage to {space_id} root={root_id} components={len(components)}")
+            return _tool_text(req_id, f"Stage rendered successfully with root '{root_id}'.")
+
+        if name == "clear_stage":
+            space_id = (args.get("space_id") or "").strip()
+            if not space_id:
+                return _tool_error(req_id, "space_id is required")
+
+            # Broadcast deleteSurface using broadcast_fn
+            await broadcast_fn(space_id, {"type": "deleteSurface"})
+
+            logger.info(f"[mcp] clear_stage for {space_id}")
+            return _tool_text(req_id, f"Stage cleared successfully for {space_id}.")
 
         return _rpc_error(req_id, -32601, f"Unknown tool: {name}")
 

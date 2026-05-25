@@ -18,7 +18,7 @@ export class GdmStageTelemetry extends LitElement {
   @property({ type: String }) title = 'Live Telemetry';
   @property({ type: Array }) tabs: Tab[] = [];
   @property({ type: String }) activeTabId = '';
-  @property({ type: String }) viewType = 'cards';
+  @property({ type: String }) viewType = 'both';
   @property({ type: Array }) metrics: Metric[] = [];
   @property({ type: Array }) chartData: number[] = [];
 
@@ -194,7 +194,9 @@ export class GdmStageTelemetry extends LitElement {
           </div>
         </div>
         <div class="dashboard-content">
-          ${this.viewType === 'chart' ? this._renderChart() : this._renderCards()}
+          ${this.viewType === 'chart' ? this._renderChart() : ''}
+          ${this.viewType === 'cards' ? this._renderCards() : ''}
+          ${this.viewType === 'both' ? html`${this._renderCards()}${this._renderChart()}` : ''}
         </div>
       </div>
     `;
