@@ -12,20 +12,33 @@ export class GdmStageChatCard extends LitElement {
       display: block;
       transition: bottom 0.45s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    @keyframes slide-in { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
     .card {
       display: flex;
       flex-direction: row;
       align-items: flex-start;
-      background: rgba(8, 10, 20, 0.80);
-      backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.10);
-      border-radius: 14px;
-      padding: 12px 16px;
-      min-width: 260px;
-      max-width: 360px;
-      animation: slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+      background: rgba(12, 16, 32, 0.75);
+      backdrop-filter: blur(20px) saturate(1.8);
+      -webkit-backdrop-filter: blur(20px) saturate(1.8);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 18px;
+      padding: 14px 18px;
+      min-width: 280px;
+      max-width: 400px;
+      animation: chat-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
       box-sizing: border-box;
+    }
+    @keyframes chat-rise {
+      from { 
+        opacity: 0; 
+        transform: translateY(30px) scale(0.92);
+        filter: blur(4px);
+      }
+      to { 
+        opacity: 1; 
+        transform: translateY(0) scale(1);
+        filter: blur(0);
+      }
     }
     .avatar {
       width: 32px;

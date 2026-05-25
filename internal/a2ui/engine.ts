@@ -185,6 +185,8 @@ export class A2UIEngine {
     // 2. Automatically discover and compile any active top-level overlay components
     const overlayTypes = new Set([
       'gdm-ticker',
+      'gdm-chyron',
+      'gdm-standby-slate',
       'gdm-poll-overlay',
       'gdm-chat-card',
       'gdm-captions',

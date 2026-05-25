@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 COPY index.html index.tsx index.css vite.config.ts tsconfig.json .env.production ./
-COPY main_stage.html main_stage.ts ./
+COPY main_stage.html main_stage.ts main_stage.js main_stage.css ./
 COPY internal ./internal
 COPY types ./types
 COPY public ./public

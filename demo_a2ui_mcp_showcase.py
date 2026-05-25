@@ -122,14 +122,19 @@ async def say_caption(client: httpx.AsyncClient, space_id: str, text: str, root:
 
 async def get_live_stock_price(client: httpx.AsyncClient, symbol: str) -> tuple[float, float]:
     """Retrieve mock live stock pricing if APIs are slow/blocked."""
-    base_prices = {"NVDA": (914.85, 2.5), "MSFT": (421.90, -0.8), "GOOG": (173.50, 1.2)}
+    base_prices = {
+        "NVDA": (914.85, 2.5), 
+        "MSFT": (421.90, -0.8), 
+        "GOOG": (173.50, 1.2),
+        "CAP.PA": (212.40, 1.5)
+    }
     bp, change = base_prices.get(symbol, (100.0, 0.0))
     drift = random.uniform(-1.5, 1.5)
     new_price = bp + drift
     new_change = change + (drift / bp * 100)
     return new_price, new_change
 
-def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, stock_chart, TABS_CONFIG, focused_panel=0):
+def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, cap_c, stock_chart, TABS_CONFIG, focused_panel=0):
     flights_data = [
         {"callsign": "AFR012", "altitude": 34000, "speed": 450, "vrate": 150, "origin": "CDG", "destination": "JFK"},
         {"callsign": "BAW207", "altitude": 38000, "speed": 470, "vrate": 0, "origin": "LHR", "destination": "MIA"},
@@ -184,7 +189,7 @@ def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, stock_c
                         {"label": f"NVDA ({'+' if nvda_c >= 0 else ''}{nvda_c:.2f}%)", "value": f"${nvda_p:.2f} {'▲' if nvda_c >= 0 else '▼'}", "color": "#00ff88" if nvda_c >= 0 else "#ff3b30"},
                         {"label": f"MSFT ({'+' if msft_c >= 0 else ''}{msft_c:.2f}%)", "value": f"${msft_p:.2f} {'▲' if msft_c >= 0 else '▼'}", "color": "#00f2ff" if msft_c >= 0 else "#ff3b30"},
                         {"label": f"GOOG ({'+' if goog_c >= 0 else ''}{goog_c:.2f}%)", "value": f"${goog_p:.2f} {'▲' if goog_c >= 0 else '▼'}", "color": "#ff2af2" if goog_c >= 0 else "#ff3b30"},
-                        {"label": "AAPL (+0.45%)", "value": "$189.30 ▲", "color": "#00f2ff"},
+                        {"label": f"CAP.PA ({'+' if cap_c >= 0 else ''}{cap_c:.2f}%)", "value": f"€{cap_p:.2f} {'▲' if cap_c >= 0 else '▼'}", "color": "#00f2ff" if cap_c >= 0 else "#ff3b30"},
                         {"label": "AMZN (+1.10%)", "value": "$180.20 ▲", "color": "#00ffaa"},
                         {"label": "TSLA (-1.85%)", "value": "$175.40 ▼", "color": "#ff3b30"}
                     ],
@@ -348,14 +353,14 @@ async def main():
         
         stock_chart = [40, 42, 41, 44, 43, 46, 45, 48, 47, 49, 50, 49, 51, 52, 53]
         
-        # Bottom ticker = a genuine short scrolling market/live feed (NOT captions).
+        # Top ticker = a genuine short scrolling market/live feed (NOT captions).
         # Captions are composed separately via the first-class gdm-captions overlay (see say_caption).
         ticker_comp = {
-            "id": "bottom_ticker",
+            "id": "top_ticker",
             "component": {
                 "gdm-ticker": {
-                    "text": "📡 LIVE FEED  •  NVDA ▲ $914  •  MSFT ▼ $421  •  GOOG ▲ $173  •  Toulouse Vélô — network nominal  •  Metro Line A on time  •  Powered by MCP × Google A2UI v0.8",
-                    "badgeText": "LIVE FEED",
+                    "text": "🚀 AEROSPACE LIVE: Airbus A350-1000 flight test over Toulouse nominal • SatLink 5G constellation deployment 85% complete • 📈 STOCKS: NVDA ▲ $914.85 • MSFT ▼ $421.90 • GOOG ▲ $173.50 • CAP.PA ▲ €212.40 • 🚲 Vélô Toulouse: 1,420 bikes available • Metro Line B: 2min wait • ⚡ A2UI Stage Orchestration Active",
+                    "badgeText": "GLOBAL FEED",
                     "active": True
                 }
             }
@@ -366,12 +371,14 @@ async def main():
             nvda_p, nvda_c = await get_live_stock_price(client, "NVDA")
             msft_p, msft_c = await get_live_stock_price(client, "MSFT")
             goog_p, goog_c = await get_live_stock_price(client, "GOOG")
+            cap_p, cap_c = await get_live_stock_price(client, "CAP.PA")
             stock_chart.append(int(max(10, min(95, 50 + nvda_c * 10))))
-
+ 
             grid_comps = make_grid_components(
                 nvda_p, nvda_c,
                 msft_p, msft_c,
                 goog_p, goog_c,
+                cap_p, cap_c,
                 stock_chart, TABS_CONFIG, focused_panel=4 if tick >= 2 else 0
             )
 
@@ -410,6 +417,7 @@ async def main():
                 nvda_p, nvda_c,
                 msft_p, msft_c,
                 goog_p, goog_c,
+                cap_p, cap_c,
                 stock_chart, TABS_CONFIG, focused_panel=4
             )
             poll_comp = {

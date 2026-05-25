@@ -9,7 +9,143 @@
  * Component imports register Lit custom elements globally so the engine's
  * renderA2UI can createElement() them by name.
  */
+import { meet } from '@googleworkspace/meet-addons';
 import { A2UIEngine, A2UIComponent } from './internal/a2ui/engine';
+
+const CLOUD_PROJECT_NUMBER = process.env.CLOUD_PROJECT_NUMBER;
+
+async function initMeetSDK() {
+  if (!CLOUD_PROJECT_NUMBER) {
+    console.warn('[stage-a2ui] CLOUD_PROJECT_NUMBER not found, SDK init may fail');
+  }
+  try {
+    console.log('[stage-a2ui] Initializing Meet Add-on SDK...');
+    const session = await meet.addon.createAddonSession({
+      cloudProjectNumber: CLOUD_PROJECT_NUMBER,
+    });
+    await session.createMainStageClient();
+    console.log('[stage-a2ui] Meet Main Stage client ready');
+  } catch (e) {
+    console.error('[stage-a2ui] Meet SDK initialization failed:', e);
+  }
+}
+
+initMeetSDK();
+
+// --- WebSocket & Audio State ---
+const params = new URLSearchParams(location.search);
+const meetingId = params.get('meeting') || '';
+const ticket = params.get('ticket') || '';
+let stageWS: WebSocket | null = null;
+let audioCtx: AudioContext | null = null;
+
+function setupWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${location.host}/ws/stage?meeting_id=${encodeURIComponent(meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+  console.log('[stage] Connecting to WebSocket...', wsUrl);
+  
+  stageWS = new WebSocket(wsUrl);
+  (window as any).__stageWS = stageWS; 
+
+  stageWS.onopen = () => {
+    console.log('[stage] WebSocket connected');
+    const statusBadge = document.getElementById('status-badge');
+    if (statusBadge) {
+      statusBadge.textContent = 'Connected';
+      statusBadge.style.opacity = '1';
+      statusBadge.style.color = '#00f2ff';
+    }
+  };
+
+  stageWS.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      
+      // 1. Give A2UI Engine priority
+      if (engine && engine.handleMessage(msg)) {
+        return;
+      }
+
+      // 2. Handle legacy imperative messages (Audio & Theme only)
+      handleLegacyMessage(msg);
+    } catch (e) {
+      console.error('[stage] Message process error:', e);
+    }
+  };
+
+  stageWS.onclose = () => {
+    console.warn('[stage] WebSocket closed, retrying in 3s...');
+    const statusBadge = document.getElementById('status-badge');
+    if (statusBadge) {
+      statusBadge.textContent = 'Disconnected';
+      statusBadge.style.opacity = '0.4';
+    }
+    setTimeout(setupWebSocket, 3000);
+  };
+}
+
+function handleLegacyMessage(msg: any) {
+  if (msg.type === 'audio') {
+    if (msg.data) playAudioChunk(msg.data);
+  } else if (msg.type === 'sound_event') {
+    if (msg.sound) triggerSoundEffect(msg.sound);
+  } else if (msg.type === 'theme_change') {
+    if (msg.tokens) {
+      Object.entries(msg.tokens).forEach(([k, v]) => {
+        document.documentElement.style.setProperty(k, v as string);
+      });
+    }
+  }
+}
+
+async function playAudioChunk(base64: string) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    const binString = atob(base64);
+    const bytes = new Uint8Array(binString.length);
+    for (let i = 0; i < binString.length; i++) bytes[i] = binString.charCodeAt(i);
+    
+    const buffer = await audioCtx.decodeAudioData(bytes.buffer);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(audioCtx.destination);
+    src.start();
+  } catch (e) {
+    console.warn('[stage] Audio playback error:', e);
+  }
+}
+
+function triggerSoundEffect(sound: string) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const now = audioCtx.currentTime;
+
+  if (sound === 'applause') {
+    const bufferSize = audioCtx.sampleRate * 2;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 1000;
+    
+    const mainGain = audioCtx.createGain();
+    mainGain.gain.setValueAtTime(0, now);
+    mainGain.gain.linearRampToValueAtTime(0.5, now + 0.5);
+    mainGain.gain.exponentialRampToValueAtTime(0.001, now + 3.0);
+    
+    noise.connect(filter);
+    filter.connect(mainGain);
+    mainGain.connect(audioCtx.destination);
+    noise.start(now);
+    noise.stop(now + 3.0);
+  }
+}
 
 // Stage catalog — one import per supported gdm-* component
 import './internal/components/gdm_stage_card';
@@ -45,6 +181,9 @@ const engine = new A2UIEngine((components: A2UIComponent[]) => {
     reportError(err, 'A2UIEngine Callback');
   }
 });
+
+// Initialize WebSocket after engine is ready
+setupWebSocket();
 
 function reportError(error: any, context?: string) {
   const message = error instanceof Error ? error.message : String(error);
@@ -205,25 +344,44 @@ function renderA2UI(components: A2UIComponent[]) {
     }
 
     // 5. Append top-level (root) elements to the stage container
+    // Chat cards should rise from the bottom in a stack
     const chatCards = components.filter(comp => comp && comp.id && !nestedIds.has(comp.id) && comp.element === 'gdm-chat-card');
     const totalChats = chatCards.length;
-    let chatIndex = 0;
+    
+    // Create a persistent chat container if it doesn't exist
+    let chatContainer = root.querySelector('#gdm-chat-stack') as HTMLElement;
+    if (!chatContainer) {
+      chatContainer = document.createElement('div');
+      chatContainer.id = 'gdm-chat-stack';
+      chatContainer.style.position = 'fixed';
+      chatContainer.style.left = '40px';
+      chatContainer.style.bottom = '80px';
+      chatContainer.style.top = '120px'; 
+      chatContainer.style.zIndex = '800';
+      chatContainer.style.display = 'flex';
+      chatContainer.style.flexDirection = 'column-reverse'; // Newest at bottom, pushing old up
+      chatContainer.style.justifyContent = 'flex-start'; // Start from the bottom (due to reverse)
+      chatContainer.style.gap = '12px';
+      chatContainer.style.pointerEvents = 'none';
+      root.appendChild(chatContainer);
+    }
+
     for (const comp of components) {
       if (!comp || !comp.id) continue;
       if (!nestedIds.has(comp.id)) {
         const el = elementMap.get(comp.id);
         if (el) {
-          if (el.parentNode !== root) {
-            root.appendChild(el);
-          }
           if (comp.element === 'gdm-chat-card') {
-            // Absolute float coordinates with stacking offsets for overlays
-            el.style.position = 'fixed';
-            el.style.left = '40px';
-            const revIndex = totalChats - 1 - chatIndex;
-            el.style.bottom = `${100 + revIndex * 86}px`;
-            el.style.zIndex = '800';
-            chatIndex++;
+            if (el.parentNode !== chatContainer) {
+              chatContainer.appendChild(el);
+            }
+            el.style.position = 'relative'; // Let flexbox handle it
+            el.style.left = '0';
+            el.style.bottom = '0';
+          } else {
+            if (el.parentNode !== root) {
+              root.appendChild(el);
+            }
           }
         }
       }

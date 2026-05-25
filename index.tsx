@@ -178,6 +178,42 @@ export class GdmArchitectAgent extends LitElement {
   }
 
 
+  private getBaseStageComponents(): any[] {
+    return [
+      {
+        id: 'stage_captions',
+        element: 'gdm-captions',
+        props: { active: false, speaker: 'Gemini', text: '' }
+      },
+      {
+        id: 'stage_emojis',
+        element: 'gdm-emoji-burst',
+        props: { active: false, emoji: '👏', count: 12 }
+      },
+      {
+        id: 'stage_standby',
+        element: 'gdm-standby-slate',
+        props: { 
+          active: this.standbyActive, 
+          badge: this.standbyBadge, 
+          title: this.standbyTitle,
+          description: this.standbyDesc,
+          seconds: this.standbySecs
+        }
+      },
+      {
+        id: 'stage_ticker',
+        element: 'gdm-ticker',
+        props: { 
+          active: this.tickerActive, 
+          text: this.tickerText || 'LIVE FEED: CAPGEMINI SE (CAP.PA) €194.20 (+1.45%) • AIRBUS A321XLR FLIGHT TEST AIB201 • VÉLÔTOULOUSE: 420 STATIONS ACTIVE • METRO LINE B: NORMAL SERVICE',
+          fontSize: 48,
+          height: 100
+        }
+      }
+    ];
+  }
+
   private extractYoutubeId(url: string): string {
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = url.match(regExp);
@@ -186,51 +222,71 @@ export class GdmArchitectAgent extends LitElement {
 
   private changeLayout(layout: 'single' | 'split' | 'grid') {
     this.activeLayout = layout;
-    this.wsService?.sendJson({
-      type: 'view_change',
-      mode: 'image',
-      imageLayout: layout,
-      imageData: 'dashboard',
-      panel: 3,
-      label: 'Container Telemetry'
-    });
+    const payload = {
+      type: 'surfaceUpdate',
+      surfaceUpdate: {
+        components: [
+          ...this.getBaseStageComponents(),
+          {
+            id: 'grid_layout',
+            component: {
+              'gdm-stage-grid': {
+                layout: layout,
+                focusedPanel: 0
+              }
+            }
+          }
+        ]
+      }
+    };
+    this.wsService?.sendJson(payload);
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
   }
 
   private clearMainStage() {
-    const broadcastMsg = {
-      type: 'clear_mainstage',
-      layout: 'grid-3',
-      focus_panel: 1
-    };
     if (this.wsService?.readyState === WebSocket.OPEN) {
-      this.wsService?.sendJson(broadcastMsg);
-    }
-    if (this.sidePanelClient) {
-      this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
+      this.wsService?.sendJson({ type: 'deleteSurface' });
+      // Reset layout to grid-3 for future additions
+      this.activeLayout = 'grid';
     }
   }
 
   private triggerDirectView(mode: 'notepad' | 'diagram' | 'dashboard') {
+    let component = {};
+    let id = '';
     if (mode === 'dashboard') {
-      this.wsService?.sendJson({
-        type: 'view_change',
-        mode: 'image',
-        imageData: 'dashboard',
-        panel: 3,
-        imageLayout: 'grid',
-        label: 'Container Telemetry'
-      });
+      id = 'telemetry_panel';
+      component = { 'gdm-telemetry-dashboard': { active: true } };
     } else if (mode === 'diagram') {
-      this.wsService?.sendJson({
-        type: 'view_change',
-        mode: 'diagram',
-        diag_id: this.diagramSessionId
-      });
+      id = 'diagram_panel';
+      component = { 'gdm-diagram-view': { active: true, diag_id: this.diagramSessionId } };
     } else {
-      this.wsService?.sendJson({
-        type: 'view_change',
-        mode: 'notepad'
-      });
+      id = 'notepad_panel';
+      component = { 'gdm-notepad': { active: true } };
+    }
+
+    const payload = {
+      type: 'surfaceUpdate',
+      surfaceUpdate: {
+        components: [
+          ...this.getBaseStageComponents(),
+          {
+            id: 'grid_layout',
+            component: {
+              'gdm-stage-grid': {
+                layout: 'single',
+                children: { explicitList: [id] }
+              }
+            }
+          },
+          { id, component }
+        ]
+      }
+    };
+
+    if (this.wsService?.readyState === WebSocket.OPEN) {
+      this.wsService?.sendJson(payload);
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
     }
   }
 
@@ -239,47 +295,80 @@ export class GdmArchitectAgent extends LitElement {
     if (!raw) return;
     const videoId = this.extractYoutubeId(raw);
     
-    if (this.ytPanel > 2 && this.activeLayout !== 'grid') {
-      this.activeLayout = 'grid';
-    } else if (this.ytPanel === 2 && this.activeLayout === 'single') {
-      this.activeLayout = 'split';
-    }
+    const panelId = `panel_${this.ytPanel}`;
+    const payload = {
+      type: 'surfaceUpdate',
+      surfaceUpdate: {
+        components: [
+          ...this.getBaseStageComponents(),
+          {
+            id: 'grid_layout',
+            component: {
+              'gdm-stage-grid': {
+                layout: this.activeLayout
+              }
+            }
+          },
+          {
+            id: panelId,
+            component: {
+              'gdm-video-panel': {
+                src: `https://www.youtube.com/embed/${videoId}?autoplay=1`,
+                label: 'YouTube Feed'
+              }
+            }
+          }
+        ]
+      }
+    };
 
-    this.wsService?.sendJson({
-      type: 'view_change',
-      mode: 'image',
-      imageData: 'youtube:' + videoId,
-      panel: this.ytPanel,
-      imageLayout: this.activeLayout,
-      label: 'YouTube Feed',
-      autoplay: this.ytAutoplay
-    });
+    if (this.wsService?.readyState === WebSocket.OPEN) {
+      this.wsService?.sendJson(payload);
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+    }
   }
 
   private togglePresenterCam(enabled: boolean) {
     this.camEnabled = enabled;
+    const panelId = `panel_${this.camPanel}`;
+    
     if (enabled) {
-      if (this.camPanel > 2 && this.activeLayout !== 'grid') {
-        this.activeLayout = 'grid';
-      } else if (this.camPanel === 2 && this.activeLayout === 'single') {
-        this.activeLayout = 'split';
-      }
-      this.wsService?.sendJson({
-        type: 'view_change',
-        mode: 'image',
-        imageData: 'camera',
-        panel: this.camPanel,
-        imageLayout: this.activeLayout,
-        label: 'Presenter Live Feed'
-      });
+      const payload = {
+        type: 'surfaceUpdate',
+        surfaceUpdate: {
+          components: [
+            {
+              id: 'grid_layout',
+              component: {
+                'gdm-stage-grid': { layout: this.activeLayout }
+              }
+            },
+            {
+              id: panelId,
+              component: {
+                'gdm-camera-panel': {
+                  label: 'Presenter Live Feed',
+                  mirrored: true
+                }
+              }
+            }
+          ]
+        }
+      };
+      this.wsService?.sendJson(payload);
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
     } else {
+      // In A2UI, to "clear" a panel, we can either delete its surface or update the grid children
       this.wsService?.sendJson({
-        type: 'view_change',
-        mode: 'image',
-        imageData: 'clear_camera',
-        panel: this.camPanel,
-        imageLayout: this.activeLayout
+        type: 'surfaceUpdate',
+        surfaceUpdate: {
+          components: [{
+            id: panelId,
+            component: {} // Emptying the component
+          }]
+        }
       });
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
     }
   }
 
@@ -336,21 +425,43 @@ export class GdmArchitectAgent extends LitElement {
 
   private toggleChyron() {
     this.chyronActive = !this.chyronActive;
-    this.wsService?.sendJson({
-      type: 'chyron_event',
-      active: this.chyronActive,
-      title: this.chyronTitle.trim() || 'Presenter',
-      subtitle: this.chyronSub.trim() || 'Workspace Live Stream'
-    });
+    const payload = {
+      type: 'surfaceUpdate',
+      surfaceUpdate: {
+        components: [{
+          id: 'chyron_overlay',
+          component: {
+            'gdm-chyron': {
+              active: this.chyronActive,
+              title: this.chyronTitle.trim() || 'Presenter',
+              subtitle: this.chyronSub.trim() || 'Workspace Live Stream'
+            }
+          }
+        }]
+      }
+    };
+    this.wsService?.sendJson(payload);
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
   }
 
   private toggleTicker() {
     this.tickerActive = !this.tickerActive;
-    this.wsService?.sendJson({
-      type: 'ticker_event',
-      active: this.tickerActive,
-      text: this.tickerText.trim() || 'Broadcasting Live'
-    });
+    const payload = {
+      type: 'surfaceUpdate',
+      surfaceUpdate: {
+        components: [{
+          id: 'ticker_overlay',
+          component: {
+            'gdm-ticker': {
+              active: this.tickerActive,
+              text: this.tickerText.trim() || 'Broadcasting Live'
+            }
+          }
+        }]
+      }
+    };
+    this.wsService?.sendJson(payload);
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
   }
 
   private sendSimulatedComment() {
@@ -358,19 +469,26 @@ export class GdmArchitectAgent extends LitElement {
     const text = this.simulatedText.trim();
     if (!text) return;
 
-    const broadcastMsg = {
-      type: 'chat_comment',
-      sender,
-      text,
-      avatar: ''
+    const chat_id = `chat_${Date.now()}`;
+    const payload = {
+      type: 'surfaceUpdate',
+      surfaceUpdate: {
+        components: [{
+          id: chat_id,
+          component: {
+            'gdm-chat-card': {
+              sender,
+              text,
+              avatar: ''
+            }
+          }
+        }]
+      }
     };
 
     if (this.wsService?.readyState === WebSocket.OPEN) {
-      this.wsService?.sendJson(broadcastMsg);
-    }
-
-    if (this.sidePanelClient) {
-      this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
+      this.wsService?.sendJson(payload);
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
     }
 
     this.simulatedText = ''; // Clear text input after broadcast
@@ -440,21 +558,28 @@ export class GdmArchitectAgent extends LitElement {
                 cleanText = trimmedText.substring('/mainstage'.length).trim();
               }
 
-              const broadcastMsg = {
-                type: 'chat_comment',
-                sender,
-                text: cleanText,
-                avatar
+              const chat_id = `chat_${m.name ? m.name.split('/').pop() : Date.now()}`;
+              const payload = {
+                type: 'surfaceUpdate',
+                surfaceUpdate: {
+                  components: [{
+                    id: chat_id,
+                    component: {
+                      'gdm-chat-card': {
+                        sender,
+                        text: cleanText,
+                        avatar
+                      }
+                    }
+                  }]
+                }
               };
 
-              console.log('[concierge] Promoting chat message to main stage:', broadcastMsg);
+              console.log('[concierge] Promoting chat message to main stage via A2UI:', payload);
 
               if (this.wsService?.readyState === WebSocket.OPEN) {
-                this.wsService?.sendJson(broadcastMsg);
-              }
-
-              if (this.sidePanelClient) {
-                this.sidePanelClient.notifyMainStage(JSON.stringify(broadcastMsg)).catch(() => {});
+                this.wsService?.sendJson(payload);
+                this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
               }
             } else {
               console.log('[concierge] Ignored regular chat message (no /mainstage prefix or demo preset matches):', text);
@@ -487,15 +612,25 @@ export class GdmArchitectAgent extends LitElement {
 
   private toggleStandby() {
     this.standbyActive = !this.standbyActive;
-    this.wsService?.sendJson({
-      type: 'standby_event',
-      active: this.standbyActive,
-      duration: this.standbyTime,
-      seconds: this.standbySecs,
-      badge: this.standbyBadge,
-      title: this.standbyTitle,
-      description: this.standbyDesc
-    });
+    const payload = {
+      type: 'surfaceUpdate',
+      surfaceUpdate: {
+        components: [{
+          id: 'standby_overlay',
+          component: {
+            'gdm-standby-slate': {
+              active: this.standbyActive,
+              badge: this.standbyBadge,
+              title: this.standbyTitle,
+              description: this.standbyDesc,
+              seconds: this.standbyTime
+            }
+          }
+        }]
+      }
+    };
+    this.wsService?.sendJson(payload);
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
   }
 
   private triggerSound(sound: string) {
@@ -1029,14 +1164,30 @@ export class GdmArchitectAgent extends LitElement {
           window.open(url, '_blank');
         }
       } else {
+        const payload = {
+          type: 'surfaceUpdate',
+          surfaceUpdate: {
+            components: [
+              {
+                id: 'grid_layout',
+                component: { 'gdm-stage-grid': { layout: 'single', children: { explicitList: ['doc_panel'] } } }
+              },
+              {
+                id: 'doc_panel',
+                component: {
+                  'gdm-doc-panel': {
+                    url,
+                    label,
+                    content
+                  }
+                }
+              }
+            ]
+          }
+        };
         if (this.wsService?.readyState === WebSocket.OPEN) {
-          this.wsService?.sendJson({
-            type: 'view_change',
-            mode: 'doc',
-            url,
-            label,
-            content
-          });
+          this.wsService?.sendJson(payload);
+          this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
         }
       }
     } else {

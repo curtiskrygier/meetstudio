@@ -105,7 +105,6 @@ app = FastAPI(lifespan=lifespan)
 class MeetFramingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        response.headers["X-Frame-Options"] = "ALLOWALL"
         # Hardened CSP: Removed unsafe-inline and unsafe-eval
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
@@ -529,6 +528,28 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 active_sessions[session_space[0]]["access_token"] = token
                             
                             logger.info(f"[ws] init user={workspace_user[0]} space={session_space[0]}")
+                            
+                            # Initial Welcome Card for Main Stage if empty
+                            if session_space[0] not in current_a2ui_surface:
+                                await broadcast_to_stage(session_space[0], {
+                                    "type": "surfaceUpdate",
+                                    "surfaceUpdate": {
+                                        "components": [{
+                                            "id": "welcome_card",
+                                            "element": "gdm-stage-card",
+                                            "props": {
+                                                "title": "🚀 Google Meet Studio",
+                                                "text": "Welcome! The Gemini Agent Architect is ready to build with you. Click the \"Connect\" button in your side panel to start the AI collaboration.",
+                                                "accent": "#00f2ff",
+                                                "mode": "hero"
+                                            }
+                                        }]
+                                    }
+                                })
+                                await broadcast_to_stage(session_space[0], {
+                                    "type": "beginRendering",
+                                    "beginRendering": {"root": "welcome_card"}
+                                })
                         
                         elif data.get("type") == "diagram_mode":
                             # Sync frontend button clicks back into backend state
@@ -547,7 +568,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             ui_state["videoEnabled"] = not ui_state["videoEnabled"]
                             await broadcast_a2ui()
                             
-                        elif data.get("type") in ("view_change", "sound_event", "layout_event", "focus_panel", "chyron_event", "ticker_event", "standby_event", "emoji_event", "studio_mode_event", "stage_camera_frame", "chat_comment"):
+                        elif data.get("type") in ("view_change", "sound_event", "layout_event", "focus_panel", "emoji_event", "studio_mode_event", "stage_camera_frame", "surfaceUpdate", "dataModelUpdate", "beginRendering", "deleteSurface"):
                             await broadcast_to_stage(session_space[0], data)
             except Exception:
                 stop_event.set()
@@ -817,16 +838,11 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         if t_text:
                             if current_turn["role"] != "user":
                                 current_turn.update({"id": str(uuid_lib.uuid4()), "role": "user"})
-                            msg = {
-                                "type": "transcript", 
-                                "role": "user", 
-                                "label": "You",
-                                "text": t_text, 
-                                "turn_id": current_turn["id"], 
-                                "is_final": is_final
-                            }
-                            await websocket.send_text(json.dumps(msg))
-                            await broadcast_to_stage(session_space[0], msg)
+                            transcript_msg = {"type": "transcript", "role": "user", "label": "You", "text": t_text, "turn_id": current_turn["id"], "is_final": is_final}
+                            await websocket.send_text(json.dumps(transcript_msg))
+                            caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "element": "gdm-captions", "props": {"text": t_text, "speaker": "You", "active": True}}]}}
+                            await broadcast_to_stage(session_space[0], caption_surface)
+                            await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": "stage_captions"}})
                             if is_final: current_turn["role"] = None
 
                     if sc.model_turn:
@@ -838,16 +854,11 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 if not active_sessions.get(meeting_id, {}).get("audio_muted"):
                                     if current_turn["role"] != "agent":
                                         current_turn.update({"id": str(uuid_lib.uuid4()), "role": "agent"})
-                                    msg = {
-                                        "type": "transcript",
-                                        "role": "agent",
-                                        "label": "Gemini Architect",
-                                        "text": part.text,
-                                        "turn_id": current_turn["id"],
-                                        "is_final": False
-                                    }
-                                    await websocket.send_text(json.dumps(msg))
-                                    await broadcast_to_stage(session_space[0], msg)
+                                    transcript_msg = {"type": "transcript", "role": "agent", "label": "Gemini Architect", "text": part.text, "turn_id": current_turn["id"], "is_final": False}
+                                    await websocket.send_text(json.dumps(transcript_msg))
+                                    caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "element": "gdm-captions", "props": {"text": part.text, "speaker": "Gemini Architect", "active": True}}]}}
+                                    await broadcast_to_stage(session_space[0], caption_surface)
+                                    await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": "stage_captions"}})
                     
                     if sc.turn_complete: current_turn["role"] = None
         except Exception as e:
@@ -2117,6 +2128,12 @@ async def api_image_pre_generate(payload: dict = Body(...), token: str = Depends
 @app.post("/mcp")
 async def mcp_endpoint(request: Request):
     return await handle_mcp(request, broadcast_to_stage, generate_diagram, generate_image)
+
+@app.get("/main_stage.html", include_in_schema=False)
+async def serve_main_stage():
+    response = FileResponse("dist/main_stage.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return response
 
 @app.get("/", include_in_schema=False)
 async def serve_index():

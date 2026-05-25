@@ -70,13 +70,13 @@ export class GdmStageCaptions extends LitElement {
     }
     .pill.prev {
       padding: 8px 22px;
-      font-size: var(--prev-font-size, 24px);
+      font-size: var(--prev-font-size, 32px);
       opacity: 0.5;
       transform: scale(0.97);
     }
     .pill.active {
       padding: 12px 28px;
-      font-size: var(--active-font-size, 32px);
+      font-size: var(--active-font-size, 48px);
       font-weight: 600;
       animation: caption-rise 0.3s ease-out;
     }

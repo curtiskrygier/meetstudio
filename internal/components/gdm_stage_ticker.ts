@@ -9,19 +9,19 @@ export class GdmStageTicker extends LitElement {
   @property({ type: String }) badgeColor = '#ff0055';
   @property({ type: String }) accentColor = '#00f2ff';
   @property({ type: String }) textColor = 'rgba(255,255,255,0.95)';
-  @property({ type: Number }) fontSize = 16;
-  @property({ type: Number }) height = 48;
+  @property({ type: Number }) fontSize = 32;
+  @property({ type: Number }) height = 80;
   @property({ type: Number }) scrollSpeed = 35;
 
   static styles = css`
     :host {
       display: block;
       position: fixed;
-      bottom: 0;
+      top: 0;
       left: 0;
       right: 0;
       z-index: 750;
-      transform: translateY(100%);
+      transform: translateY(-100%);
       opacity: 0;
       transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
     }
@@ -35,8 +35,8 @@ export class GdmStageTicker extends LitElement {
       background: rgba(4, 6, 18, 0.92);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      border-top: 1px solid rgba(var(--accent-rgb, 0,242,255), 0.25);
-      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+      border-bottom: 1px solid rgba(var(--accent-rgb, 0,242,255), 0.25);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
       box-sizing: border-box;
     }
     .badge {

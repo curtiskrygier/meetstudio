@@ -11,56 +11,92 @@ export class GdmStageCard extends LitElement {
   @property({ type: String }) title = '';
   @property({ type: String }) text = '';
   @property({ type: String }) accent = '#00f2ff';
+  @property({ type: String, reflect: true }) mode: 'default' | 'hero' = 'default';
 
   static styles = css`
     :host {
       display: block;
       position: fixed;
+      z-index: 800;
+      animation: slide-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    :host([mode="default"]), :host(:not([mode])) {
       bottom: 48px;
       right: 40px;
-      max-width: 380px;
-      z-index: 800;
-      animation: slide-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+      max-width: 440px; /* Increased from 380px */
     }
+
+    :host([mode="hero"]) {
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, rgba(0, 242, 255, 0.05) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    :host([mode="hero"]) .card {
+      max-width: 640px;
+      padding: 40px;
+      pointer-events: auto;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
     @keyframes slide-in {
-      from { opacity: 0; transform: translateY(20px) scale(0.97); }
+      from { opacity: 0; transform: translateY(30px) scale(0.95); }
       to   { opacity: 1; transform: translateY(0) scale(1); }
     }
+
     .card {
-      background: rgba(8, 10, 20, 0.72);
-      backdrop-filter: blur(18px) saturate(1.4);
-      -webkit-backdrop-filter: blur(18px) saturate(1.4);
-      border: 1px solid rgba(255, 255, 255, 0.10);
-      border-radius: 16px;
-      padding: 20px 22px 18px;
+      background: rgba(10, 12, 24, 0.82);
+      backdrop-filter: blur(24px) saturate(1.6);
+      -webkit-backdrop-filter: blur(24px) saturate(1.6);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      padding: 24px 28px;
       box-shadow:
-        0 0 0 1px rgba(255,255,255,0.04) inset,
-        0 8px 32px rgba(0,0,0,0.55),
-        0 0 28px -4px var(--accent-glow, rgba(0,242,255,0.22));
+        0 0 0 1px rgba(255,255,255,0.05) inset,
+        0 12px 48px rgba(0,0,0,0.65),
+        0 0 40px -10px var(--accent-glow, rgba(0,242,255,0.25));
     }
+
     .accent-bar {
-      width: 36px;
-      height: 3px;
+      width: 48px;
+      height: 4px;
       border-radius: 99px;
       background: var(--accent-color, #00f2ff);
-      margin-bottom: 12px;
-      box-shadow: 0 0 10px var(--accent-color, #00f2ff);
+      margin-bottom: 20px;
+      box-shadow: 0 0 15px var(--accent-color, #00f2ff);
     }
+
     .title {
       font-family: 'Google Sans', 'Inter', sans-serif;
-      font-size: 17px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
+      font-size: 22px; /* Increased from 17px */
+      font-weight: 800;
+      letter-spacing: -0.02em;
       color: #fff;
-      margin: 0 0 6px;
-      line-height: 1.25;
+      margin: 0 0 12px;
+      line-height: 1.2;
     }
+
+    :host([mode="hero"]) .title {
+      font-size: 32px;
+    }
+
     .text {
       font-family: 'Google Sans', 'Inter', sans-serif;
-      font-size: 13.5px;
-      color: rgba(255, 255, 255, 0.72);
-      line-height: 1.55;
+      font-size: 15px; /* Increased from 13.5px */
+      color: rgba(255, 255, 255, 0.75);
+      line-height: 1.6;
       margin: 0;
+    }
+
+    :host([mode="hero"]) .text {
+      font-size: 18px;
     }
   `;
 

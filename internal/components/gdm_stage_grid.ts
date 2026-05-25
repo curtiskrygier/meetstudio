@@ -18,7 +18,11 @@ export class GdmStageGrid extends LitElement {
       display: grid;
       width: 100%;
       height: 100%;
-      gap: 4px;
+      gap: 8px;
+      padding: 8px;
+      box-sizing: border-box;
+      transition: grid-template-columns 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+                  grid-template-rows 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .grid.single {
       grid-template-columns: 1fr;
@@ -32,28 +36,17 @@ export class GdmStageGrid extends LitElement {
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr 1fr;
     }
-    .grid.grid-3 {
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: 1fr 1fr;
-    }
-    .grid.grid-3 .slot:first-child {
-      grid-column: 1 / -1;
-    }
-    .grid.presentation {
-      grid-template-columns: 1fr;
-      grid-template-rows: 1fr;
-    }
-    .grid.presentation .slot.focused {
-      box-shadow: inset 0 0 0 3px rgba(0, 242, 255, 0.18);
-    }
     .slot {
       overflow: hidden;
       position: relative;
-      background: rgba(0, 0, 0, 0.4);
-      transition: box-shadow 0.3s;
+      background: rgba(10, 12, 24, 0.4);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .slot.focused {
-      box-shadow: inset 0 0 0 2px rgba(0, 242, 255, 0.45);
+      box-shadow: inset 0 0 0 2px rgba(0, 242, 255, 0.45), 0 0 30px rgba(0, 242, 255, 0.1);
+      border-color: rgba(0, 242, 255, 0.3);
     }
   `;
 
