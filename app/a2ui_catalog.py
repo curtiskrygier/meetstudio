@@ -17,6 +17,14 @@ A2UI_CATALOG = frozenset({
     "gdm-radar-view",
     "gdm-poll-overlay",
     "gdm-notepad",
+    "gdm-captions",
+    "gdm-diagram-view",
+    "gdm-emoji-burst",
+    "gdm-camera-panel",
+    "gdm-draw-overlay",
+    "gdm-pointer",
+    "gdm-terminal-panel",
+    "gdm-doc-panel",
 })
 
 def validate_a2ui_surface(surface_update: dict) -> list[str]:
