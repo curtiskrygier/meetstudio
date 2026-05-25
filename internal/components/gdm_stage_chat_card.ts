@@ -8,7 +8,10 @@ export class GdmStageChatCard extends LitElement {
   @property({ type: String }) avatar = '';
 
   static styles = css`
-    :host { display: block; }
+    :host {
+      display: block;
+      transition: bottom 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    }
     @keyframes slide-in { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
     .card {
       display: flex;

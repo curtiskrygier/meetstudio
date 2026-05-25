@@ -11,9 +11,17 @@ export class GdmStageStandby extends LitElement {
 
   @state() private _currentSeconds = 0;
   private _timerId: any = null;
+  private _lastActive = false;
+  private _lastSeconds = 0;
 
   willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
-    if (changedProperties.has('seconds') || changedProperties.has('active')) {
+    const activeChanged = this.active !== this._lastActive;
+    const secondsChanged = this.seconds !== this._lastSeconds;
+
+    if (activeChanged || secondsChanged) {
+      this._lastActive = this.active;
+      this._lastSeconds = this.seconds;
+
       if (this.active && this.seconds > 0) {
         this._currentSeconds = this.seconds;
         this._startCountdown();

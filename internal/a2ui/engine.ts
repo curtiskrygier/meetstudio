@@ -186,9 +186,7 @@ export class A2UIEngine {
     const overlayTypes = new Set([
       'gdm-ticker',
       'gdm-poll-overlay',
-      'gdm-chat-card',
-      'gdm-chyron',
-      'gdm-standby-slate'
+      'gdm-chat-card'
     ]);
 
     for (const [id, item] of this.componentBuffer.entries()) {

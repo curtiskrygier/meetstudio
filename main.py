@@ -496,6 +496,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
         ui_state["status_state"] = "listening"
         ui_state["status_text"] = "Assistant connected — listening"
         await broadcast_a2ui()
+        active_sessions[meeting_id]["send_client_content_fn"] = session.send_client_content
 
         stop_event = asyncio.Event()
         workspace_user = [""]
@@ -566,6 +567,40 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                     logger.error(f"[inject] send error: {e}")
 
         inject_task = asyncio.create_task(audio_injector())
+
+        CHAT_POLL_INTERVAL = 8
+
+        async def chat_poller():
+            last_seen: set[str] = set()
+            await asyncio.sleep(15)
+            while not stop_event.is_set():
+                try:
+                    token = session_token[0]
+                    space = session_space[0]
+                    if token and space and not active_sessions.get(meeting_id, {}).get("audio_muted"):
+                        raw = await fetch_meeting_chat(space, token)
+                        if raw:
+                            new_lines = [l for l in raw.splitlines() if l and l not in last_seen]
+                            if new_lines:
+                                for l in new_lines:
+                                    last_seen.add(l)
+                                if len(last_seen) > 200:
+                                    last_seen = set(list(last_seen)[-200:])
+                                batch = "\n".join(new_lines)
+                                text = (
+                                    f"[Meeting Chat — new messages]\n{batch}\n"
+                                    "[End of chat. Respond to relevant questions at your discretion.]"
+                                )
+                                await session.send_client_content(
+                                    turns=types.Content(role="user", parts=[types.Part(text=text)]),
+                                    turn_complete=True,
+                                )
+                                logger.info(f"[chat_poll] injected {len(new_lines)} message(s) for {space}")
+                except Exception as e:
+                    logger.error(f"[chat_poll] error: {e}")
+                await asyncio.sleep(CHAT_POLL_INTERVAL)
+
+        chat_poll_task = asyncio.create_task(chat_poller())
 
         try:
             while not stop_event.is_set():
@@ -823,6 +858,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
             stop_event.set()
             recv_task.cancel()
             inject_task.cancel()
+            chat_poll_task.cancel()
 
 @app.get("/api/auth/ticket")
 async def create_auth_ticket(request: Request, token: str = Depends(token_required)):
@@ -860,6 +896,92 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", ticket:
     await websocket.accept()
     try: await live_session(websocket, meeting_id)
     except WebSocketDisconnect: pass
+
+A2UI_ACTION_CONTEXT: dict[str, dict] = {
+    "target-lock": {
+        "context_fn": lambda d: f"[Stage] A viewer locked focus on flight {d.get('callsign', '?')} on the radar display.",
+        "dm_path": "radar/lockedCallsign",
+        "dm_val_fn": lambda d: d.get("callsign", ""),
+    },
+    "zoom-change": {
+        "context_fn": lambda d: f"[Stage] A viewer adjusted the radar zoom by {d.get('delta', 0):+} nm.",
+        "dm_path": None,
+        "dm_val_fn": None,
+    },
+    "poll-vote": {
+        "context_fn": lambda d: f"[Stage] A viewer cast a poll vote for option index {d.get('optionIndex', 0)}.",
+        "dm_path": "poll/lastVote",
+        "dm_val_fn": lambda d: str(d.get("optionIndex", "")),
+    },
+    "tab-select": {
+        "context_fn": lambda d: f"[Stage] A viewer selected the '{d.get('tabId', '?')}' tab on the telemetry dashboard.",
+        "dm_path": None,
+        "dm_val_fn": None,
+    },
+}
+
+async def handle_tab_select_action(meeting_id: str, tab_id: str):
+    logger.info(f"[interactive_tabs] Switching tab to '{tab_id}' for meeting {meeting_id}")
+    
+    stocks_metrics = [
+        {"label": "NVDA (+2.50%)", "value": "$914.85 ▲", "color": "#00ff88"},
+        {"label": "MSFT (-0.80%)", "value": "$421.90 ▼", "color": "#ff3b30"},
+        {"label": "GOOG (+1.20%)", "value": "$173.50 ▲", "color": "#ff2af2"},
+        {"label": "AAPL (+0.45%)", "value": "$189.30 ▲", "color": "#00f2ff"},
+        {"label": "AMZN (+1.10%)", "value": "$180.20 ▲", "color": "#00ffaa"},
+        {"label": "TSLA (-1.85%)", "value": "$175.40 ▼", "color": "#ff3b30"}
+    ]
+
+    bikes_metrics = [
+        {"label": "JULES-GUESDE (60%)", "value": "12/20 Bikes ▲", "color": "#00ffaa"},
+        {"label": "CAPITOLE (72%)", "value": "18/25 Bikes ▲", "color": "#00f2ff"},
+        {"label": "JEAN-JAURÈS (16%)", "value": "3/18 Bikes ▼", "color": "#ffaa00"},
+        {"label": "MARENGO (0%)", "value": "0/15 Empty ▼", "color": "#ff3b30"},
+        {"label": "🚲 DAILY TRIPS", "value": "15.2k", "color": "#ff2af2"}
+    ]
+
+    metro_metrics = [
+        {"label": "🚄 LINE A (HEADWAY)", "value": "1m15s NOMINAL ▲", "color": "#00ffaa"},
+        {"label": "🚄 LINE B (HEADWAY)", "value": "1m30s NOMINAL ▲", "color": "#00f2ff"},
+        {"label": "🚌 BUS CO2 SAVED", "value": "12.4 Tons ▲", "color": "#00ffaa"},
+        {"label": "⚡ TRACTION POWER", "value": "4.8 MW ▼", "color": "#ffaa00"},
+        {"label": "🟢 NETWORK STATUS", "value": "100% OPERATIVE", "color": "#00ffaa"}
+    ]
+    
+    charts = {
+        "stk": [40, 42, 41, 44, 43, 46, 45, 48, 47, 49, 50, 49, 51, 52, 53],
+        "pwr": [60, 58, 62, 65, 70, 72, 68, 65, 58, 55, 52, 55, 60, 62, 64],
+        "ac": [30, 32, 35, 38, 42, 45, 42, 40, 38, 35, 36, 38, 40, 41, 43]
+    }
+    
+    surface = current_a2ui_surface.get(meeting_id)
+    if not surface:
+        logger.warning(f"[interactive_tabs] No surface cached for meeting {meeting_id}")
+        return
+        
+    components = surface.get("surfaceUpdate", {}).get("components", [])
+    updated = False
+    
+    for comp in components:
+        if comp.get("id") == "telemetry_dashboard":
+            dashboard = comp.get("component", {}).get("gdm-telemetry-dashboard", {})
+            if dashboard:
+                dashboard["activeTabId"] = tab_id
+                if tab_id == "stk":
+                    dashboard["metrics"] = stocks_metrics
+                    dashboard["chartData"] = charts["stk"]
+                elif tab_id == "pwr":
+                    dashboard["metrics"] = bikes_metrics
+                    dashboard["chartData"] = charts["pwr"]
+                elif tab_id == "ac":
+                    dashboard["metrics"] = metro_metrics
+                    dashboard["chartData"] = charts["ac"]
+                updated = True
+                break
+                
+    if updated:
+        logger.info(f"[interactive_tabs] Broadcasting updated surface to meeting {meeting_id}")
+        await broadcast_to_stage(meeting_id, surface)
 
 @app.websocket("/ws/stage")
 async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
@@ -916,6 +1038,39 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
             elif msg.get("type") == "stage_camera_frame":
                 # Forward camera frames to all other connected stage clients
                 await broadcast_to_stage(meeting_id, msg, exclude_ws=websocket)
+            elif msg.get("type") == "a2ui_error":
+                logger.error(f"[a2ui_error] Frontend A2UI Error in meeting {meeting_id}:\n  Context: {msg.get('context')}\n  Error: {msg.get('error')}\n  Stack: {msg.get('stack')}")
+            elif msg.get("type") == "a2ui_action":
+                action_name = msg.get("action")
+                detail = msg.get("detail", {})
+                logger.info(f"[a2ui_action] {action_name} in {meeting_id}: {detail}")
+                if action_name == "tab-select":
+                    tab_id = detail.get("tabId")
+                    if tab_id:
+                        await handle_tab_select_action(meeting_id, tab_id)
+                action_spec = A2UI_ACTION_CONTEXT.get(action_name)
+                if action_spec:
+                    send_fn = active_sessions.get(meeting_id, {}).get("send_client_content_fn")
+                    if send_fn:
+                        context_text = action_spec["context_fn"](detail)
+                        try:
+                            await send_fn(
+                                turns=types.Content(role="user", parts=[types.Part(text=context_text)]),
+                                turn_complete=True,
+                            )
+                            logger.info(f"[a2ui_action] context injected: {context_text}")
+                        except Exception as e:
+                            logger.error(f"[a2ui_action] send_client_content failed: {e}")
+                    if action_spec.get("dm_path") and action_spec.get("dm_val_fn"):
+                        dm_val = action_spec["dm_val_fn"](detail)
+                        dm_msg = {
+                            "type": "dataModelUpdate",
+                            "dataModelUpdate": {
+                                "path": action_spec["dm_path"],
+                                "contents": [{"key": action_spec["dm_path"].split("/")[-1], "valueString": dm_val}]
+                            }
+                        }
+                        await broadcast_to_stage(meeting_id, dm_msg, exclude_ws=websocket)
     except WebSocketDisconnect:
         if meeting_id in stage_listeners:
             stage_listeners[meeting_id].discard(websocket)

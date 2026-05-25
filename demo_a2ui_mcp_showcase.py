@@ -146,7 +146,7 @@ def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, stock_c
             "id": "notepad_notes",
             "component": {
                 "gdm-notepad": {
-                    "content": "### Collaborative Agent Notes\n\n1. **Dynamic Overlays:** Standard-compliant A2UI composite rendering active.\n2. **Daikin AC Status:** Multi-split system 5 zones synced successfully.\n3. **Power Budget:** Shelly Pro 3EM whole-home loads broadcasting live."
+                    "content": "### Collaborative Agent Notes\n\n1. **Dynamic Overlays:** Standard-compliant A2UI composite rendering active.\n2. **Live Telemetry:** Real-time system performance and metric feeds active.\n3. **Canvas State:** Multi-agent workspace synchronization verified."
                 }
             }
         },
@@ -161,8 +161,9 @@ def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, stock_c
                         {"label": f"NVDA ({'+' if nvda_c >= 0 else ''}{nvda_c:.2f}%)", "value": f"${nvda_p:.2f} {'▲' if nvda_c >= 0 else '▼'}", "color": "#00ff88" if nvda_c >= 0 else "#ff3b30"},
                         {"label": f"MSFT ({'+' if msft_c >= 0 else ''}{msft_c:.2f}%)", "value": f"${msft_p:.2f} {'▲' if msft_c >= 0 else '▼'}", "color": "#00f2ff" if msft_c >= 0 else "#ff3b30"},
                         {"label": f"GOOG ({'+' if goog_c >= 0 else ''}{goog_c:.2f}%)", "value": f"${goog_p:.2f} {'▲' if goog_c >= 0 else '▼'}", "color": "#ff2af2" if goog_c >= 0 else "#ff3b30"},
-                        {"label": "⚡ SHELLY LOAD", "value": "1.48 kW", "color": "#ffaa00"},
-                        {"label": "❄️ DAIKIN CLIMATE", "value": "21.5°C", "color": "#00ffaa"}
+                        {"label": "AAPL (+0.45%)", "value": "$189.30 ▲", "color": "#00f2ff"},
+                        {"label": "AMZN (+1.10%)", "value": "$180.20 ▲", "color": "#00ffaa"},
+                        {"label": "TSLA (-1.85%)", "value": "$175.40 ▼", "color": "#ff3b30"}
                     ],
                     "chartData": stock_chart[-15:],
                     "viewType": "both"
@@ -316,8 +317,8 @@ async def main():
         
         TABS_CONFIG = [
             {"id": "stk", "label": "📈 STOCKS"},
-            {"id": "pwr", "label": "⚡ POWER"},
-            {"id": "ac",  "label": "❄️ CLIMATE"}
+            {"id": "pwr", "label": "🚲 TOULOUSE BIKES"},
+            {"id": "ac",  "label": "🚄 METRO / TRAFFIC"}
         ]
         
         stock_chart = [40, 42, 41, 44, 43, 46, 45, 48, 47, 49, 50, 49, 51, 52, 53]
@@ -327,7 +328,7 @@ async def main():
             "id": "bottom_ticker",
             "component": {
                 "gdm-ticker": {
-                    "text": "🔴 WHOLE-HOME ENERGY: 1.48 kW (Shelly Pro 3EM) — DAIKIN MULTI-SPLIT AC AUTOMATIONS: ACTIVE (FROST GUARD ENFORCED) — REAL-TIME COMPOSITED MAIN STAGE BROADCASING VIA MODEL CONTEXT PROTOCOL x GOOGLE A2UI v0.8",
+                    "text": "🎙️ CAPTIONS: \"I'd like to demo a concept called the Gemini Agent Architect. This is a Google Meet web add-on where we bring a virtual architect directly to the meeting main stage. The main aim of the add-on is for the architect to listen to the ongoing conversation and dynamically generate real-time architecture diagrams that update on the fly as we speak. At the end, it generates a polished image file that can be saved and referred to afterwards. I was interested to see if this was technically possible to achieve end-to-end, and the results are incredibly promising. It's a completely live, agent-driven layout composition using Model Context Protocol and Google A2UI v0.8.\"",
                     "active": True
                 }
             }

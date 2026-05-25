@@ -14,7 +14,7 @@ export class GdmStageTicker extends LitElement {
       left: 0;
       right: 0;
       z-index: 750;
-      height: 38px;
+      height: 48px;
       transform: translateY(100%);
       opacity: 0;
       transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
@@ -26,8 +26,8 @@ export class GdmStageTicker extends LitElement {
     .bar {
       display: flex;
       align-items: center;
-      height: 38px;
-      background: rgba(4, 6, 18, 0.90);
+      height: 48px;
+      background: rgba(4, 6, 18, 0.92);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid rgba(0, 242, 255, 0.22);
@@ -35,10 +35,10 @@ export class GdmStageTicker extends LitElement {
     }
     .badge {
       flex-shrink: 0;
-      min-width: 140px;
+      min-width: 150px;
       padding: 0 16px;
       font-family: 'Google Sans', 'Inter', sans-serif;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.12em;
       text-transform: uppercase;
@@ -71,12 +71,12 @@ export class GdmStageTicker extends LitElement {
       display: inline-block;
       white-space: nowrap;
       padding-left: 100%;
-      line-height: 38px;
+      line-height: 48px;
       font-family: 'Google Sans', 'Inter', sans-serif;
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 600;
       letter-spacing: 0.03em;
-      color: rgba(255, 255, 255, 0.9);
+      color: rgba(255, 255, 255, 0.95);
       animation: ticker-scroll 35s linear infinite;
     }
     @keyframes ticker-scroll {

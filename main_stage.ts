@@ -27,89 +27,201 @@ import './internal/components/gdm_stage_radar';
 import './internal/components/gdm_stage_poll';
 import './internal/components/gdm_stage_notepad';
 
-const root = document.getElementById('a2ui-stage-root')!;
+const root = document.getElementById('a2ui-stage-root');
 const contentLayer = document.getElementById('content-layer');
 
 const engine = new A2UIEngine((components: A2UIComponent[]) => {
-  renderA2UI(components);
+  try {
+    renderA2UI(components);
+  } catch (err) {
+    reportError(err, 'A2UIEngine Callback');
+  }
 });
 
-function renderA2UI(components: A2UIComponent[]) {
-  root.innerHTML = '';
-
-  // Hide legacy content-layer when A2UI is active so it doesn't bleed through
-  if (contentLayer) {
-    contentLayer.style.visibility = components.length > 0 ? 'hidden' : '';
-  }
-  const elementMap = new Map<string, HTMLElement>();
-
-  // 1. Create all elements and assign their properties
-  for (const comp of components) {
-    const el = document.createElement(comp.element) as any;
-    for (const [k, v] of Object.entries(comp.props)) {
-      if (k === 'children' || k === 'child') continue; // structural — handled by nesting logic below
-      if (v === true || v === 'true') {
-        el.setAttribute(k, '');
-        el[k] = true;
-      } else if (v === false || v === 'false') {
-        el.removeAttribute(k);
-        el[k] = false;
-      } else {
-        el[k] = v;
-      }
+function reportError(error: any, context?: string) {
+  const message = error instanceof Error ? error.message : String(error);
+  const stack = error instanceof Error ? error.stack : '';
+  console.error(`[stage-a2ui] Error in ${context || 'render'}:`, error);
+  
+  const ws = (window as any).__stageWS as WebSocket | undefined;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({
+        type: 'a2ui_error',
+        error: message,
+        stack: stack,
+        context: context || 'renderA2UI'
+      }));
+    } catch (e) {
+      console.error('[stage-a2ui] Failed to send error to backend:', e);
     }
-    elementMap.set(comp.id, el);
   }
+}
 
-  // Keep track of elements that are nested under a parent
-  const nestedIds = new Set<string>();
+function renderA2UI(components: A2UIComponent[]) {
+  try {
+    if (!root) {
+      console.error("[stage-a2ui] Error: #a2ui-stage-root element not found!");
+      return;
+    }
 
-  // 2. Establish parent-child nesting and automatically assign slots for the grid layout
-  for (const comp of components) {
-    const parentEl = elementMap.get(comp.id);
-    if (!parentEl) continue;
+    if (!Array.isArray(components)) {
+      components = [];
+    }
 
-    const childrenList = comp.props.children?.explicitList;
-    if (Array.isArray(childrenList)) {
-      childrenList.forEach((childId: string, index: number) => {
+    // Hide legacy content-layer when A2UI is active so it doesn't bleed through
+    if (contentLayer) {
+      contentLayer.style.visibility = components.length > 0 ? 'hidden' : '';
+    }
+
+    // 1. Map existing elements in the DOM by their A2UI ID attribute
+    const existingMap = new Map<string, HTMLElement>();
+    const existingEls = root.querySelectorAll('[data-a2ui-id]');
+    existingEls.forEach((el) => {
+      const id = el.getAttribute('data-a2ui-id');
+      if (id) {
+        existingMap.set(id, el as HTMLElement);
+      }
+    });
+
+    const elementMap = new Map<string, HTMLElement>();
+
+    // 2. Create or reuse elements and update their properties
+    for (const comp of components) {
+      if (!comp || !comp.id || !comp.element) {
+        console.warn('[stage-a2ui] Skipping invalid component representation:', comp);
+        continue;
+      }
+
+      let el = existingMap.get(comp.id);
+
+      if (el && el.tagName.toLowerCase() === comp.element.toLowerCase()) {
+        // Reuse existing element! Remove from existingMap so we don't delete it
+        existingMap.delete(comp.id);
+      } else {
+        // Create new element if it doesn't exist or has wrong tag
+        if (el) {
+          el.remove();
+          existingMap.delete(comp.id);
+        }
+        el = document.createElement(comp.element) as HTMLElement;
+        el.setAttribute('data-a2ui-id', comp.id);
+        el.id = comp.id; // Also set standard DOM ID for convenience
+      }
+
+      // Update properties/attributes on the element
+      const props = comp.props || {};
+      for (const [k, v] of Object.entries(props)) {
+        if (k === 'children' || k === 'child') continue; // structural
+        
+        const anyEl = el as any;
+        try {
+          if (v === true || v === 'true') {
+            if (!el.hasAttribute(k) || anyEl[k] !== true) {
+              el.setAttribute(k, '');
+              try { anyEl[k] = true; } catch (e) { /* ignore read-only */ }
+            }
+          } else if (v === false || v === 'false') {
+            if (el.hasAttribute(k) || anyEl[k] !== false) {
+              el.removeAttribute(k);
+              try { anyEl[k] = false; } catch (e) { /* ignore read-only */ }
+            }
+          } else {
+            if (anyEl[k] !== v) {
+              try { anyEl[k] = v; } catch (e) { /* ignore read-only */ }
+            }
+          }
+        } catch (err) {
+          console.warn(`[stage-a2ui] Failed to set prop/attr ${k} on ${comp.element}:`, err);
+        }
+      }
+      elementMap.set(comp.id, el);
+    }
+
+    // 3. Remove any remaining elements from the DOM (they are no longer active)
+    existingMap.forEach((el) => {
+      el.remove();
+    });
+
+    // 4. Establish nesting relationships
+    const nestedIds = new Set<string>();
+
+    for (const comp of components) {
+      if (!comp || !comp.id) continue;
+      const parentEl = elementMap.get(comp.id);
+      if (!parentEl) continue;
+
+      const childrenList = comp.props?.children?.explicitList;
+      if (Array.isArray(childrenList)) {
+        childrenList.forEach((childId: string, index: number) => {
+          const childEl = elementMap.get(childId);
+          if (childEl) {
+            if (childEl.parentNode !== parentEl) {
+              parentEl.appendChild(childEl);
+            }
+            nestedIds.add(childId);
+
+            // If the parent is gdm-stage-grid, assign slot based on the list position
+            const expectedSlot = `panel-${index + 1}`;
+            if (comp.element === 'gdm-stage-grid' && childEl.getAttribute('slot') !== expectedSlot) {
+              childEl.setAttribute('slot', expectedSlot);
+            }
+          }
+        });
+        
+        // Clean up any extra child elements that shouldn't be here anymore
+        const activeChildEls = new Set(childrenList.map(id => elementMap.get(id)).filter((el): el is HTMLElement => !!el));
+        Array.from(parentEl.children).forEach(child => {
+          if (child.getAttribute('data-a2ui-id') && !activeChildEls.has(child as HTMLElement)) {
+            child.remove();
+          }
+        });
+
+      } else if (comp.props?.child) {
+        const childId = comp.props.child;
         const childEl = elementMap.get(childId);
         if (childEl) {
-          parentEl.appendChild(childEl);
+          if (childEl.parentNode !== parentEl) {
+            parentEl.appendChild(childEl);
+          }
           nestedIds.add(childId);
+        }
+        
+        // Clean up any extra child elements that shouldn't be here anymore
+        Array.from(parentEl.children).forEach(child => {
+          if (child.getAttribute('data-a2ui-id') && child !== childEl) {
+            child.remove();
+          }
+        });
+      }
+    }
 
-          // If the parent is gdm-stage-grid, assign slot based on the list position
-          if (comp.element === 'gdm-stage-grid') {
-            childEl.setAttribute('slot', `panel-${index + 1}`);
+    // 5. Append top-level (root) elements to the stage container
+    const chatCards = components.filter(comp => comp && comp.id && !nestedIds.has(comp.id) && comp.element === 'gdm-chat-card');
+    const totalChats = chatCards.length;
+    let chatIndex = 0;
+    for (const comp of components) {
+      if (!comp || !comp.id) continue;
+      if (!nestedIds.has(comp.id)) {
+        const el = elementMap.get(comp.id);
+        if (el) {
+          if (el.parentNode !== root) {
+            root.appendChild(el);
+          }
+          if (comp.element === 'gdm-chat-card') {
+            // Absolute float coordinates with stacking offsets for overlays
+            el.style.position = 'fixed';
+            el.style.left = '40px';
+            const revIndex = totalChats - 1 - chatIndex;
+            el.style.bottom = `${100 + revIndex * 86}px`;
+            el.style.zIndex = '800';
+            chatIndex++;
           }
         }
-      });
-    } else if (comp.props.child) {
-      const childId = comp.props.child;
-      const childEl = elementMap.get(childId);
-      if (childEl) {
-        parentEl.appendChild(childEl);
-        nestedIds.add(childId);
       }
     }
-  }
-
-  // 3. Append only top-level (root) elements to the stage container
-  let chatCount = 0;
-  for (const comp of components) {
-    if (!nestedIds.has(comp.id)) {
-      const el = elementMap.get(comp.id);
-      if (el) {
-        root.appendChild(el);
-        if (comp.element === 'gdm-chat-card') {
-          // Absolute float coordinates with stacking offsets for overlays
-          el.style.position = 'fixed';
-          el.style.left = '40px';
-          el.style.bottom = `${100 + chatCount * 86}px`;
-          el.style.zIndex = '800';
-          chatCount++;
-        }
-      }
-    }
+  } catch (err) {
+    reportError(err, 'renderA2UI');
   }
 }
 
@@ -119,15 +231,53 @@ function renderA2UI(components: A2UIComponent[]) {
 
 // Forward component action events to the stage WebSocket so the server can
 // react to user interactions within A2UI Lit components.
-root.addEventListener('target-lock', (e: Event) => sendAction('target-lock', (e as CustomEvent).detail));
-root.addEventListener('zoom-change', (e: Event) => sendAction('zoom-change', (e as CustomEvent).detail));
-root.addEventListener('tab-select',  (e: Event) => sendAction('tab-select',  (e as CustomEvent).detail));
-root.addEventListener('poll-vote',   (e: Event) => sendAction('poll-vote',   (e as CustomEvent).detail));
+if (root) {
+  root.addEventListener('target-lock', (e: Event) => sendAction('target-lock', (e as CustomEvent).detail));
+  root.addEventListener('zoom-change', (e: Event) => sendAction('zoom-change', (e as CustomEvent).detail));
+  root.addEventListener('tab-select',  (e: Event) => sendAction('tab-select',  (e as CustomEvent).detail));
+  root.addEventListener('poll-vote',   (e: Event) => sendAction('poll-vote',   (e as CustomEvent).detail));
+}
+
+interface ActionPatch {
+  element: string;
+  prop?: string;
+  extract?: (d: any) => any;
+}
+
+const ACTION_PROP_MAP: Record<string, ActionPatch> = {
+  'target-lock': { element: 'gdm-radar-view',          prop: 'lockedCallsign', extract: d => d?.callsign ?? '' },
+  'tab-select':  { element: 'gdm-telemetry-dashboard', prop: 'activeTabId',    extract: d => d?.tabId ?? '' },
+  'zoom-change': { element: 'gdm-radar-view' },
+  'poll-vote':   { element: 'gdm-poll-overlay' },
+};
 
 function sendAction(type: string, detail: any) {
   const ws = (window as any).__stageWS as WebSocket | undefined;
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'a2ui_action', action: type, detail }));
+  }
+  if (!root) return;
+  const patch = ACTION_PROP_MAP[type];
+  if (!patch) return;
+  const el = root.querySelector(patch.element) as any;
+  if (!el) return;
+
+  if (type === 'zoom-change') {
+    const cur = typeof el.zoom === 'number' ? el.zoom : 10.0;
+    el.zoom = Math.max(1, Math.min(100, cur + (detail?.delta ?? 0)));
+    return;
+  }
+  if (type === 'poll-vote') {
+    const idx = detail?.optionIndex;
+    if (typeof idx === 'number' && Array.isArray(el.values)) {
+      const v = [...el.values];
+      v[idx] = (v[idx] || 0) + 1;
+      el.values = v;
+    }
+    return;
+  }
+  if (patch.prop && patch.extract) {
+    el[patch.prop] = patch.extract(detail);
   }
 }
 
