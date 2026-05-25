@@ -1707,7 +1707,7 @@ body {
   width: 100%;
   height: calc(100vh - 48px);
   pointer-events: none;
-  z-index: 200;
+  z-index: 9000;
 }
 #a2ui-stage-root > * {
   pointer-events: auto;

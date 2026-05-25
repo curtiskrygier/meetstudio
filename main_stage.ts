@@ -48,7 +48,15 @@ function renderA2UI(components: A2UIComponent[]) {
     const el = document.createElement(comp.element) as any;
     for (const [k, v] of Object.entries(comp.props)) {
       if (k === 'children' || k === 'child') continue; // structural — handled by nesting logic below
-      el[k] = v;
+      if (v === true || v === 'true') {
+        el.setAttribute(k, '');
+        el[k] = true;
+      } else if (v === false || v === 'false') {
+        el.removeAttribute(k);
+        el[k] = false;
+      } else {
+        el[k] = v;
+      }
     }
     elementMap.set(comp.id, el);
   }
@@ -86,11 +94,20 @@ function renderA2UI(components: A2UIComponent[]) {
   }
 
   // 3. Append only top-level (root) elements to the stage container
+  let chatCount = 0;
   for (const comp of components) {
     if (!nestedIds.has(comp.id)) {
       const el = elementMap.get(comp.id);
       if (el) {
         root.appendChild(el);
+        if (comp.element === 'gdm-chat-card') {
+          // Absolute float coordinates with stacking offsets for overlays
+          el.style.position = 'fixed';
+          el.style.left = '40px';
+          el.style.bottom = `${100 + chatCount * 86}px`;
+          el.style.zIndex = '800';
+          chatCount++;
+        }
       }
     }
   }

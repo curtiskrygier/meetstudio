@@ -179,7 +179,29 @@ export class A2UIEngine {
       }
     };
 
+    // 1. Compile the main root element tree
     traverse(rootId);
+
+    // 2. Automatically discover and compile any active top-level overlay components
+    const overlayTypes = new Set([
+      'gdm-ticker',
+      'gdm-poll-overlay',
+      'gdm-chat-card',
+      'gdm-chyron',
+      'gdm-standby-slate'
+    ]);
+
+    for (const [id, item] of this.componentBuffer.entries()) {
+      if (visited.has(id)) continue;
+      if (!item?.component) continue;
+      const keys = Object.keys(item.component);
+      if (keys.length === 0) continue;
+      const el = keys[0].toLowerCase();
+      if (overlayTypes.has(el)) {
+        traverse(id);
+      }
+    }
+
     return out;
   }
 }

@@ -5,7 +5,7 @@ import { customElement, property } from 'lit/decorators.js';
 export class GdmStageChyron extends LitElement {
   @property({ type: String }) title = '';
   @property({ type: String }) subtitle = '';
-  @property({ type: Boolean }) active = false;
+  @property({ type: Boolean, reflect: true }) active = false;
 
   static styles = css`
     :host { display: block; position: fixed; bottom: 48px; left: 40px; z-index: 700; }

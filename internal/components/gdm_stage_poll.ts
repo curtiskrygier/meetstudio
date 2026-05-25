@@ -9,6 +9,55 @@ export class GdmStagePoll extends LitElement {
   @property({ type: String }) layout: 'rows' | 'grid' = 'rows';
   @property({ type: Boolean, reflect: true }) active = false;
 
+  willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
+    if (changedProperties.has('options') && typeof this.options === 'string') {
+      try {
+        const parsed = JSON.parse(this.options);
+        if (Array.isArray(parsed)) {
+          this.options = parsed;
+        } else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).options)) {
+          this.options = (parsed as any).options;
+        } else {
+          this.options = [];
+        }
+      } catch (e) {
+        console.error('[gdm-poll-overlay] Failed to parse options string:', e);
+        this.options = [];
+      }
+    } else if (this.options && typeof this.options === 'object' && !Array.isArray(this.options)) {
+      if (Array.isArray((this.options as any).options)) {
+        this.options = (this.options as any).options;
+      } else {
+        this.options = [];
+      }
+    }
+
+    if (changedProperties.has('values') && typeof this.values === 'string') {
+      try {
+        const parsed = JSON.parse(this.values);
+        if (Array.isArray(parsed)) {
+          this.values = parsed;
+        } else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).values)) {
+          this.values = (parsed as any).values;
+        } else {
+          this.values = [];
+        }
+      } catch (e) {
+        console.error('[gdm-poll-overlay] Failed to parse values string:', e);
+        this.values = [];
+      }
+    } else if (this.values && typeof this.values === 'object' && !Array.isArray(this.values)) {
+      if (Array.isArray((this.values as any).values)) {
+        this.values = (this.values as any).values;
+      } else {
+        this.values = [];
+      }
+    }
+
+    if (!Array.isArray(this.options)) this.options = [];
+    if (!Array.isArray(this.values)) this.values = [];
+  }
+
   @state() private _voted = -1;
 
   static styles = css`

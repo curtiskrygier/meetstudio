@@ -17,6 +17,38 @@ export class GdmStageRadar extends LitElement {
   @property({ type: Number }) zoom = 10.0;
   @property({ type: Boolean }) stretched = false;
 
+  willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
+    if (typeof this.zoom !== 'number' || isNaN(this.zoom)) {
+      const parsed = parseFloat(this.zoom as any);
+      this.zoom = isNaN(parsed) ? 10.0 : parsed;
+    }
+
+    if (changedProperties.has('flights') && typeof this.flights === 'string') {
+      try {
+        const parsed = JSON.parse(this.flights);
+        if (Array.isArray(parsed)) {
+          this.flights = parsed;
+        } else if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).flights)) {
+          this.flights = (parsed as any).flights;
+        } else {
+          this.flights = [];
+        }
+      } catch (e) {
+        console.error('[gdm-radar-view] Failed to parse flights string:', e);
+        this.flights = [];
+      }
+    } else if (this.flights && typeof this.flights === 'object' && !Array.isArray(this.flights)) {
+      if (Array.isArray((this.flights as any).flights)) {
+        this.flights = (this.flights as any).flights;
+      } else {
+        this.flights = [];
+      }
+    }
+    if (!Array.isArray(this.flights)) {
+      this.flights = [];
+    }
+  }
+
   static styles = css`
     :host {
       display: block;
@@ -49,11 +81,31 @@ export class GdmStageRadar extends LitElement {
     }
 
     .radar-wrapper {
-      flex-shrink: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      min-height: 0;
+      min-width: 0;
+      flex-shrink: 1;
     }
 
     .radar-svg {
       display: block;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+    }
+
+    .radar-svg * {
+      pointer-events: none;
+    }
+
+    .radar-svg .blip-group,
+    .radar-svg .blip-group * {
+      pointer-events: auto !important;
+      cursor: pointer;
     }
 
     @keyframes sweep {
@@ -255,27 +307,33 @@ export class GdmStageRadar extends LitElement {
   `;
 
   private _blipColor(vrate: number): string {
-    if (vrate < -250) return '#00ff88';
-    if (vrate > 250) return '#ffd60a';
+    const vr = typeof vrate === 'number' ? vrate : 0;
+    if (vr < -250) return '#00ff88';
+    if (vr > 250) return '#ffd60a';
     return '#00f2ff';
   }
 
   private _fl(altitude: number): number {
-    return Math.round(altitude * 3.28084 / 100);
+    const alt = typeof altitude === 'number' ? altitude : 30000;
+    return Math.round(alt * 3.28084 / 100);
   }
 
   private _vrateSymbol(vrate: number): string {
-    if (vrate > 250) return '▲';
-    if (vrate < -250) return '▼';
+    const vr = typeof vrate === 'number' ? vrate : 0;
+    if (vr > 250) return '▲';
+    if (vr < -250) return '▼';
     return '—';
   }
 
   private _blipPos(index: number, total: number, cx: number, cy: number, maxR: number): { x: number; y: number } {
+    const zoomVal = typeof this.zoom === 'number' && !isNaN(this.zoom) ? this.zoom : parseFloat(this.zoom as any) || 10.0;
     const count = total || 1;
-    const angle = (index / count) * 2 * Math.PI + this.zoom * 0.1;
+    const angle = (index / count) * 2 * Math.PI + zoomVal * 0.1;
     const flight = this.flights[index];
-    const rawDist = 40 + (flight.altitude % 50) * 0.8;
-    const dist = Math.min(rawDist, maxR);
+    const baseDist = 30 + (index * 15) % (maxR - 20);
+    const altitude = (flight && typeof flight.altitude === 'number') ? flight.altitude : 30000;
+    const altMod = (altitude % 1000) * 0.03;
+    const dist = Math.min(Math.max(20, baseDist + altMod), maxR);
     return {
       x: cx + dist * Math.cos(angle),
       y: cy + dist * Math.sin(angle),
@@ -302,9 +360,16 @@ export class GdmStageRadar extends LitElement {
         style="transform-origin: ${sweepOriginX}px ${sweepOriginY}px"
       >
         <defs>
-          <radialGradient id="${secondary ? 'sweep-grad-s' : 'sweep-grad'}" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="rgba(0,242,255,0.35)"/>
-            <stop offset="100%" stop-color="rgba(0,242,255,0)"/>
+          <radialGradient
+            id="${secondary ? 'sweep-grad-s' : 'sweep-grad'}"
+            gradientUnits="userSpaceOnUse"
+            cx="${cx}"
+            cy="${cy}"
+            r="${r}"
+          >
+            <stop offset="0%" stop-color="rgba(0, 242, 255, 0.45)"/>
+            <stop offset="60%" stop-color="rgba(0, 242, 255, 0.15)"/>
+            <stop offset="100%" stop-color="rgba(0, 242, 255, 0)"/>
           </radialGradient>
           <clipPath id="${secondary ? 'radar-clip-s' : 'radar-clip'}">
             <circle cx="${cx}" cy="${cy}" r="${r}"/>
@@ -320,11 +385,19 @@ export class GdmStageRadar extends LitElement {
         <line x1="${cx}" y1="${cy - r}" x2="${cx}" y2="${cy + r}" stroke="rgba(0,242,255,0.12)" stroke-width="0.5"/>
         <line x1="${cx - r}" y1="${cy}" x2="${cx + r}" y2="${cy}" stroke="rgba(0,242,255,0.12)" stroke-width="0.5"/>
 
+        <path
+          d="M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r * 0.7071} ${cy - r * 0.7071} Z"
+          fill="url(#${secondary ? 'sweep-grad-s' : 'sweep-grad'})"
+          opacity="0.35"
+          class="${sweepClass}"
+          style="transform-origin: ${sweepOriginX}px ${sweepOriginY}px"
+        />
+
         <line
           x1="${cx}" y1="${cy}"
           x2="${cx}" y2="${cy - r}"
-          stroke="rgba(0,242,255,0.35)"
-          stroke-width="1"
+          stroke="rgba(0,242,255,0.45)"
+          stroke-width="1.5"
           class="${sweepClass}"
           style="transform-origin: ${sweepOriginX}px ${sweepOriginY}px"
         />
@@ -341,7 +414,7 @@ export class GdmStageRadar extends LitElement {
             const size = locked ? 6 : 4;
             const filterStyle = locked ? `filter: drop-shadow(0 0 4px ${color})` : '';
             return svg`
-              <g style="${filterStyle}" @click="${() => this._lockFlight(f.callsign)}">
+              <g class="blip-group" style="${filterStyle}" @click="${() => this._lockFlight(f.callsign)}">
                 <polygon
                   points="${this._diamondPoints(pos.x, pos.y, size)}"
                   fill="${color}"
