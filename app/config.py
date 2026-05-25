@@ -115,10 +115,24 @@ The A2UI Component Catalog provides a rich vocabulary of 15 components consistin
        - `title` (string, required): Primary lower-third text.
        - `subtitle` (string, optional): Secondary context text.
        - `active` (boolean, required): Toggle overlay visibility.
+       - `accentColor` (string, optional): CSS color for the accent bar and glow (default `#00f2ff`).
+       - `titleColor` (string, optional): CSS color for the title text (default `#ffffff`).
+       - `subtitleColor` (string, optional): CSS color for the subtitle text (default `rgba(255,255,255,0.62)`).
+       - `titleSize` (number, optional): Title font size in px (default `20`).
+       - `subtitleSize` (number, optional): Subtitle font size in px (default `14`).
+       - `bottom` (number, optional): Distance from bottom of screen in px (default `48`).
+       - `left` (number, optional): Distance from left of screen in px (default `40`).
    - `gdm-ticker`: Bottom scrolling ticker band across the stage screen.
      - Props:
        - `text` (string, required): Text content to scroll.
        - `active` (boolean, required): Toggle ticker visibility.
+       - `badgeText` (string, optional): Label shown in the left badge (default `LIVE FEED`).
+       - `badgeColor` (string, optional): CSS color for the badge and dot (default `#ff0055`).
+       - `accentColor` (string, optional): CSS color for the top border accent (default `#00f2ff`).
+       - `textColor` (string, optional): CSS color for the scrolling text (default `rgba(255,255,255,0.95)`).
+       - `fontSize` (number, optional): Scrolling text font size in px (default `16`).
+       - `height` (number, optional): Bar height in px (default `48`).
+       - `scrollSpeed` (number, optional): Scroll animation duration in seconds — lower = faster (default `35`).
    - `gdm-standby-slate`: High-fidelity intermission or standby screen with a countdown timer.
      - Props:
        - `badge` (string, optional): Category badge.
