@@ -1638,8 +1638,12 @@ _A2UI_CATALOG = frozenset({
     "gdm-ticker",
     "gdm-standby-slate",
     "gdm-chat-card",
-    # Phase 2+ (not yet implemented): gdm-stage-grid, gdm-image-panel,
-    #   gdm-video-panel, gdm-iframe-panel, gdm-telemetry-dashboard,
+    # Phase 2 — layout + media panels
+    "gdm-stage-grid",
+    "gdm-image-panel",
+    "gdm-video-panel",
+    "gdm-iframe-panel",
+    # Phase 2+ (not yet implemented): gdm-telemetry-dashboard,
     #   gdm-radar-view, gdm-poll-overlay, gdm-transcript-view, gdm-notepad
 })
 

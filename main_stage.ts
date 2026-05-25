@@ -17,6 +17,10 @@ import './internal/components/gdm_stage_chyron';
 import './internal/components/gdm_stage_ticker';
 import './internal/components/gdm_stage_standby';
 import './internal/components/gdm_stage_chat_card';
+import './internal/components/gdm_stage_grid';
+import './internal/components/gdm_stage_image_panel';
+import './internal/components/gdm_stage_video_panel';
+import './internal/components/gdm_stage_iframe_panel';
 
 const root = document.getElementById('a2ui-stage-root')!;
 
