@@ -13,6 +13,10 @@ import { A2UIEngine, A2UIComponent } from './internal/a2ui/engine';
 
 // Stage catalog — one import per supported gdm-* component
 import './internal/components/gdm_stage_card';
+import './internal/components/gdm_stage_chyron';
+import './internal/components/gdm_stage_ticker';
+import './internal/components/gdm_stage_standby';
+import './internal/components/gdm_stage_chat_card';
 
 const root = document.getElementById('a2ui-stage-root')!;
 

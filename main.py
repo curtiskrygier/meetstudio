@@ -1631,11 +1631,16 @@ async def trigger_stage_poll(space_id: str, request: Request):
 # ── A2UI Catalog (Phase 1 allow-list) ────────────────────────────────────────
 # Component names the agent may emit via render_stage. Unknown names are rejected.
 _A2UI_CATALOG = frozenset({
+    # Phase 1
     "gdm-stage-card",
-    # Phase 2+: gdm-chyron, gdm-ticker, gdm-standby-slate, gdm-chat-card,
-    #           gdm-stage-grid, gdm-image-panel, gdm-video-panel, gdm-iframe-panel,
-    #           gdm-telemetry-dashboard, gdm-radar-view, gdm-poll-overlay,
-    #           gdm-transcript-view, gdm-notepad
+    # Phase 2 — static overlays
+    "gdm-chyron",
+    "gdm-ticker",
+    "gdm-standby-slate",
+    "gdm-chat-card",
+    # Phase 2+ (not yet implemented): gdm-stage-grid, gdm-image-panel,
+    #   gdm-video-panel, gdm-iframe-panel, gdm-telemetry-dashboard,
+    #   gdm-radar-view, gdm-poll-overlay, gdm-transcript-view, gdm-notepad
 })
 
 def _validate_a2ui_surface(surface_update: dict) -> list[str]:
