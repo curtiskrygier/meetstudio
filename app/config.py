@@ -59,7 +59,7 @@ How to drive the Meeting Main Stage:
 - Call 'clear_stage' to clear active overlays or completely reset the main stage back to its default clean slate or placeholder.
 
 A2UI COMPONENT CATALOG:
-The A2UI Component Catalog provides a rich vocabulary of 15 components consisting of a root layout container, panel elements, and overlays:
+The A2UI Component Catalog provides a rich vocabulary of 22 components consisting of a root layout container, panel elements, and overlays:
 
 1. Root Layout Component:
    - `gdm-stage-grid`: Layout engine container for main stage panels.
@@ -99,8 +99,44 @@ The A2UI Component Catalog provides a rich vocabulary of 15 components consistin
    - `gdm-notepad`: Interactive shared notepad.
      - Props:
        - `content` (string, required): Collaborative rich text/markdown notes.
+   - `gdm-camera-panel`: Displays a live camera / video feed frame.
+     - Props:
+       - `frame` (string, optional): Data URL or image URL of the current camera frame (rendered to fill the panel).
+       - `src` (string, optional): Fallback poster/stream image URL used when `frame` is empty.
+       - `label` (string, optional): Caption chip (e.g. `"🎥 Live Camera"`).
+       - `mirrored` (boolean, optional): Horizontally flip the image for self-view (default `true`).
+   - `gdm-terminal-panel`: A developer terminal window showing command output.
+     - Props:
+       - `content` (string, optional): Full terminal text, newline-separated (used when `lines` is empty).
+       - `lines` (array of strings, optional): Explicit output lines (takes precedence over `content`).
+       - `title` (string, optional): Window title-bar text (default `"Terminal"`).
+       - `cursor` (boolean, optional): Show a blinking block cursor after the last line (default `true`).
+   - `gdm-doc-panel`: A document / file card with an optional call-to-action button.
+     - Props:
+       - `title` (string, optional): Card heading (default `"Document Ready"`).
+       - `body` (string, optional): Summary/description text (line breaks preserved).
+       - `url` (string, optional): Link the button opens; the button is hidden when empty.
+       - `buttonLabel` (string, optional): CTA button label (default `"Open Document"`).
+       - `accent` (string, optional): Accent CSS color (default `#00f2ff`).
 
 3. Overlays (Layers drawn on top of panels):
+   - `gdm-emoji-burst`: Launches a burst of floating emoji reactions across the stage.
+     - Props:
+       - `emoji` (string, optional): The emoji to launch (default `"👏"`).
+       - `count` (number, optional): How many to spawn per burst (default `12`).
+       - `active` (boolean, required): Toggle to trigger / show the burst.
+   - `gdm-draw-overlay`: Renders freehand annotation strokes over the stage.
+     - Props:
+       - `strokes` (array of objects, required): Stroke objects with `points` (array of `[x, y]` pairs, coordinates normalized 0–1), optional `color` (string) and `width` (number).
+       - `active` (boolean, required): Toggle overlay visibility.
+       - `accentColor` is not used; per-stroke `color` defaults to the component `color` prop (default `#00f2ff`).
+   - `gdm-pointer`: A laser-pointer dot for indicating positions on stage.
+     - Props:
+       - `x` (number, required): Normalized 0–1 horizontal position.
+       - `y` (number, required): Normalized 0–1 vertical position.
+       - `active` (boolean, required): Toggle pointer visibility.
+       - `color` (string, optional): Pointer color (default `#ff3b30`).
+       - `label` (string, optional): Small label shown beside the dot.
    - `gdm-stage-card`: Elegant glassmorphic title and body text message card.
      - Props:
        - `title` (string, required): Card header text.
@@ -146,7 +182,15 @@ The A2UI Component Catalog provides a rich vocabulary of 15 components consistin
        - `options` (array of strings, required): Selections.
        - `active` (boolean, required): Toggle poll.
        - `values` (array of integers, optional): Response count tallies.
-   - `gdm-transcript-view`: Overlay displaying real-time live captions and transcript.
+   - `gdm-captions`: Lower-third live caption overlay — renders the current spoken/narrated line as a large centered pill, keeping the previous line faded above it so each point reads clearly one at a time. Use this to display captions compositionally via render_stage (preferred over the out-of-band transcript stream for agent-driven caption points).
+     - Props:
+       - `text` (string, required): The current caption line to display.
+       - `speaker` (string, optional): Speaker label shown above the line (default `"Speaker"`).
+       - `active` (boolean, required): Toggle caption visibility.
+       - `accentColor` (string, optional): CSS color for the speaker label (default `#00f2ff`).
+   - `gdm-transcript-view`: Overlay displaying a real-time scrolling transcript log (avatar + role + text per turn), suited to a side log rather than lower-third captions.
+     - Props:
+       - `transcript` (array of objects, required): Turn objects with `id` (string), `role` (string), and `text` (string) fields.
 
 WHEN TO USE CLEAR_STAGE:
 - Use `clear_stage()` to dismiss overlays (such as chyrons, tickers, stage cards, poll, or standby slate) when they are no longer contextually active or relevant.

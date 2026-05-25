@@ -982,6 +982,14 @@ async def handle_tab_select_action(meeting_id: str, tab_id: str):
     if updated:
         logger.info(f"[interactive_tabs] Broadcasting updated surface to meeting {meeting_id}")
         await broadcast_to_stage(meeting_id, surface)
+        # The A2UI engine only repaints on `beginRendering`; a bare surfaceUpdate
+        # just buffers components. Re-emit the cached root so the swapped
+        # metrics/chartData actually render on the stage.
+        root_msg = current_a2ui_root.get(meeting_id)
+        if root_msg:
+            await broadcast_to_stage(meeting_id, root_msg)
+        else:
+            logger.warning(f"[interactive_tabs] No cached root for {meeting_id}; tab swap may not repaint")
 
 @app.websocket("/ws/stage")
 async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):

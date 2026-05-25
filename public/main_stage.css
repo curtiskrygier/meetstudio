@@ -136,7 +136,7 @@ body {
 
 /* Transcript Layer (Non-overlapping Footer) */
 #transcript-layer {
-  height: 125px;
+  height: 168px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -158,9 +158,19 @@ body {
   gap: 6px;
 }
 
+/* The gdm-ticker is a position:fixed overlay (bottom:0, z-index 750) that floats
+   over the bottom of the caption footer. When the ticker is live, lift the caption
+   footer above the ticker lane so the two read as distinct bands instead of a
+   single overlapping stack. --ticker-safe-zone covers the default 48px ticker
+   height plus breathing room; bump it if a taller ticker height is used. */
+:root { --ticker-safe-zone: 56px; }
+body:has(gdm-ticker[active]) #transcript-layer {
+  margin-bottom: var(--ticker-safe-zone);
+}
+
 .turn {
-  padding: 6px 18px;
-  border-radius: 10px;
+  padding: 12px 28px;
+  border-radius: 14px;
   background: rgba(15, 15, 20, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -178,13 +188,13 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.turn.active { font-size: 22px; font-weight: 500; }
+.turn.active { font-size: var(--active-font-size); font-weight: 600; }
 .turn.agent { border-color: rgba(0, 242, 255, 0.4); }
-.turn.prev-1 { font-size: 16px; opacity: 0.5; transform: scale(0.95); animation: none; }
+.turn.prev-1 { font-size: var(--prev-font-size); opacity: 0.55; transform: scale(0.97); animation: none; }
 .turn.prev-2, .turn.old { display: none !important; }
 
-.role-label { 
-  font-size: 10px; 
+.role-label {
+  font-size: 12px;
   text-transform: uppercase; 
   letter-spacing: 0.12em; 
   margin-bottom: 2px; 

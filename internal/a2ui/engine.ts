@@ -186,7 +186,11 @@ export class A2UIEngine {
     const overlayTypes = new Set([
       'gdm-ticker',
       'gdm-poll-overlay',
-      'gdm-chat-card'
+      'gdm-chat-card',
+      'gdm-captions',
+      'gdm-emoji-burst',
+      'gdm-draw-overlay',
+      'gdm-pointer'
     ]);
 
     for (const [id, item] of this.componentBuffer.entries()) {

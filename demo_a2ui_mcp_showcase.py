@@ -11,8 +11,8 @@ Phases:
 2. Split Screen Stage: Renders a split gdm-stage-grid with gdm-image-panel and gdm-notepad.
 3. Telemetry Streaming: Renders gdm-telemetry-dashboard streaming live stock price metrics + radar view + bottom ticker.
 4. Live Poll Overlay: Slides in a live audience voting poll gdm-poll-overlay with interactive votes.
-5. Glassmorphic Chat Card Overlay: Cascades gdm-chat-card feedback on stage (poll and ticker retained).
-6. Concluding: Reset stage to default using clear_stage.
+5. Live Audience Reactions: Clears the finance grid, then cascades gdm-chat-card feedback on its own clean stage (single-panel backdrop + chyron) so chat never blocks the dashboard.
+6. Clean Close: Clears the stage, shows a closing gdm-stage-card briefly, then resets to default via clear_stage.
 
 Environment Variables:
     CONCIERGE_API_URL: Target FastAPI backend URL.
@@ -96,6 +96,29 @@ async def call_mcp_tool(client: httpx.AsyncClient, name: str, arguments: dict):
             print(f"  {CLR_ACCENT}❌ HTTP Error {resp.status_code}: {resp.text}{CLR_RESET}")
     except Exception as e:
         print(f"  {CLR_ACCENT}❌ Request Failed: {e}{CLR_RESET}")
+
+async def say_caption(client: httpx.AsyncClient, space_id: str, text: str, root: str, speaker: str = "Gemini Architect"):
+    """Display one caption point via the first-class A2UI `gdm-captions` overlay.
+
+    Captions are composed through render_stage like every other component — the
+    overlay persists in the engine buffer and re-renders over whatever scene
+    `root` points at. NOTE: `root`'s component tree must already be on stage
+    (in the engine buffer), otherwise the bare overlay render would wipe it.
+    """
+    await call_mcp_tool(client, "render_stage", {
+        "space_id": space_id,
+        "surfaceUpdate": {
+            "components": [
+                {
+                    "id": "live_captions",
+                    "component": {
+                        "gdm-captions": {"text": text, "speaker": speaker, "active": True}
+                    }
+                }
+            ]
+        },
+        "root": root,
+    })
 
 async def get_live_stock_price(client: httpx.AsyncClient, symbol: str) -> tuple[float, float]:
     """Retrieve mock live stock pricing if APIs are slow/blocked."""
@@ -265,7 +288,8 @@ async def main():
             },
             "root": "single_layout"
         })
-        await asyncio.sleep(3)
+        await say_caption(client, space_id, "Meet the Gemini Agent Architect — a live Google Meet add-on that drives the meeting main stage.", root="single_layout")
+        await asyncio.sleep(4)
 
         # ───────────────────────────────────────────────────────────
         # Phase 2: Split Screen Layout (Image + Notepad)
@@ -308,6 +332,7 @@ async def main():
             },
             "root": "split_layout"
         })
+        await say_caption(client, space_id, "Under A2UI, the stage seamlessly partitions — here a split view pairing visuals with a shared collaborative notepad.", root="split_layout")
         await asyncio.sleep(4)
 
         # ───────────────────────────────────────────────────────────
@@ -323,12 +348,14 @@ async def main():
         
         stock_chart = [40, 42, 41, 44, 43, 46, 45, 48, 47, 49, 50, 49, 51, 52, 53]
         
-        # Bottom ticker for captions at the bottom of the screen
+        # Bottom ticker = a genuine short scrolling market/live feed (NOT captions).
+        # Captions are composed separately via the first-class gdm-captions overlay (see say_caption).
         ticker_comp = {
             "id": "bottom_ticker",
             "component": {
                 "gdm-ticker": {
-                    "text": "🎙️ CAPTIONS: \"I'd like to demo a concept called the Gemini Agent Architect. This is a Google Meet web add-on where we bring a virtual architect directly to the meeting main stage. The main aim of the add-on is for the architect to listen to the ongoing conversation and dynamically generate real-time architecture diagrams that update on the fly as we speak. At the end, it generates a polished image file that can be saved and referred to afterwards. I was interested to see if this was technically possible to achieve end-to-end, and the results are incredibly promising. It's a completely live, agent-driven layout composition using Model Context Protocol and Google A2UI v0.8.\"",
+                    "text": "📡 LIVE FEED  •  NVDA ▲ $914  •  MSFT ▼ $421  •  GOOG ▲ $173  •  Toulouse Vélô — network nominal  •  Metro Line A on time  •  Powered by MCP × Google A2UI v0.8",
+                    "badgeText": "LIVE FEED",
                     "active": True
                 }
             }
@@ -340,14 +367,14 @@ async def main():
             msft_p, msft_c = await get_live_stock_price(client, "MSFT")
             goog_p, goog_c = await get_live_stock_price(client, "GOOG")
             stock_chart.append(int(max(10, min(95, 50 + nvda_c * 10))))
-            
+
             grid_comps = make_grid_components(
                 nvda_p, nvda_c,
                 msft_p, msft_c,
                 goog_p, goog_c,
                 stock_chart, TABS_CONFIG, focused_panel=4 if tick >= 2 else 0
             )
-            
+
             await call_mcp_tool(client, "render_stage", {
                 "space_id": space_id,
                 "surfaceUpdate": {
@@ -355,7 +382,13 @@ async def main():
                 },
                 "root": "grid_layout"
             })
-            await asyncio.sleep(1.5)
+            # Caption points fire only after the grid is on stage (root must
+            # exist in the engine buffer before the caption-only overlay render).
+            if tick == 0:
+                await say_caption(client, space_id, "Use Case 1: AI & Megatech Stocks — streaming live price feeds for Nvidia, Microsoft and Google.", root="grid_layout")
+            elif tick == 2:
+                await say_caption(client, space_id, "Tap the dashboard tabs to swap use cases — Toulouse bike-share or live metro and traffic.", root="grid_layout")
+            await asyncio.sleep(2.0)
 
         # ───────────────────────────────────────────────────────────
         # Phase 4: Slide-in Live Interactive Audience Poll
@@ -370,6 +403,8 @@ async def main():
         ]
         
         print(f"  {CLR_MUTED}Broadcasting slide-in interactive poll and accumulating votes...{CLR_RESET}")
+        await say_caption(client, space_id, "Now a live audience poll — votes tally on stage in real time.", root="grid_layout")
+        await asyncio.sleep(1.5)
         for current_votes in votes:
             grid_comps = make_grid_components(
                 nvda_p, nvda_c,
@@ -405,60 +440,109 @@ async def main():
         await asyncio.sleep(2)
  
         # ───────────────────────────────────────────────────────────
-        # Phase 5: Live Stage Chat Overlay Integration (Poll and Ticker Retained)
+        # Phase 5: Live Audience Reactions — its own clean scene
         # ───────────────────────────────────────────────────────────
-        print(f"\n{CLR_ACCENT}[PHASE 5] LIVE STAGE CHAT OVERLAYS (POLL AND TICKER RETAINED){CLR_RESET}")
-        
+        print(f"\n{CLR_ACCENT}[PHASE 5] LIVE AUDIENCE REACTIONS (DEDICATED SCENE){CLR_RESET}")
+
+        # Clear the finance grid first. The A2UI engine auto-renders overlay
+        # components (ticker, poll, chat cards) that linger in its buffer until a
+        # deleteSurface, so without this the chat cards cascade ON TOP of the grid
+        # and block the dashboard. A clean clear gives chat its own stage.
+        print(f"  {CLR_MUTED}Clearing finance grid before the reactions scene...{CLR_RESET}")
+        await call_mcp_tool(client, "clear_stage", {"space_id": space_id})
+        await asyncio.sleep(1.2)
+
         chats = [
             ("Alice", "The Flight Radar ✈️ component adds so much visual depth!"),
             ("Bob", "Real-time stock ticker updates and bottom captions look amazing!"),
             ("Charlie", "Google Meet main stage completely driven by AI agents with a beautiful layout.")
         ]
-        
-        active_chats = []
-        for idx, (sender, text) in enumerate(chats, 1):
-            print(f"  {CLR_MUTED}Cascading chat card {idx} onto main stage...{CLR_RESET}")
-            grid_comps = make_grid_components(
-                nvda_p, nvda_c,
-                msft_p, msft_c,
-                goog_p, goog_c,
-                stock_chart, TABS_CONFIG, focused_panel=4
-            )
-            chat_comp = {
-                "id": f"chat_{idx}",
+
+        # Calm single-panel backdrop so the cascading chat cards read as a
+        # deliberate "reactions" scene rather than floating over a busy grid.
+        backdrop = [
+            {
+                "id": "reactions_layout",
                 "component": {
-                    "gdm-chat-card": {
-                        "sender": sender,
-                        "text": text
+                    "gdm-stage-grid": {
+                        "layout": "single",
+                        "children": {"explicitList": ["reactions_bg", "reactions_chyron"]}
+                    }
+                }
+            },
+            {
+                "id": "reactions_bg",
+                "component": {
+                    "gdm-image-panel": {
+                        "src": "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=1200&auto=format&fit=crop&q=80",
+                        "label": "💬 Live Audience Reactions"
+                    }
+                }
+            },
+            {
+                "id": "reactions_chyron",
+                "component": {
+                    "gdm-chyron": {
+                        "title": "Live Audience Reactions",
+                        "subtitle": "Real-time chat cascading onto the main stage",
+                        "active": True
                     }
                 }
             }
+        ]
+
+        active_chats = []
+        for idx, (sender, text) in enumerate(chats, 1):
+            print(f"  {CLR_MUTED}Cascading chat card {idx} onto the clean stage...{CLR_RESET}")
+            chat_comp = {
+                "id": f"chat_{idx}",
+                "component": {"gdm-chat-card": {"sender": sender, "text": text}}
+            }
             active_chats.append(chat_comp)
-            
-            # Keep both poll AND ticker active during chat cascades!
             await call_mcp_tool(client, "render_stage", {
                 "space_id": space_id,
-                "surfaceUpdate": {
-                    "components": grid_comps + [poll_comp, ticker_comp] + active_chats
-                },
-                "root": "grid_layout"
+                "surfaceUpdate": {"components": backdrop + active_chats},
+                "root": "reactions_layout"
             })
+            if idx == 1:
+                await say_caption(client, space_id, "And live reactions cascade in from the audience.", root="reactions_layout")
             await asyncio.sleep(2.0)
 
+        await asyncio.sleep(2)
+
         # ───────────────────────────────────────────────────────────
-        # Phase 6: Clear Stage Celebration (Frozen for viewing)
+        # Phase 6: Clean close
         # ───────────────────────────────────────────────────────────
-        print(f"\n{CLR_WARNING}[HOLD] STAGE IS NOW FROZEN FOR 5 MINUTES FOR INSPECTION!{CLR_RESET}")
-        print(f"  {CLR_MUTED}All premium components (Flight Radar, Rich Telemetry, Bottom Ticker, Live Poll, and Chats) are visible simultaneously.{CLR_RESET}")
-        print(f"  {CLR_MUTED}Press Ctrl+C in your terminal if you wish to exit early.{CLR_RESET}")
-        
-        await asyncio.sleep(300)
-        
-        print(f"\n{CLR_ACCENT}[PHASE 6] RESET STAGE BACK TO DEFAULT{CLR_RESET}")
-        await call_mcp_tool(client, "clear_stage", {
-            "space_id": space_id
+        print(f"\n{CLR_ACCENT}[PHASE 6] CLEAN CLOSE{CLR_RESET}")
+        print(f"  {CLR_MUTED}Clearing reactions scene...{CLR_RESET}")
+        await call_mcp_tool(client, "clear_stage", {"space_id": space_id})
+        await asyncio.sleep(1.0)
+
+        print(f"  {CLR_MUTED}Showing closing card...{CLR_RESET}")
+        await call_mcp_tool(client, "render_stage", {
+            "space_id": space_id,
+            "surfaceUpdate": {
+                "components": [
+                    {
+                        "id": "closing_card",
+                        "component": {
+                            "gdm-stage-card": {
+                                "title": "🎉 Gemini Agent Architect",
+                                "text": "Live, agent-driven main-stage composition via Model Context Protocol & Google A2UI v0.8.",
+                                "accent": "primary"
+                            }
+                        }
+                    }
+                ]
+            },
+            "root": "closing_card"
         })
-        
+        print(f"  {CLR_MUTED}Holding closing card for 10s (Ctrl+C to exit early)...{CLR_RESET}")
+        await asyncio.sleep(10)
+
+        print(f"\n{CLR_ACCENT}[RESET] CLEAR STAGE BACK TO DEFAULT{CLR_RESET}")
+        await call_mcp_tool(client, "clear_stage", {"space_id": space_id})
+
     print(f"\n{CLR_SUCCESS}🎉 Ultra Premium A2UI MCP Interactive Showcase completed successfully!{CLR_RESET}\n")
 
 if __name__ == "__main__":
