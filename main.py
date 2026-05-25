@@ -350,6 +350,37 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                         "required": ["prompt"]
                     }
                 ),
+                types.FunctionDeclaration(
+                    name="render_stage",
+                    description=(
+                        "Render interactive A2UI component panels on the Meet main stage. "
+                        "Use this to display grids, radar, telemetry, image panels, notepads, etc. "
+                        "Always include a gdm-stage-grid as root with children referencing panel component IDs."
+                    ),
+                    parameters={
+                        "type": "OBJECT",
+                        "properties": {
+                            "surfaceUpdate": {
+                                "type": "OBJECT",
+                                "description": "A2UI surfaceUpdate payload. Must contain a 'components' array where each entry has 'id' and 'component' fields."
+                            },
+                            "root": {
+                                "type": "string",
+                                "description": "ID of the root layout component (gdm-stage-grid). Defaults to the first component in the array if omitted."
+                            },
+                            "dataModelUpdate": {
+                                "type": "OBJECT",
+                                "description": "Optional A2UI dataModelUpdate for data binding."
+                            }
+                        },
+                        "required": ["surfaceUpdate"]
+                    }
+                ),
+                types.FunctionDeclaration(
+                    name="clear_stage",
+                    description="Clear all A2UI panels from the Meet main stage and return to the default view.",
+                    parameters={"type": "OBJECT", "properties": {}}
+                ),
             ]),
             types.Tool(google_search=types.GoogleSearch()),
         ],
@@ -699,6 +730,40 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 responses.append(types.FunctionResponse(
                                     id=fc.id, name=fc.name,
                                     response={"result": "Image generation started — will appear on stage when ready."}
+                                ))
+
+                            elif fc.name == "render_stage":
+                                surface_update = fc.args.get("surfaceUpdate", {})
+                                root_id = (fc.args.get("root") or "").strip()
+                                data_model_update = fc.args.get("dataModelUpdate")
+                                if not root_id:
+                                    comps = surface_update.get("components", [])
+                                    if comps:
+                                        root_id = comps[0].get("id", "")
+                                errors = validate_a2ui_surface(surface_update)
+                                if errors:
+                                    responses.append(types.FunctionResponse(
+                                        id=fc.id, name=fc.name,
+                                        response={"result": f"Validation failed: {', '.join(errors)}"}
+                                    ))
+                                else:
+                                    await broadcast_to_stage(session_space[0], {"type": "surfaceUpdate", "surfaceUpdate": surface_update})
+                                    if data_model_update:
+                                        await broadcast_to_stage(session_space[0], {"type": "dataModelUpdate", "dataModelUpdate": data_model_update})
+                                    if root_id:
+                                        await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": root_id}})
+                                    logger.info(f"[tool] render_stage root={root_id} n={len(surface_update.get('components', []))}")
+                                    responses.append(types.FunctionResponse(
+                                        id=fc.id, name=fc.name,
+                                        response={"result": f"Stage rendered with root '{root_id}'."}
+                                    ))
+
+                            elif fc.name == "clear_stage":
+                                await broadcast_to_stage(session_space[0], {"type": "deleteSurface"})
+                                logger.info(f"[tool] clear_stage for {session_space[0]}")
+                                responses.append(types.FunctionResponse(
+                                    id=fc.id, name=fc.name,
+                                    response={"result": "Stage cleared."}
                                 ))
 
                             else:

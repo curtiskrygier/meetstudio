@@ -47,6 +47,7 @@ function renderA2UI(components: A2UIComponent[]) {
   for (const comp of components) {
     const el = document.createElement(comp.element) as any;
     for (const [k, v] of Object.entries(comp.props)) {
+      if (k === 'children' || k === 'child') continue; // structural — handled by nesting logic below
       el[k] = v;
     }
     elementMap.set(comp.id, el);
