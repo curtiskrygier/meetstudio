@@ -1643,8 +1643,12 @@ _A2UI_CATALOG = frozenset({
     "gdm-image-panel",
     "gdm-video-panel",
     "gdm-iframe-panel",
-    # Phase 2+ (not yet implemented): gdm-telemetry-dashboard,
-    #   gdm-radar-view, gdm-poll-overlay, gdm-transcript-view, gdm-notepad
+    # Phase 2 — data-bound + interactive
+    "gdm-transcript-view",
+    "gdm-telemetry-dashboard",
+    "gdm-radar-view",
+    "gdm-poll-overlay",
+    "gdm-notepad",
 })
 
 def _validate_a2ui_surface(surface_update: dict) -> list[str]:

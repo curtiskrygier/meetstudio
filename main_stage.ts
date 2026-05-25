@@ -21,6 +21,11 @@ import './internal/components/gdm_stage_grid';
 import './internal/components/gdm_stage_image_panel';
 import './internal/components/gdm_stage_video_panel';
 import './internal/components/gdm_stage_iframe_panel';
+import './internal/components/gdm_transcript_view';
+import './internal/components/gdm_stage_telemetry';
+import './internal/components/gdm_stage_radar';
+import './internal/components/gdm_stage_poll';
+import './internal/components/gdm_stage_notepad';
 
 const root = document.getElementById('a2ui-stage-root')!;
 
