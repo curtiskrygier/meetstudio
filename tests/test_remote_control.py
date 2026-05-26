@@ -23,6 +23,7 @@ def test_unauthorized_access(mock_auth_key):
         ("/api/notepad/spaces/test", {"action": "overwrite", "text": "Hello"}),
         ("/api/layout-config/spaces/test", {"layout": "split"}),
         ("/api/theme-config/spaces/test", {"theme": "cyberpunk"}),
+        ("/api/stage-audio/spaces/test", {}),
     ]
     for url, payload in endpoints:
         resp = client.post(url, json=payload)
@@ -161,3 +162,23 @@ def test_theme_config_endpoint(mock_auth_key, mock_broadcast):
         "type": "theme_event",
         "theme": "cyberpunk"
     })
+
+def test_stage_audio_endpoint(mock_auth_key, mock_broadcast):
+    headers = {"Authorization": f"Bearer {mock_auth_key}"}
+    audio_payload = b"RIFFsomethingpcmbytes"
+    
+    resp = client.post("/api/stage-audio/spaces/test", content=audio_payload, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "bytes": len(audio_payload)}
+    
+    import base64
+    mock_broadcast.assert_called_once_with("spaces/test", {
+        "type": "audio",
+        "data": base64.b64encode(audio_payload).decode("utf-8")
+    })
+
+def test_stage_audio_empty_body(mock_auth_key):
+    headers = {"Authorization": f"Bearer {mock_auth_key}"}
+    resp = client.post("/api/stage-audio/spaces/test", content=b"", headers=headers)
+    assert resp.status_code == 400
+    assert "Empty body" in resp.json()["detail"]

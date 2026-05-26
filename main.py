@@ -536,12 +536,13 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     "surfaceUpdate": {
                                         "components": [{
                                             "id": "welcome_card",
-                                            "element": "gdm-stage-card",
-                                            "props": {
-                                                "title": "🚀 Google Meet Studio",
-                                                "text": "Welcome! The Gemini Agent Architect is ready to build with you. Click the \"Connect\" button in your side panel to start the AI collaboration.",
-                                                "accent": "#00f2ff",
-                                                "mode": "hero"
+                                            "component": {
+                                                "gdm-stage-card": {
+                                                    "title": "🚀 Google Meet Studio",
+                                                    "text": "Welcome! The Gemini Agent Architect is ready to build with you. Click the \"Connect\" button in your side panel to start the AI collaboration.",
+                                                    "accent": "#00f2ff",
+                                                    "mode": "hero"
+                                                }
                                             }
                                         }]
                                     }
@@ -840,7 +841,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 current_turn.update({"id": str(uuid_lib.uuid4()), "role": "user"})
                             transcript_msg = {"type": "transcript", "role": "user", "label": "You", "text": t_text, "turn_id": current_turn["id"], "is_final": is_final}
                             await websocket.send_text(json.dumps(transcript_msg))
-                            caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "element": "gdm-captions", "props": {"text": t_text, "speaker": "You", "active": True}}]}}
+                            caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "component": {"gdm-captions": {"text": t_text, "speaker": "You", "active": True}}}]}}
                             await broadcast_to_stage(session_space[0], caption_surface)
                             await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": "stage_captions"}})
                             if is_final: current_turn["role"] = None
@@ -856,7 +857,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                         current_turn.update({"id": str(uuid_lib.uuid4()), "role": "agent"})
                                     transcript_msg = {"type": "transcript", "role": "agent", "label": "Gemini Architect", "text": part.text, "turn_id": current_turn["id"], "is_final": False}
                                     await websocket.send_text(json.dumps(transcript_msg))
-                                    caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "element": "gdm-captions", "props": {"text": part.text, "speaker": "Gemini Architect", "active": True}}]}}
+                                    caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "component": {"gdm-captions": {"text": part.text, "speaker": "Gemini Architect", "active": True}}}]}}
                                     await broadcast_to_stage(session_space[0], caption_surface)
                                     await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": "stage_captions"}})
                     
@@ -1100,7 +1101,8 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
 last_cpu_time = [datetime.now().timestamp(), sum(os.times()[:2]) if hasattr(os, "times") else 0.0]
 
 @app.get("/api/telemetry")
-async def get_telemetry():
+async def get_telemetry(request: Request):
+    check_producer_auth(request)
     import resource
     import sys
     import time
@@ -1499,6 +1501,11 @@ async def stage_audio(space_id: str, request: Request):
     Auth: Bearer <STAGE_API_KEY>
     Body: any audio format (WAV recommended, max 15MB) — sent as base64 to all stage listeners.
     """
+    check_producer_auth(request)
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty body")
+
     import base64
     await broadcast_to_stage(space_id, {
         "type": "audio",
@@ -2109,13 +2116,16 @@ async def api_image_pre_generate(payload: dict = Body(...), token: str = Depends
     if not isinstance(prompts, list):
         prompts = [prompts]
 
+    sem = asyncio.Semaphore(3)
+
     async def _warm_cache(p):
-        try:
-            if (p, model) not in image_cache:
-                logger.info(f"[pre-generate] warming cache with {model} for: {p[:55]}...")
-                await generate_image(p, model=model)
-        except Exception as e:
-            logger.error(f"[pre-generate] failed for {p[:50]} with model {model}: {e}")
+        async with sem:
+            try:
+                if (p, model) not in image_cache:
+                    logger.info(f"[pre-generate] warming cache with {model} for: {p[:55]}...")
+                    await generate_image(p, model=model)
+            except Exception as e:
+                logger.error(f"[pre-generate] failed for {p[:50]} with model {model}: {e}")
 
     for p in prompts:
         p = p.strip()
@@ -2144,7 +2154,15 @@ async def serve_index():
 async def serve_static(path: str):
     if path.startswith("api/") or path in ("mcp",):
         raise HTTPException(status_code=404)
-    if os.path.exists(f"dist/{path}"): return FileResponse(f"dist/{path}")
-    return FileResponse("dist/index.html")
+    
+    # Secure against directory traversal attacks by resolving absolute paths
+    base_dir = os.path.abspath("dist")
+    target_path = os.path.abspath(os.path.join(base_dir, path))
+    if not target_path.startswith(base_dir):
+        raise HTTPException(status_code=400, detail="Invalid path")
+        
+    if os.path.exists(target_path) and os.path.isfile(target_path):
+        return FileResponse(target_path)
+    return FileResponse(os.path.join(base_dir, "index.html"))
 
 if os.path.isdir("dist"): app.mount("/", StaticFiles(directory="dist", html=True), name="static")

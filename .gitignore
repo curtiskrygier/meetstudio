@@ -51,3 +51,6 @@ test.svg# Media files
 *.m4a
 *.webm
 venv/
+deployed_backup.zip
+deployed_latest_backup.zip
+today_mess_backup/
