@@ -765,7 +765,9 @@ async def main():
                             "cameraPitch": 35.0,
                             "cameraYaw": 45.0,
                             "showGlideSlope": True,
-                            "showTerrain": True
+                            "showTerrain": True,
+                            "cinematicOrbit": True,
+                            "autoTrack": False
                         }
                     }
                 },
@@ -825,7 +827,9 @@ async def main():
                             "cameraPitch": 25.0,
                             "cameraYaw": 135.0,
                             "showGlideSlope": True,
-                            "showTerrain": True
+                            "showTerrain": True,
+                            "cinematicOrbit": True,
+                            "autoTrack": True
                         }
                     }
                 },
@@ -942,7 +946,9 @@ async def main():
                         "cameraYaw": 45.0,
                         "zoom": 10.0,
                         "showGlideSlope": True,
-                        "showTerrain": True
+                        "showTerrain": True,
+                        "cinematicOrbit": True,
+                        "autoTrack": False
                     }
                 }
             },
@@ -1002,7 +1008,9 @@ async def main():
                             "cameraYaw": 45.0,
                             "zoom": 10.0,
                             "showGlideSlope": True,
-                            "showTerrain": True
+                            "showTerrain": True,
+                            "cinematicOrbit": True,
+                            "autoTrack": False
                         }
                     }
                 },

@@ -122,6 +122,8 @@ export class GdmStage3DAirspace extends LitElement {
   @property({ type: Boolean }) showGlideSlope = true;
   @property({ type: Boolean }) showTerrain = true;
   @property({ type: Number }) zoom = 10.0;
+  @property({ type: Boolean }) cinematicOrbit = false;
+  @property({ type: Boolean }) autoTrack = false;
 
   @state() private _canvasW = 400;
   @state() private _canvasH = 400;
@@ -620,15 +622,29 @@ export class GdmStage3DAirspace extends LitElement {
     const yawRad = (this.cameraYaw) * Math.PI / 180;
     const pitchRad = (this.cameraPitch) * Math.PI / 180;
 
+    let px = p.x;
+    let py = p.y;
+    let pz = p.z;
+
+    if (this.autoTrack && this.lockedCallsign) {
+      const lockedF = this.flights.find(f => f.callsign === this.lockedCallsign);
+      if (lockedF) {
+        const targetPos = getFlight3DPosition(lockedF);
+        px = px - targetPos.x;
+        py = py - targetPos.y;
+        pz = pz - targetPos.z;
+      }
+    }
+
     // Z Elevation exaggeration for tactical clarity (industry-standard 3D TMA representation)
     const verticalExaggeration = 5.0;
-    const zScaled = (p.z / 6076.12) * verticalExaggeration;
+    const zScaled = (pz / 6076.12) * verticalExaggeration;
 
     // 1. Rotate Yaw around Z axis
     const cosY = Math.cos(yawRad);
     const sinY = Math.sin(yawRad);
-    const x1 = p.x * cosY - p.y * sinY;
-    const y1 = p.x * sinY + p.y * cosY;
+    const x1 = px * cosY - py * sinY;
+    const y1 = px * sinY + py * cosY;
     const z1 = zScaled;
 
     // 2. Rotate Pitch around horizontal screen X axis
@@ -656,6 +672,9 @@ export class GdmStage3DAirspace extends LitElement {
 
   private nextAnimationFrame() {
     this._animationFrameId = requestAnimationFrame(() => {
+      if (this.cinematicOrbit && !this._isDragging) {
+        this.cameraYaw = (this.cameraYaw + 0.05) % 360;
+      }
       this._drawScene();
       this.nextAnimationFrame();
     });
@@ -1077,13 +1096,17 @@ export class GdmStage3DAirspace extends LitElement {
     }));
   }
 
-  private _toggleControl(control: 'lines' | 'trails' | 'cylinders') {
+  private _toggleControl(control: 'lines' | 'trails' | 'cylinders' | 'orbit' | 'track') {
     if (control === 'lines') {
       this._showAltDropLines = !this._showAltDropLines;
     } else if (control === 'trails') {
       this._showTrails = !this._showTrails;
     } else if (control === 'cylinders') {
       this._showCylinders = !this._showCylinders;
+    } else if (control === 'orbit') {
+      this.cinematicOrbit = !this.cinematicOrbit;
+    } else if (control === 'track') {
+      this.autoTrack = !this.autoTrack;
     }
   }
 
@@ -1212,6 +1235,16 @@ export class GdmStage3DAirspace extends LitElement {
                 <div class="flight-row-right">
                   <span class="flight-row-fl" style="color:#ffd60a;">AUTO</span>
                 </div>
+              </div>
+
+              <div class="controls-label" style="margin-top:12px;">3D Camera Modes</div>
+              <div class="toggle-control" @click="${() => this._toggleControl('orbit')}">
+                <span class="toggle-text">Cinematic Auto-Orbit</span>
+                <div class="toggle-switch ${this.cinematicOrbit ? 'active' : ''}"></div>
+              </div>
+              <div class="toggle-control" @click="${() => this._toggleControl('track')}">
+                <span class="toggle-text">Auto-Track Target Lock</span>
+                <div class="toggle-switch ${this.autoTrack ? 'active' : ''}"></div>
               </div>
 
               <div class="controls-label" style="margin-top:12px;">3D Viewport Orbit controls</div>
