@@ -28,13 +28,32 @@ export class GdmStageGrid extends LitElement {
       grid-template-columns: 1fr;
       grid-template-rows: 1fr;
     }
+    .grid.single .slot:not(:first-child) {
+      display: none;
+    }
     .grid.split {
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr;
     }
+    .grid.split .slot:nth-child(n+3) {
+      display: none;
+    }
     .grid.grid {
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr 1fr;
+    }
+    /* hero: panel-1 fills the entire stage; other panels hidden */
+    .grid.hero {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+    }
+    .grid.hero .slot:first-child {
+      grid-column: 1 / -1;
+      grid-row: 1 / -1;
+      z-index: 2;
+    }
+    .grid.hero .slot:not(:first-child) {
+      display: none;
     }
     .slot {
       overflow: hidden;

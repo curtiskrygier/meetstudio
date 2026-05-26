@@ -170,6 +170,10 @@ import './internal/components/gdm_stage_pointer';
 import './internal/components/gdm_stage_terminal_panel';
 import './internal/components/gdm_stage_doc_panel';
 import './internal/components/gdm_stage_diagram';
+import './internal/components/gdm_stage_mermaid';
+import './internal/components/gdm_stage_html';
+import './internal/components/gdm_stage_laser_sweep';
+import './internal/components/gdm_stage_3d_airspace';
 
 const root = document.getElementById('a2ui-stage-root');
 const contentLayer = document.getElementById('content-layer');
@@ -205,7 +209,11 @@ function reportError(error: any, context?: string) {
   }
 }
 
+// Track chat card IDs that have self-dismissed so they aren't re-added on re-render
+const _dismissedChatIds = new Set<string>();
+
 function renderA2UI(components: A2UIComponent[]) {
+  if (components.length === 0) _dismissedChatIds.clear();
   try {
     if (!root) {
       console.error("[stage-a2ui] Error: #a2ui-stage-root element not found!");
@@ -344,25 +352,31 @@ function renderA2UI(components: A2UIComponent[]) {
     }
 
     // 5. Append top-level (root) elements to the stage container
-    // Chat cards should rise from the bottom in a stack
-    const chatCards = components.filter(comp => comp && comp.id && !nestedIds.has(comp.id) && comp.element === 'gdm-chat-card');
-    const totalChats = chatCards.length;
-    
-    // Create a persistent chat container if it doesn't exist
+    // Create a persistent chat container — cards stack bottom-up, overflow clipped at top
     let chatContainer = root.querySelector('#gdm-chat-stack') as HTMLElement;
     if (!chatContainer) {
       chatContainer = document.createElement('div');
       chatContainer.id = 'gdm-chat-stack';
       chatContainer.style.position = 'fixed';
-      chatContainer.style.left = '40px';
-      chatContainer.style.bottom = '80px';
-      chatContainer.style.top = '120px'; 
+      chatContainer.style.right = '32px';
+      chatContainer.style.bottom = '90px';
+      chatContainer.style.top = '80px';
       chatContainer.style.zIndex = '800';
       chatContainer.style.display = 'flex';
-      chatContainer.style.flexDirection = 'column-reverse'; // Newest at bottom, pushing old up
-      chatContainer.style.justifyContent = 'flex-start'; // Start from the bottom (due to reverse)
-      chatContainer.style.gap = '12px';
+      chatContainer.style.flexDirection = 'column-reverse';
+      chatContainer.style.justifyContent = 'flex-start';
+      chatContainer.style.alignItems = 'flex-end';
+      chatContainer.style.gap = '10px';
       chatContainer.style.pointerEvents = 'none';
+      chatContainer.style.overflow = 'hidden';
+      // Gradient mask: top 25% fades to transparent so cards "disappear" as they float up
+      chatContainer.style.webkitMaskImage = 'linear-gradient(to bottom, transparent 0%, black 28%)';
+      (chatContainer.style as any).maskImage = 'linear-gradient(to bottom, transparent 0%, black 28%)';
+      // Listen for self-dismiss events so we don't re-add dismissed cards on next render
+      chatContainer.addEventListener('chat-dismiss', (e: Event) => {
+        const el = e.target as HTMLElement;
+        if (el && el.id) _dismissedChatIds.add(el.id);
+      });
       root.appendChild(chatContainer);
     }
 
@@ -372,12 +386,11 @@ function renderA2UI(components: A2UIComponent[]) {
         const el = elementMap.get(comp.id);
         if (el) {
           if (comp.element === 'gdm-chat-card') {
+            // Don't revive a card that has already self-dismissed
+            if (_dismissedChatIds.has(comp.id)) continue;
             if (el.parentNode !== chatContainer) {
               chatContainer.appendChild(el);
             }
-            el.style.position = 'relative'; // Let flexbox handle it
-            el.style.left = '0';
-            el.style.bottom = '0';
           } else {
             if (el.parentNode !== root) {
               root.appendChild(el);

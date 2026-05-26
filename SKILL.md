@@ -50,14 +50,28 @@ This add-on implements a voice-activated workspace assistant for Google Meet, ev
 - **Part 5: Rich Collaboration & Documents**:
   - Interactive live Markdown Notepad allowing CLI appends or edits on stage in real time.
   - Dynamic Web Asset embeddings (e.g., casting live code repos or staging portals directly).
+- **Part 7: Platinum Experience (Next Gen)**:
+  - **Stateful Collaborative Drawing**: Shared SVG/Canvas layer allowing participants to co-annotate and sketch on the main stage concurrently with the agent.
+  - **Snapshotting & Version History**: Point-in-time state captures of the collaborative stage (D2 diagrams, markdown notes, drawings) for comparative review and rollback.
+  - **Spatial Audio (Multi-person Presence)**: Integration of Web Audio PannerNodes to position participants' virtual avatars or sound effects in 3D space, enhancing the sense of presence.
 
 ## Core Patterns
 
 ### 1. Multi-Project Architecture
-- **Identity Project**: `649226456677` — Contains the Marketplace SDK registration, OAuth Consent, and Meet SDK credentials.
-- **Hosting Project**: `agent-archi` — Contains the Cloud Run service, Vertex AI access, and Gemini billing.
-- **OAuth Client ID**: `649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com`
-- **Handshake**: `index.tsx` (and `public/main_stage.js`) must use the *Identity* number `649226456677` for `createAddonSession`.
+
+> ⚠️ **CRITICAL — NEVER CHANGE THESE VALUES. Mixing up these two project numbers is the most common source of OAuth and Meet SDK auth failures.**
+
+| Role | Project ID | Project Number |
+|---|---|---|
+| **OAuth / Workspace registration** | `agent-archi` | `649226456677` |
+| **Cloud Run / Vertex AI (production hosting)** | `centered-planet-497209-r5` | `431547562459` |
+
+- **OAuth Client ID**: `649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com` — always from `agent-archi`
+- **`CLOUD_PROJECT_NUMBER` in `.env.production`**: MUST be `649226456677` (the OAuth/identity project). This is what `createAddonSession` in `index.tsx` passes to the Meet SDK — Google Meet validates it against the registered add-on in `agent-archi`. Using `431547562459` here silently breaks the Meet SDK handshake.
+- **`--project` flag in `gcloud run deploy`**: MUST be `centered-planet-497209-r5`. Never deploy to `agent-archi`.
+- **`--set-build-env-vars CLOUD_PROJECT_NUMBER`**: MUST be `649226456677` (same as `.env.production`).
+- **`appsscript/appsscript.json` `addOnOrigins`**: Must contain only `CONCIERGE_API_URL_PLACEHOLDER`. Never add URLs from other projects or regions.
+- **Handshake**: `index.tsx` uses `CLOUD_PROJECT_NUMBER=649226456677` for `createAddonSession`. The Cloud Run hosting project (`431547562459`) is only relevant for `gcloud run deploy --project` and server-side `GEMINI_PROJECT`.
 
 ### 2. Frontend Deployment & Hosting Boundary
 - **Vite Frontend (Cloud Run)**: The built React/Vite assets are hosted and served entirely by **Cloud Run** under `agent-archi`. They are NOT bundled or pushed via Apps Script or clasp.
@@ -92,9 +106,9 @@ gcloud run deploy meet-live-concierge \
   --timeout=3600 \
   --session-affinity \
   --allow-unauthenticated \
-  --set-build-env-vars="CLIENT_ID=649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com,CLOUD_PROJECT_NUMBER=649226456677" \
-  --set-env-vars="GEMINI_PROJECT=agent-archi,REGION=us-central1,KORE_VOICE=Charon,CLIENT_ID=649226456677-kg2d06f201h6narlrddgass1qs2ka3e1.apps.googleusercontent.com" \
-  --project=agent-archi
+  --set-build-env-vars="CLIENT_ID=649226456677-kg2d06f201h6narlrddgabs1qs2ka3e1.apps.googleusercontent.com,CLOUD_PROJECT_NUMBER=431547562459" \
+  --set-env-vars="GEMINI_PROJECT=centered-planet-497209-r5,REGION=us-central1,KORE_VOICE=Charon,CLIENT_ID=649226456677-kg2d06f201h6narlrddgabs1qs2ka3e1.apps.googleusercontent.com" \
+  --project=centered-planet-497209-r5
 ```
 
 ### Step 3 — Manifest Deploy (clasp)

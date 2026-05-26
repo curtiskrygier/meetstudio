@@ -201,3 +201,148 @@ async def test_mcp_clear_stage_success():
 
     # Verify broadcast of deleteSurface
     mock_broadcast_fn.assert_called_once_with("spaces/test", {"type": "deleteSurface"})
+
+
+def test_validate_a2ui_property_level_valid():
+    surface_update = {
+        "components": [
+            {
+                "id": "slate-1",
+                "component": {
+                    "gdm-standby-slate": {
+                        "badge": "INTERMISSION",
+                        "title": "Short Break",
+                        "seconds": 120,
+                        "active": True
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert not errors
+
+
+def test_validate_a2ui_property_level_invalid_extra():
+    surface_update = {
+        "components": [
+            {
+                "id": "slate-1",
+                "component": {
+                    "gdm-standby-slate": {
+                        "badge": "INTERMISSION",
+                        "countdown": 120,  # Invalid extra property! (should be 'seconds')
+                        "active": True
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert len(errors) == 1
+    assert "property validation failed" in errors[0]
+    assert "countdown" in errors[0]
+
+
+def test_validate_a2ui_property_level_type_mismatch():
+    surface_update = {
+        "components": [
+            {
+                "id": "slate-1",
+                "component": {
+                    "gdm-standby-slate": {
+                        "seconds": "not-a-number",  # Type mismatch! (should be int)
+                        "active": True
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert len(errors) == 1
+    assert "property validation failed" in errors[0]
+    assert "seconds" in errors[0]
+
+
+def test_validate_a2ui_property_level_backward_compatibility():
+    surface_update = {
+        "components": [
+            {
+                "id": "dashboard-1",
+                "component": {
+                    "gdm-telemetry-dashboard": {
+                        "title": "System Logs",
+                        "any_extra_property": "is_perfectly_fine"  # Lenient fallback!
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert not errors
+
+
+def test_validate_gdm_3d_airspace_valid():
+    surface_update = {
+        "components": [
+            {
+                "id": "airspace-3d",
+                "component": {
+                    "gdm-3d-airspace": {
+                        "flights": [
+                            {"callsign": "AFR6129", "altitude": 3000, "speed": 220, "vrate": -1000}
+                        ],
+                        "cameraPitch": 35.0,
+                        "cameraYaw": 45.0,
+                        "showGlideSlope": True,
+                        "showTerrain": True,
+                        "zoom": 12.0,
+                        "lockedCallsign": "AFR6129"
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert not errors
+
+
+def test_validate_gdm_3d_airspace_invalid_extra():
+    surface_update = {
+        "components": [
+            {
+                "id": "airspace-3d",
+                "component": {
+                    "gdm-3d-airspace": {
+                        "cameraPitch": 35.0,
+                        "invalid_parameter_name": "value"  # Forbidden extra field!
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert len(errors) == 1
+    assert "property validation failed" in errors[0]
+    assert "invalid_parameter_name" in errors[0]
+
+
+def test_validate_gdm_3d_airspace_invalid_type():
+    surface_update = {
+        "components": [
+            {
+                "id": "airspace-3d",
+                "component": {
+                    "gdm-3d-airspace": {
+                        "cameraPitch": "flat-view"  # Should be float/int, not string!
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert len(errors) == 1
+    assert "property validation failed" in errors[0]
+    assert "cameraPitch" in errors[0]
+
+

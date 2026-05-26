@@ -1,24 +1,14 @@
 import { LitElement, css, html } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
-/**
- * gdm-captions — first-class A2UI lower-third caption overlay.
- *
- * Unlike the legacy #transcript-layer (driven by out-of-band `transcript`
- * WebSocket messages), this component is composed through `render_stage` like
- * any other A2UI component: the agent sets `text` to the current caption point
- * and it renders as a large lower-third pill, keeping the prior line faded above
- * it so each sentence reads clearly, one at a time.
- */
 @customElement('gdm-captions')
 export class GdmStageCaptions extends LitElement {
   @property({ type: String }) text = '';
   @property({ type: String }) speaker = 'Speaker';
   @property({ type: Boolean, reflect: true }) active = false;
   @property({ type: String }) accentColor = '#00f2ff';
+  @property({ type: Number }) fontSize = 0;
 
-  // Internally remember the previous caption so a new `text` pushes the old
-  // line up as a faded "previous" pill — no external history prop required.
   @state() private _prev = '';
   private _lastText = '';
 
@@ -30,6 +20,18 @@ export class GdmStageCaptions extends LitElement {
         this._lastText = incoming;
       }
     }
+    if (changed.has('accentColor')) {
+      this.style.setProperty('--caption-accent', this.accentColor);
+    }
+    if (changed.has('fontSize') && this.fontSize > 0) {
+      this.style.setProperty('--gdm-cap-font-size', `${this.fontSize}px`);
+    }
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.style.setProperty('--caption-accent', this.accentColor);
+    if (this.fontSize > 0) this.style.setProperty('--gdm-cap-font-size', `${this.fontSize}px`);
   }
 
   static styles = css`
@@ -37,64 +39,67 @@ export class GdmStageCaptions extends LitElement {
       position: fixed;
       left: 0;
       right: 0;
-      /* Sit above the ticker lane (shares the same safe-zone var the caption
-         footer uses) so captions and the ticker never overlap. */
-      bottom: calc(var(--ticker-safe-zone, 56px) + 28px);
+      bottom: 6px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
-      padding: 0 24px;
+      gap: 4px;
+      padding: 0 40px;
       box-sizing: border-box;
       z-index: 740;
       pointer-events: none;
       opacity: 0;
-      transform: translateY(12px);
-      transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: translateY(8px);
+      transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
     }
     :host([active]) {
       opacity: 1;
       transform: translateY(0);
     }
     .pill {
-      max-width: min(1000px, 90%);
+      width: 100%;
       text-align: center;
-      border-radius: 14px;
-      background: rgba(15, 15, 20, 0.85);
+      border-radius: 8px;
+      background: rgba(10, 10, 18, 0.86);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(0, 242, 255, 0.2);
+      border: 1px solid rgba(0, 242, 255, 0.15);
       color: #fff;
-      word-wrap: break-word;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+      box-sizing: border-box;
     }
     .pill.prev {
-      padding: 8px 22px;
-      font-size: var(--prev-font-size, 32px);
-      opacity: 0.5;
-      transform: scale(0.97);
+      padding: 3px 18px;
+      font-size: var(--gdm-cap-prev-size, 11px);
+      opacity: 0.32;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .pill.active {
-      padding: 12px 28px;
-      font-size: var(--active-font-size, 48px);
+      padding: 7px 22px;
+      font-size: var(--gdm-cap-font-size, 16px);
       font-weight: 600;
-      animation: caption-rise 0.3s ease-out;
+      animation: caption-rise 0.25s ease-out;
+      line-height: 1.45;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
     }
     .speaker {
-      display: block;
-      font-size: 12px;
+      display: inline;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
-      margin-bottom: 4px;
+      letter-spacing: 0.1em;
+      margin-right: 6px;
+      color: var(--caption-accent, #00f2ff);
     }
-    .content {
-      text-shadow: 0 0 6px rgba(0, 242, 255, 0.4);
-      line-height: 1.3;
-    }
+    .content { line-height: 1.45; }
     @keyframes caption-rise {
-      from { opacity: 0; transform: translateY(10px) scale(0.97); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
   `;
 
@@ -104,8 +109,7 @@ export class GdmStageCaptions extends LitElement {
         ? html`<div class="pill prev"><span class="content">${this._prev}</span></div>`
         : ''}
       <div class="pill active">
-        <span class="speaker" style="color:${this.accentColor}">${this.speaker}</span>
-        <span class="content">${this.text}</span>
+        <span class="speaker">${this.speaker}:</span><span class="content">${this.text}</span>
       </div>
     `;
   }

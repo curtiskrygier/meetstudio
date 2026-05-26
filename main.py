@@ -1389,7 +1389,7 @@ async def get_png(diagram_id: str, _=Depends(token_required)):
     return FastAPIResponse(content=png, media_type="image/png")
 
 @app.post("/api/render")
-async def api_render_d2(payload: dict, _=Depends(token_required)):
+async def api_render_d2(payload: dict, _=Depends(token_or_api_key_required)):
     d2_code = payload.get("d2", "")
     style = payload.get("style", "cyber")
     if not d2_code: return FastAPIResponse(status_code=400)

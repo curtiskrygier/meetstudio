@@ -11,22 +11,17 @@ export class GdmStageStandby extends LitElement {
 
   @state() private _currentSeconds = 0;
   private _timerId: any = null;
-  private _lastActive = false;
-  private _lastSeconds = 0;
 
   willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
-    const activeChanged = this.active !== this._lastActive;
-    const secondsChanged = this.seconds !== this._lastSeconds;
-
-    if (activeChanged || secondsChanged) {
-      this._lastActive = this.active;
-      this._lastSeconds = this.seconds;
-
+    // Use Lit's native change tracking. Restart whenever the slate becomes
+    // active or the countdown duration changes — robust to element reuse.
+    if (changedProperties.has('active') || changedProperties.has('seconds')) {
       if (this.active && this.seconds > 0) {
         this._currentSeconds = this.seconds;
         this._startCountdown();
       } else {
         this._stopCountdown();
+        if (!this.active) this._currentSeconds = 0;
       }
     }
   }
@@ -39,10 +34,15 @@ export class GdmStageStandby extends LitElement {
   private _startCountdown() {
     this._stopCountdown();
     this._timerId = setInterval(() => {
-      if (this._currentSeconds > 0) {
+      if (this._currentSeconds > 1) {
         this._currentSeconds--;
       } else {
+        this._currentSeconds = 0;
         this._stopCountdown();
+        // Auto-dismiss the intermission slate when the countdown completes so
+        // it never lingers on stage blocking subsequent content.
+        this.active = false;
+        this.dispatchEvent(new CustomEvent('standby-complete', { bubbles: true, composed: true }));
       }
     }, 1000);
   }

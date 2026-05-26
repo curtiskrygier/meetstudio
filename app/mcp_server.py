@@ -161,7 +161,18 @@ _TOOLS = [
                 },
                 "surfaceUpdate": {
                     "type": "object",
-                    "description": "A2UI v0.8 surfaceUpdate payload containing components"
+                    "description": (
+                        "A2UI v0.8 surfaceUpdate payload containing components. "
+                        "Supported components in catalog: "
+                        "gdm-stage-card, gdm-chyron, gdm-ticker, gdm-standby-slate, gdm-chat-card, "
+                        "gdm-stage-grid (layout='single'|'split'|'grid'|'grid-3'|'presentation'), "
+                        "gdm-image-panel (src, label), gdm-video-panel (src, autoplay), "
+                        "gdm-iframe-panel (src), gdm-transcript-view, gdm-telemetry-dashboard, "
+                        "gdm-radar-view, gdm-poll-overlay, gdm-notepad (content), gdm-captions, "
+                        "gdm-diagram-view (diagId, svg, version, overlay), "
+                        "gdm-mermaid-panel (syntax, title, version), "
+                        "gdm-html-panel (html, title, overlay, version)."
+                    )
                 },
                 "root": {
                     "type": "string",

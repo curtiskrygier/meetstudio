@@ -23,6 +23,9 @@ export class GdmStageDiagram extends LitElement {
   /** Bump to signal a forced re-render even when svg content is identical. */
   @property({ type: Number }) version = 0;
 
+  /** Render as a full-stage glassmorphic overlay. */
+  @property({ type: Boolean, reflect: true }) overlay = false;
+
   // Track the last-rendered svg + version so we only re-inject when needed.
   private _renderedSvg = '';
   private _renderedVersion = -1;
@@ -37,6 +40,51 @@ export class GdmStageDiagram extends LitElement {
       overflow: hidden;
       background: rgba(8, 10, 20, 0.82);
       box-sizing: border-box;
+    }
+
+    :host([overlay]) {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 999;
+      background: rgba(4, 6, 12, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 40px;
+      box-sizing: border-box;
+      animation: backdrop-fade-in 300ms ease-out forwards;
+    }
+
+    :host([overlay]) .diagram-host {
+      width: 100%;
+      height: 100%;
+      max-width: 1200px;
+      max-height: 85vh;
+      background: rgba(12, 16, 32, 0.65);
+      border: 1px solid rgba(0, 242, 255, 0.2);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(0, 242, 255, 0.1), inset 0 0 20px rgba(0, 242, 255, 0.05);
+      padding: 24px;
+      box-sizing: border-box;
+      animation: scale-up 350ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+
+    @keyframes backdrop-fade-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    @keyframes scale-up {
+      from {
+        transform: scale(0.92);
+        opacity: 0;
+      }
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
     }
 
     .diagram-host {

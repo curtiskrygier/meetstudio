@@ -192,7 +192,10 @@ export class A2UIEngine {
       'gdm-captions',
       'gdm-emoji-burst',
       'gdm-draw-overlay',
-      'gdm-pointer'
+      'gdm-pointer',
+      'gdm-laser-sweep',
+      'gdm-diagram-view',
+      'gdm-html-panel',
     ]);
 
     for (const [id, item] of this.componentBuffer.entries()) {

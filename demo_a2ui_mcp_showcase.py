@@ -11,7 +11,7 @@ Phases:
 2. Split Screen Stage: Renders a split gdm-stage-grid with gdm-image-panel and gdm-notepad.
 3. Telemetry Streaming: Renders gdm-telemetry-dashboard streaming live stock price metrics + radar view + bottom ticker.
 4. Live Poll Overlay: Slides in a live audience voting poll gdm-poll-overlay with interactive votes.
-5. Live Audience Reactions: Clears the finance grid, then cascades gdm-chat-card feedback on its own clean stage (single-panel backdrop + chyron) so chat never blocks the dashboard.
+5. Live Audience Reactions: Clears the finance grid, then cascades gdm-chat-card feedback on its own clean stage.
 6. Clean Close: Clears the stage, shows a closing gdm-stage-card briefly, then resets to default via clear_stage.
 
 Environment Variables:
@@ -77,7 +77,7 @@ async def call_mcp_tool(client: httpx.AsyncClient, name: str, arguments: dict):
             "arguments": arguments
         }
     }
-    
+
     try:
         resp = await client.post(f"{API_URL}/mcp", headers=headers, json=payload)
         if resp.status_code == 200:
@@ -98,13 +98,7 @@ async def call_mcp_tool(client: httpx.AsyncClient, name: str, arguments: dict):
         print(f"  {CLR_ACCENT}❌ Request Failed: {e}{CLR_RESET}")
 
 async def say_caption(client: httpx.AsyncClient, space_id: str, text: str, root: str, speaker: str = "Gemini Architect"):
-    """Display one caption point via the first-class A2UI `gdm-captions` overlay.
-
-    Captions are composed through render_stage like every other component — the
-    overlay persists in the engine buffer and re-renders over whatever scene
-    `root` points at. NOTE: `root`'s component tree must already be on stage
-    (in the engine buffer), otherwise the bare overlay render would wipe it.
-    """
+    """Display one caption point via the first-class A2UI gdm-captions overlay."""
     await call_mcp_tool(client, "render_stage", {
         "space_id": space_id,
         "surfaceUpdate": {
@@ -121,10 +115,10 @@ async def say_caption(client: httpx.AsyncClient, space_id: str, text: str, root:
     })
 
 async def get_live_stock_price(client: httpx.AsyncClient, symbol: str) -> tuple[float, float]:
-    """Retrieve mock live stock pricing if APIs are slow/blocked."""
+    """Retrieve mock live stock pricing."""
     base_prices = {
-        "NVDA": (914.85, 2.5), 
-        "MSFT": (421.90, -0.8), 
+        "NVDA": (914.85, 2.5),
+        "MSFT": (421.90, -0.8),
         "GOOG": (173.50, 1.2),
         "CAP.PA": (212.40, 1.5)
     }
@@ -134,26 +128,44 @@ async def get_live_stock_price(client: httpx.AsyncClient, symbol: str) -> tuple[
     new_change = change + (drift / bp * 100)
     return new_price, new_change
 
-def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, cap_c, stock_chart, TABS_CONFIG, focused_panel=0):
-    flights_data = [
-        {"callsign": "AFR012", "altitude": 34000, "speed": 450, "vrate": 150, "origin": "CDG", "destination": "JFK"},
-        {"callsign": "BAW207", "altitude": 38000, "speed": 470, "vrate": 0, "origin": "LHR", "destination": "MIA"},
-        {"callsign": "DLH430", "altitude": 36000, "speed": 460, "vrate": -250, "origin": "FRA", "destination": "ORD"},
-        {"callsign": "SWR18", "altitude": 39000, "speed": 485, "vrate": 0, "origin": "ZRH", "destination": "LAX"}
-    ]
-    
+FLIGHTS_DATA = [
+    {"callsign": "AFR012", "altitude": 34000, "speed": 450, "vrate": 150, "origin": "CDG", "destination": "JFK"},
+    {"callsign": "BAW207", "altitude": 38000, "speed": 470, "vrate": 0, "origin": "LHR", "destination": "MIA"},
+    {"callsign": "DLH430", "altitude": 36000, "speed": 460, "vrate": -250, "origin": "FRA", "destination": "ORD"},
+    {"callsign": "SWR18", "altitude": 39000, "speed": 485, "vrate": 0, "origin": "ZRH", "destination": "LAX"}
+]
+
+BIKE_METRICS = [
+    {"label": "Capitole (Centre)", "value": "47 / 60 ▲", "color": "#00ff88"},
+    {"label": "Jean Jaurès", "value": "31 / 40 ▲", "color": "#00f2ff"},
+    {"label": "Saint-Sernin", "value": "18 / 30 ▼", "color": "#ffaa00"},
+    {"label": "Blagnac Aéroport", "value": "52 / 60 ▲", "color": "#00ff88"},
+    {"label": "Rangueil", "value": "9 / 30 ▼", "color": "#ff3b30"},
+    {"label": "Wilson / Esquirol", "value": "28 / 40 ▲", "color": "#00ff88"},
+]
+
+METRO_METRICS = [
+    {"label": "Line A → Balma-Gramont", "value": "2 min", "color": "#00f2ff"},
+    {"label": "Line B → Ramonville", "value": "4 min", "color": "#00ff88"},
+    {"label": "Line C → Arènes", "value": "3 min", "color": "#00f2ff"},
+    {"label": "Périphérique Nord", "value": "+12 min delay", "color": "#ffaa00"},
+    {"label": "A61 → Carcassonne", "value": "Fluide", "color": "#00ff88"},
+    {"label": "A62 → Bordeaux", "value": "Fluide", "color": "#00ff88"},
+]
+
+def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, cap_c, stock_chart, TABS_CONFIG, focused_panel=0, active_tab="stk", layout="grid"):
     return [
         {
             "id": "grid_layout",
             "component": {
                 "gdm-stage-grid": {
-                    "layout": "grid",
+                    "layout": layout,
                     "focusedPanel": focused_panel,
                     "children": {
                         "explicitList": [
                             "radar_view",
-                            "notepad_notes",
                             "telemetry_dashboard",
+                            "world_view",
                             "youtube_feed"
                         ]
                     }
@@ -164,17 +176,19 @@ def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, 
             "id": "radar_view",
             "component": {
                 "gdm-radar-view": {
-                    "flights": flights_data,
+                    "flights": FLIGHTS_DATA,
                     "lockedCallsign": "AFR012",
-                    "zoom": 12.0
+                    "zoom": 12.0,
+                    "stretched": False
                 }
             }
         },
         {
-            "id": "notepad_notes",
+            "id": "world_view",
             "component": {
-                "gdm-notepad": {
-                    "content": "### Collaborative Agent Notes\n\n1. **Dynamic Overlays:** Standard-compliant A2UI composite rendering active.\n2. **Live Telemetry:** Real-time system performance and metric feeds active.\n3. **Canvas State:** Multi-agent workspace synchronization verified."
+                "gdm-image-panel": {
+                    "src": "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&auto=format&fit=crop&q=80",
+                    "label": "🌍 Airspace Command Overview"
                 }
             }
         },
@@ -183,16 +197,24 @@ def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, 
             "component": {
                 "gdm-telemetry-dashboard": {
                     "tabs": TABS_CONFIG,
-                    "activeTabId": "stk",
-                    "title": "⚡ Real-Time Systems & Megatech Dashboard",
-                    "metrics": [
-                        {"label": f"NVDA ({'+' if nvda_c >= 0 else ''}{nvda_c:.2f}%)", "value": f"${nvda_p:.2f} {'▲' if nvda_c >= 0 else '▼'}", "color": "#00ff88" if nvda_c >= 0 else "#ff3b30"},
-                        {"label": f"MSFT ({'+' if msft_c >= 0 else ''}{msft_c:.2f}%)", "value": f"${msft_p:.2f} {'▲' if msft_c >= 0 else '▼'}", "color": "#00f2ff" if msft_c >= 0 else "#ff3b30"},
-                        {"label": f"GOOG ({'+' if goog_c >= 0 else ''}{goog_c:.2f}%)", "value": f"${goog_p:.2f} {'▲' if goog_c >= 0 else '▼'}", "color": "#ff2af2" if goog_c >= 0 else "#ff3b30"},
-                        {"label": f"CAP.PA ({'+' if cap_c >= 0 else ''}{cap_c:.2f}%)", "value": f"€{cap_p:.2f} {'▲' if cap_c >= 0 else '▼'}", "color": "#00f2ff" if cap_c >= 0 else "#ff3b30"},
-                        {"label": "AMZN (+1.10%)", "value": "$180.20 ▲", "color": "#00ffaa"},
-                        {"label": "TSLA (-1.85%)", "value": "$175.40 ▼", "color": "#ff3b30"}
-                    ],
+                    "activeTabId": active_tab,
+                    "title": (
+                        "🚲 Vélô Toulouse — Live Availability" if active_tab == "pwr"
+                        else "🚄 Toulouse Mobility — Live Status" if active_tab == "ac"
+                        else "⚡ AI & Megatech — Live Markets"
+                    ),
+                    "metrics": (
+                        BIKE_METRICS if active_tab == "pwr"
+                        else METRO_METRICS if active_tab == "ac"
+                        else [
+                            {"label": f"NVDA ({'+' if nvda_c >= 0 else ''}{nvda_c:.2f}%)", "value": f"${nvda_p:.2f} {'▲' if nvda_c >= 0 else '▼'}", "color": "#00ff88" if nvda_c >= 0 else "#ff3b30"},
+                            {"label": f"MSFT ({'+' if msft_c >= 0 else ''}{msft_c:.2f}%)", "value": f"${msft_p:.2f} {'▲' if msft_c >= 0 else '▼'}", "color": "#00f2ff" if msft_c >= 0 else "#ff3b30"},
+                            {"label": f"GOOG ({'+' if goog_c >= 0 else ''}{goog_c:.2f}%)", "value": f"${goog_p:.2f} {'▲' if goog_c >= 0 else '▼'}", "color": "#ff2af2" if goog_c >= 0 else "#ff3b30"},
+                            {"label": f"CAP.PA ({'+' if cap_c >= 0 else ''}{cap_c:.2f}%)", "value": f"€{cap_p:.2f} {'▲' if cap_c >= 0 else '▼'}", "color": "#00f2ff" if cap_c >= 0 else "#ff3b30"},
+                            {"label": "AMZN (+1.10%)", "value": "$180.20 ▲", "color": "#00ffaa"},
+                            {"label": "TSLA (-1.85%)", "value": "$175.40 ▼", "color": "#ff3b30"}
+                        ]
+                    ),
                     "chartData": stock_chart[-15:],
                     "viewType": "both"
                 }
@@ -212,21 +234,21 @@ def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, 
 
 async def main():
     print_banner()
-    
+
     async with httpx.AsyncClient(timeout=30) as client:
         space_id = os.environ.get("MEET_SPACE_ID")
         if not space_id:
             space_id = await get_active_space(client)
-            
+
         print(f"  {CLR_MUTED}Active Meet Space:{CLR_RESET} {CLR_SUCCESS}{space_id}{CLR_RESET}")
-        print(f"  {CLR_MUTED}Broadcasting sequences in 1s...{CLR_RESET}\n")
-        await asyncio.sleep(1)
+        print(f"  {CLR_MUTED}Broadcasting sequences in 2s...{CLR_RESET}\n")
+        await asyncio.sleep(2)
 
         # ───────────────────────────────────────────────────────────
         # Phase 0: Standby Countdown Slate
         # ───────────────────────────────────────────────────────────
         print(f"{CLR_ACCENT}[PHASE 0] RENDER INTERMISSION STANDBY COUNTDOWN SLATE{CLR_RESET}")
-        
+
         await call_mcp_tool(client, "render_stage", {
             "space_id": space_id,
             "surfaceUpdate": {
@@ -238,7 +260,7 @@ async def main():
                                 "badge": "STUDIO INTERMISSION",
                                 "title": "Model Context Protocol x Google A2UI v0.8",
                                 "description": "True agent-driven layout composition and canvas orchestration",
-                                "seconds": 5,
+                                "seconds": 8,
                                 "active": True
                             }
                         }
@@ -247,14 +269,16 @@ async def main():
             },
             "root": "countdown_slate"
         })
-        print(f"  {CLR_MUTED}Waiting 5s for countdown to finish...{CLR_RESET}")
-        await asyncio.sleep(5)
+        print(f"  {CLR_MUTED}Waiting 8s for countdown to finish...{CLR_RESET}")
+        await asyncio.sleep(8)
+        await call_mcp_tool(client, "clear_stage", {"space_id": space_id})
+        await asyncio.sleep(1.5)
 
         # ───────────────────────────────────────────────────────────
         # Phase 1: Single Panel with Lower-Third Chyron
         # ───────────────────────────────────────────────────────────
         print(f"\n{CLR_ACCENT}[PHASE 1] SINGLE PANEL MODE WITH LOWER-THIRD CHYRON OVERLAY{CLR_RESET}")
-        
+
         await call_mcp_tool(client, "render_stage", {
             "space_id": space_id,
             "surfaceUpdate": {
@@ -293,14 +317,17 @@ async def main():
             },
             "root": "single_layout"
         })
+        await asyncio.sleep(1.5)
         await say_caption(client, space_id, "Meet the Gemini Agent Architect — a live Google Meet add-on that drives the meeting main stage.", root="single_layout")
-        await asyncio.sleep(4)
+        await asyncio.sleep(10)
 
         # ───────────────────────────────────────────────────────────
-        # Phase 2: Split Screen Layout (Image + Notepad)
+        # Phase 2: Split Screen with Laser Sweep Reveal
         # ───────────────────────────────────────────────────────────
-        print(f"\n{CLR_ACCENT}[PHASE 2] SPLIT SCREEN LAYOUT (IMAGE & NOTEPAD PANEL){CLR_RESET}")
-        
+        print(f"\n{CLR_ACCENT}[PHASE 2] SPLIT SCREEN DUAL-IMAGE WITH LASER SWEEP REVEAL{CLR_RESET}")
+
+        # All Phase 2 components in one render — laser_sweep is an overlay type,
+        # auto-included from the buffer even though it's not in split_layout's children.
         await call_mcp_tool(client, "render_stage", {
             "space_id": space_id,
             "surfaceUpdate": {
@@ -311,25 +338,37 @@ async def main():
                             "gdm-stage-grid": {
                                 "layout": "split",
                                 "children": {
-                                    "explicitList": ["vector_artwork", "notepad_notes"]
+                                    "explicitList": ["split_left", "split_right"]
                                 }
                             }
                         }
                     },
                     {
-                        "id": "vector_artwork",
+                        "id": "split_left",
                         "component": {
                             "gdm-image-panel": {
-                                "src": "/workspace_sketch.png",
-                                "label": "✍️ Cozy Pencil Sketches"
+                                "src": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1200&auto=format&fit=crop&q=80",
+                                "label": "🧠 The Model Layer"
                             }
                         }
                     },
                     {
-                        "id": "notepad_notes",
+                        "id": "split_right",
                         "component": {
-                            "gdm-notepad": {
-                                "content": "### Collaborative Agent Notes\n\n1. **Unified Schema:** Circular dependencies resolved cleanly.\n2. **Protocol Parity:** Live MCP client synchronizing seamlessly.\n3. **Client Autonomy:** Dynamic state-bindings active."
+                            "gdm-image-panel": {
+                                "src": "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=1200&auto=format&fit=crop&q=80",
+                                "label": "🌍 The Real World"
+                            }
+                        }
+                    },
+                    {
+                        "id": "laser_sweep",
+                        "component": {
+                            "gdm-laser-sweep": {
+                                "active": True,
+                                "duration": 2.2,
+                                "sweeps": 2,
+                                "color": "#00f2ff"
                             }
                         }
                     }
@@ -337,81 +376,165 @@ async def main():
             },
             "root": "split_layout"
         })
-        await say_caption(client, space_id, "Under A2UI, the stage seamlessly partitions — here a split view pairing visuals with a shared collaborative notepad.", root="split_layout")
-        await asyncio.sleep(4)
+        await asyncio.sleep(1.0)
+        await say_caption(client, space_id, "Two worlds, one canvas — the model layer and the real world it serves, composed live on stage.", root="split_layout")
+        await asyncio.sleep(10)
+        await asyncio.sleep(1.0)
 
         # ───────────────────────────────────────────────────────────
-        # Phase 3: Telemetry Dashboard with Stock Price Ticker, YouTube, and Flight Radar Grid
+        # Phase 3: 4-Panel Grid → Radar Hero Zoom → YouTube
         # ───────────────────────────────────────────────────────────
-        print(f"\n{CLR_ACCENT}[PHASE 3] REAL-TIME TELEMETRY STREAMING & FLIGHT RADAR GRID{CLR_RESET}")
-        
+        print(f"\n{CLR_ACCENT}[PHASE 3] FOUR-PANEL INTELLIGENCE GRID + RADAR HERO ZOOM{CLR_RESET}")
+
         TABS_CONFIG = [
             {"id": "stk", "label": "📈 STOCKS"},
             {"id": "pwr", "label": "🚲 TOULOUSE BIKES"},
             {"id": "ac",  "label": "🚄 METRO / TRAFFIC"}
         ]
-        
+
         stock_chart = [40, 42, 41, 44, 43, 46, 45, 48, 47, 49, 50, 49, 51, 52, 53]
-        
-        # Top ticker = a genuine short scrolling market/live feed (NOT captions).
-        # Captions are composed separately via the first-class gdm-captions overlay (see say_caption).
+
         ticker_comp = {
             "id": "top_ticker",
             "component": {
                 "gdm-ticker": {
                     "text": "🚀 AEROSPACE LIVE: Airbus A350-1000 flight test over Toulouse nominal • SatLink 5G constellation deployment 85% complete • 📈 STOCKS: NVDA ▲ $914.85 • MSFT ▼ $421.90 • GOOG ▲ $173.50 • CAP.PA ▲ €212.40 • 🚲 Vélô Toulouse: 1,420 bikes available • Metro Line B: 2min wait • ⚡ A2UI Stage Orchestration Active",
                     "badgeText": "GLOBAL FEED",
+                    "badgeColor": "#ff2af2",
                     "active": True
                 }
             }
         }
-        
-        print(f"  {CLR_MUTED}Streaming live price ticks to telemetry component (5 ticks)...{CLR_RESET}")
-        for tick in range(5):
+
+        # — Phase 3a: Establish the 4-panel grid with live stock data streaming —
+        print(f"  {CLR_MUTED}Streaming live price ticks to telemetry grid...{CLR_RESET}")
+        for tick in range(4):
             nvda_p, nvda_c = await get_live_stock_price(client, "NVDA")
             msft_p, msft_c = await get_live_stock_price(client, "MSFT")
             goog_p, goog_c = await get_live_stock_price(client, "GOOG")
             cap_p, cap_c = await get_live_stock_price(client, "CAP.PA")
             stock_chart.append(int(max(10, min(95, 50 + nvda_c * 10))))
- 
-            grid_comps = make_grid_components(
-                nvda_p, nvda_c,
-                msft_p, msft_c,
-                goog_p, goog_c,
-                cap_p, cap_c,
-                stock_chart, TABS_CONFIG, focused_panel=4 if tick >= 2 else 0
-            )
 
+            grid_comps = make_grid_components(
+                nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, cap_c,
+                stock_chart, TABS_CONFIG
+            )
             await call_mcp_tool(client, "render_stage", {
                 "space_id": space_id,
-                "surfaceUpdate": {
-                    "components": grid_comps + [ticker_comp]
-                },
+                "surfaceUpdate": {"components": grid_comps + [ticker_comp]},
                 "root": "grid_layout"
             })
-            # Caption points fire only after the grid is on stage (root must
-            # exist in the engine buffer before the caption-only overlay render).
             if tick == 0:
-                await say_caption(client, space_id, "Use Case 1: AI & Megatech Stocks — streaming live price feeds for Nvidia, Microsoft and Google.", root="grid_layout")
+                await asyncio.sleep(1.5)
+                await say_caption(client, space_id, "Four live intelligence panels — radar, markets, airspace imagery, and media — all agent-composed in one canvas.", root="grid_layout")
             elif tick == 2:
-                await say_caption(client, space_id, "Tap the dashboard tabs to swap use cases — Toulouse bike-share or live metro and traffic.", root="grid_layout")
-            await asyncio.sleep(2.0)
+                await asyncio.sleep(1.5)
+                await say_caption(client, space_id, "The top-right panel rotates between domains — stocks, Toulouse bike-share, or live metro and traffic.", root="grid_layout")
+            await asyncio.sleep(3.0)
+
+        # Switch telemetry tab to bikes
+        nvda_p, nvda_c = await get_live_stock_price(client, "NVDA")
+        msft_p, msft_c = await get_live_stock_price(client, "MSFT")
+        goog_p, goog_c = await get_live_stock_price(client, "GOOG")
+        cap_p, cap_c = await get_live_stock_price(client, "CAP.PA")
+        grid_comps = make_grid_components(
+            nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, cap_c,
+            stock_chart, TABS_CONFIG, active_tab="pwr"
+        )
+        await call_mcp_tool(client, "render_stage", {
+            "space_id": space_id,
+            "surfaceUpdate": {"components": grid_comps + [ticker_comp]},
+            "root": "grid_layout"
+        })
+        await asyncio.sleep(4.0)
+
+        # — Phase 3b: Radar hero zoom — single layout with only radar_view as child —
+        # Switching to layout:single with one child means only panel-1 fills the host;
+        # other grid components stay in the A2UI buffer but are not traversed or rendered.
+        print(f"  {CLR_MUTED}Radar hero zoom — single layout fills the stage with radar...{CLR_RESET}")
+        radar_chyron = {
+            "id": "radar_info_chyron",
+            "component": {
+                "gdm-chyron": {
+                    "title": f"{len(FLIGHTS_DATA)} aircraft — Toulouse TMA",
+                    "subtitle": "AFR012 locked · CDG→JFK · FL340 · +150 fpm",
+                    "active": True,
+                    "accentColor": "#00f2ff",
+                    "bottom": 56,
+                    "left": 40
+                }
+            }
+        }
+        await call_mcp_tool(client, "render_stage", {
+            "space_id": space_id,
+            "surfaceUpdate": {
+                "components": [
+                    {
+                        "id": "grid_layout",
+                        "component": {
+                            "gdm-stage-grid": {
+                                "layout": "single",
+                                "focusedPanel": 0,
+                                "children": {"explicitList": ["radar_view"]}
+                            }
+                        }
+                    },
+                    {
+                        "id": "radar_view",
+                        "component": {
+                            "gdm-radar-view": {
+                                "flights": FLIGHTS_DATA,
+                                "lockedCallsign": "AFR012",
+                                "zoom": 8.0,
+                                "stretched": True
+                            }
+                        }
+                    },
+                    ticker_comp,
+                    radar_chyron
+                ]
+            },
+            "root": "grid_layout"
+        })
+        await asyncio.sleep(1.5)
+        await say_caption(client, space_id, "Any panel can claim the entire stage — radar tracking every aircraft over Toulouse, full screen.", root="grid_layout")
+        await asyncio.sleep(6.0)
+
+        # — Phase 3c: Return to grid, deactivate hero chyron, focus YouTube panel —
+        print(f"  {CLR_MUTED}Returning to grid with YouTube focus...{CLR_RESET}")
+        radar_chyron_off = {
+            "id": "radar_info_chyron",
+            "component": {"gdm-chyron": {"active": False, "title": "", "subtitle": ""}}
+        }
+        grid_comps = make_grid_components(
+            nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, cap_c,
+            stock_chart, TABS_CONFIG, focused_panel=4, layout="grid"
+        )
+        await call_mcp_tool(client, "render_stage", {
+            "space_id": space_id,
+            "surfaceUpdate": {"components": grid_comps + [ticker_comp, radar_chyron_off]},
+            "root": "grid_layout"
+        })
+        await asyncio.sleep(1.5)
+        await say_caption(client, space_id, "Back to the full canvas — and the bottom-right panel streams live YouTube, all agent-composed in one view.", root="grid_layout")
+        await asyncio.sleep(6.0)
 
         # ───────────────────────────────────────────────────────────
         # Phase 4: Slide-in Live Interactive Audience Poll
         # ───────────────────────────────────────────────────────────
         print(f"\n{CLR_ACCENT}[PHASE 4] LIVE INTERACTIVE AUDIENCE POLL OVERLAY{CLR_RESET}")
-        
+
         votes = [
             [5, 2, 4, 3],
             [12, 6, 11, 8],
             [25, 14, 21, 18],
             [41, 23, 35, 30]
         ]
-        
+
+        await say_caption(client, space_id, "Now a live audience poll — votes tally on stage in real time as the audience responds.", root="grid_layout")
+        await asyncio.sleep(3)
+
         print(f"  {CLR_MUTED}Broadcasting slide-in interactive poll and accumulating votes...{CLR_RESET}")
-        await say_caption(client, space_id, "Now a live audience poll — votes tally on stage in real time.", root="grid_layout")
-        await asyncio.sleep(1.5)
         for current_votes in votes:
             grid_comps = make_grid_components(
                 nvda_p, nvda_c,
@@ -443,22 +566,18 @@ async def main():
                 },
                 "root": "grid_layout"
             })
-            await asyncio.sleep(1.0)
-            
-        await asyncio.sleep(2)
- 
+            await asyncio.sleep(2.5)
+
+        await asyncio.sleep(5)
+
         # ───────────────────────────────────────────────────────────
         # Phase 5: Live Audience Reactions — its own clean scene
         # ───────────────────────────────────────────────────────────
         print(f"\n{CLR_ACCENT}[PHASE 5] LIVE AUDIENCE REACTIONS (DEDICATED SCENE){CLR_RESET}")
 
-        # Clear the finance grid first. The A2UI engine auto-renders overlay
-        # components (ticker, poll, chat cards) that linger in its buffer until a
-        # deleteSurface, so without this the chat cards cascade ON TOP of the grid
-        # and block the dashboard. A clean clear gives chat its own stage.
         print(f"  {CLR_MUTED}Clearing finance grid before the reactions scene...{CLR_RESET}")
         await call_mcp_tool(client, "clear_stage", {"space_id": space_id})
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(2)
 
         chats = [
             ("Alice", "The Flight Radar ✈️ component adds so much visual depth!"),
@@ -466,8 +585,6 @@ async def main():
             ("Charlie", "Google Meet main stage completely driven by AI agents with a beautiful layout.")
         ]
 
-        # Calm single-panel backdrop so the cascading chat cards read as a
-        # deliberate "reactions" scene rather than floating over a busy grid.
         backdrop = [
             {
                 "id": "reactions_layout",
@@ -499,24 +616,32 @@ async def main():
             }
         ]
 
-        active_chats = []
         for idx, (sender, text) in enumerate(chats, 1):
             print(f"  {CLR_MUTED}Cascading chat card {idx} onto the clean stage...{CLR_RESET}")
             chat_comp = {
                 "id": f"chat_{idx}",
                 "component": {"gdm-chat-card": {"sender": sender, "text": text}}
             }
-            active_chats.append(chat_comp)
-            await call_mcp_tool(client, "render_stage", {
-                "space_id": space_id,
-                "surfaceUpdate": {"components": backdrop + active_chats},
-                "root": "reactions_layout"
-            })
-            if idx == 1:
-                await say_caption(client, space_id, "And live reactions cascade in from the audience.", root="reactions_layout")
-            await asyncio.sleep(2.0)
 
-        await asyncio.sleep(2)
+            if idx == 1:
+                # First render: establish the backdrop scene + first card together
+                await call_mcp_tool(client, "render_stage", {
+                    "space_id": space_id,
+                    "surfaceUpdate": {"components": backdrop + [chat_comp]},
+                    "root": "reactions_layout"
+                })
+                await asyncio.sleep(1.5)
+                await say_caption(client, space_id, "And live reactions cascade in from the audience — sliding in from the right.", root="reactions_layout")
+            else:
+                # Subsequent cards: add only the new card; backdrop stays in buffer unchanged
+                await call_mcp_tool(client, "render_stage", {
+                    "space_id": space_id,
+                    "surfaceUpdate": {"components": [chat_comp]},
+                    "root": "reactions_layout"
+                })
+            await asyncio.sleep(4)
+
+        await asyncio.sleep(4)
 
         # ───────────────────────────────────────────────────────────
         # Phase 6: Clean close
@@ -524,7 +649,7 @@ async def main():
         print(f"\n{CLR_ACCENT}[PHASE 6] CLEAN CLOSE{CLR_RESET}")
         print(f"  {CLR_MUTED}Clearing reactions scene...{CLR_RESET}")
         await call_mcp_tool(client, "clear_stage", {"space_id": space_id})
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.5)
 
         print(f"  {CLR_MUTED}Showing closing card...{CLR_RESET}")
         await call_mcp_tool(client, "render_stage", {
@@ -537,7 +662,8 @@ async def main():
                             "gdm-stage-card": {
                                 "title": "🎉 Gemini Agent Architect",
                                 "text": "Live, agent-driven main-stage composition via Model Context Protocol & Google A2UI v0.8.",
-                                "accent": "primary"
+                                "accent": "#00f2ff",
+                                "mode": "hero"
                             }
                         }
                     }
@@ -545,8 +671,8 @@ async def main():
             },
             "root": "closing_card"
         })
-        print(f"  {CLR_MUTED}Holding closing card for 10s (Ctrl+C to exit early)...{CLR_RESET}")
-        await asyncio.sleep(10)
+        print(f"  {CLR_MUTED}Holding closing card for 12s...{CLR_RESET}")
+        await asyncio.sleep(12)
 
         print(f"\n{CLR_ACCENT}[RESET] CLEAR STAGE BACK TO DEFAULT{CLR_RESET}")
         await call_mcp_tool(client, "clear_stage", {"space_id": space_id})

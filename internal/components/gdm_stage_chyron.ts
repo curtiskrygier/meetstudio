@@ -14,8 +14,25 @@ export class GdmStageChyron extends LitElement {
   @property({ type: Number }) bottom = 48;
   @property({ type: Number }) left = 40;
 
+  willUpdate(changed: Map<string | number | symbol, unknown>) {
+    if (changed.has('bottom') || changed.has('left')) {
+      this.style.bottom = `${this.bottom}px`;
+      this.style.left = `${this.left}px`;
+    }
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.style.bottom = `${this.bottom}px`;
+    this.style.left = `${this.left}px`;
+  }
+
   static styles = css`
-    :host { display: block; position: fixed; z-index: 700; }
+    :host {
+      display: block;
+      position: fixed;
+      z-index: 700;
+    }
     .chyron {
       display: flex; align-items: stretch;
       background: rgba(8,10,20,0.82); backdrop-filter: blur(18px) saturate(1.4);
@@ -33,16 +50,14 @@ export class GdmStageChyron extends LitElement {
   `;
 
   render() {
-    const style = [
-      `bottom:${this.bottom}px`,
-      `left:${this.left}px`,
+    const chyronStyle = [
       `--accent:${this.accentColor}`,
       `--accent-glow:${this.accentColor}44`,
       `--title-color:${this.titleColor}`,
       `--subtitle-color:${this.subtitleColor}`,
     ].join(';');
 
-    return html`<div class="chyron" style="${style}">
+    return html`<div class="chyron" style="${chyronStyle}">
       <div class="accent-bar"></div>
       <div class="body">
         ${this.title ? html`<div class="title" style="font-size:${this.titleSize}px">${this.title}</div>` : ''}

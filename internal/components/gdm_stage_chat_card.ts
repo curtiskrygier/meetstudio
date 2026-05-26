@@ -6,11 +6,43 @@ export class GdmStageChatCard extends LitElement {
   @property({ type: String }) sender = '';
   @property({ type: String }) text = '';
   @property({ type: String }) avatar = '';
+  /** Seconds before the card auto-dismisses. 0 = never. */
+  @property({ type: Number }) duration = 10;
+
+  private _dismissTimer: any = null;
+
+  connectedCallback() {
+    super.connectedCallback();
+    if (this.duration > 0) {
+      this._dismissTimer = setTimeout(() => this._dismiss(), this.duration * 1000);
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._dismissTimer !== null) {
+      clearTimeout(this._dismissTimer);
+      this._dismissTimer = null;
+    }
+  }
+
+  private _dismiss() {
+    // Collapse height and fade out, then signal the host so it can skip re-adding
+    this.style.transition = 'opacity 0.5s ease, max-height 0.5s ease 0.3s, margin 0.5s ease 0.3s';
+    this.style.opacity = '0';
+    this.style.maxHeight = '0';
+    this.style.overflow = 'hidden';
+    this.style.margin = '0';
+    setTimeout(() => {
+      this.dispatchEvent(new CustomEvent('chat-dismiss', { bubbles: true, composed: true }));
+      this.remove();
+    }, 900);
+  }
 
   static styles = css`
     :host {
       display: block;
-      transition: bottom 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+      max-height: 200px;
     }
     .card {
       display: flex;
@@ -24,19 +56,19 @@ export class GdmStageChatCard extends LitElement {
       padding: 14px 18px;
       min-width: 280px;
       max-width: 400px;
-      animation: chat-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+      animation: chat-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
       box-sizing: border-box;
     }
-    @keyframes chat-rise {
-      from { 
-        opacity: 0; 
-        transform: translateY(30px) scale(0.92);
-        filter: blur(4px);
+    @keyframes chat-slide-in {
+      from {
+        opacity: 0;
+        transform: translateX(60px) scale(0.94);
+        filter: blur(3px);
       }
-      to { 
-        opacity: 1; 
-        transform: translateY(0) scale(1);
+      to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
         filter: blur(0);
       }
     }
