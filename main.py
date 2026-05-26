@@ -85,6 +85,9 @@ from app.a2ui_catalog import A2UI_CATALOG, validate_a2ui_surface
 
 from google.genai import types
 
+notepad_locks = {}  # meeting_id -> {"owner": owner_id, "expires_at": float}
+
+
 @asynccontextmanager
 async def lifespan(app):
     # Cleanup task for expired tickets
@@ -1049,12 +1052,30 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
                     logger.info(f"[queue] video_ended — queue empty, returning to placeholder for {meeting_id}")
                     await broadcast_to_stage(meeting_id, {"type": "view_change", "mode": "placeholder"})
             elif msg.get("type") == "notepad_update":
-                # Broadcast the live text updates to all OTHER connected clients
-                await broadcast_to_stage(meeting_id, {
-                    "type": "notepad_event",
-                    "action": "overwrite",
-                    "text": msg.get("text", "")
-                }, exclude_ws=websocket)
+                # Implement single-writer lock per meeting space to prevent clobbering
+                import time
+                now = time.time()
+                lock = notepad_locks.get(meeting_id)
+                owner_id = id(websocket)
+                
+                if lock and lock["expires_at"] > now and lock["owner"] != owner_id:
+                    # Notepad is currently locked by another active typer
+                    try:
+                        await websocket.send_text(json.dumps({
+                            "type": "notepad_locked",
+                            "error": "Notepad is currently being edited by another user."
+                        }))
+                    except Exception:
+                        pass
+                else:
+                    # Acquire or refresh the lock for 5 seconds
+                    notepad_locks[meeting_id] = {"owner": owner_id, "expires_at": now + 5.0}
+                    # Broadcast the live text updates to all OTHER connected clients
+                    await broadcast_to_stage(meeting_id, {
+                        "type": "notepad_event",
+                        "action": "overwrite",
+                        "text": msg.get("text", "")
+                    }, exclude_ws=websocket)
             elif msg.get("type") == "stage_camera_frame":
                 # Forward camera frames to all other connected stage clients
                 await broadcast_to_stage(meeting_id, msg, exclude_ws=websocket)

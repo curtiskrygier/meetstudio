@@ -182,3 +182,36 @@ def test_stage_audio_empty_body(mock_auth_key):
     resp = client.post("/api/stage-audio/spaces/test", content=b"", headers=headers)
     assert resp.status_code == 400
     assert "Empty body" in resp.json()["detail"]
+
+def test_notepad_locking_logic():
+    from datetime import datetime, timedelta, timezone
+    from main import auth_tickets, notepad_locks
+    
+    # 1. Setup a valid WebSocket authentication ticket
+    ticket = "test-ticket-999"
+    auth_tickets[ticket] = ("dummy-token", datetime.now(timezone.utc) + timedelta(minutes=5))
+    
+    # Ensure lock list is clean for space
+    meeting_id = "spaces/lock_test"
+    notepad_locks.pop(meeting_id, None)
+    
+    # Connect client 1
+    with client.websocket_connect(f"/ws/stage?meeting_id={meeting_id}&ticket={ticket}") as ws1:
+        # Connect client 2
+        with client.websocket_connect(f"/ws/stage?meeting_id={meeting_id}&ticket={ticket}") as ws2:
+            
+            # Client 1 updates the notepad -> acquires the lock
+            ws1.send_json({"type": "notepad_update", "text": "Client 1 typing..."})
+            
+            # Client 2 immediately receives Client 1's broadcast update
+            broadcast = ws2.receive_json()
+            assert broadcast["type"] == "notepad_event"
+            assert broadcast["text"] == "Client 1 typing..."
+            
+            # Client 2 immediately tries to update -> gets blocked by lock and receives locked event
+            ws2.send_json({"type": "notepad_update", "text": "Client 2 clobbering!"})
+            
+            resp = ws2.receive_json()
+            assert resp["type"] == "notepad_locked"
+            assert "edited by another user" in resp["error"]
+
