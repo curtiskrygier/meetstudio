@@ -553,8 +553,26 @@ export class GdmStage3DAirspace extends LitElement {
   firstUpdated() {
     if (this._canvas) {
       this._ctx = this._canvas.getContext('2d');
-      this._resizeObserver?.observe(this.parentElement || this);
+
+      // Observe the host element itself so the ResizeObserver fires whenever
+      // the host (or any ancestor) resizes — including the initial layout pass.
+      // Observing `parentElement` (the fixed-height #a2ui-stage-root, which never
+      // resizes again) fired the observer only once before the flex layout of
+      // .viewport-wrapper had settled, locking _canvasW/_canvasH at a stale/half
+      // size — that's why the scene rendered only in the top vertical half.
+      this._resizeObserver?.observe(this);
+
+      // Also observe the shadow-DOM viewport wrapper directly so any internal
+      // reflow (e.g. HUD panel toggling) is captured.
+      const viewportWrapper = this.shadowRoot?.querySelector('.viewport-wrapper');
+      if (viewportWrapper) {
+        this._resizeObserver?.observe(viewportWrapper);
+      }
+
+      // Immediate best-effort measure, then a rAF-deferred measure so we capture
+      // the size after the flex layout has fully settled.
       this._handleResize();
+      requestAnimationFrame(() => this._handleResize());
     }
   }
 
@@ -603,12 +621,17 @@ export class GdmStage3DAirspace extends LitElement {
   }
 
   private _handleResize() {
-    const parent = this.shadowRoot?.querySelector('.viewport-wrapper');
-    if (parent && this._canvas) {
-      const rect = parent.getBoundingClientRect();
+    const viewportWrapper = this.shadowRoot?.querySelector('.viewport-wrapper');
+    if (viewportWrapper && this._canvas) {
+      const rect = viewportWrapper.getBoundingClientRect();
+      // Guard against degenerate sizes — don't lock in a stale/zero size before
+      // layout settles (the cause of the top-half-only render).
+      if (rect.width < 10 || rect.height < 10) return;
       const dpr = window.devicePixelRatio || 1;
       this._canvasW = rect.width;
       this._canvasH = rect.height;
+      // Setting canvas.width/height resets the 2D context transform entirely,
+      // so ctx.scale(dpr, dpr) MUST come after these assignments.
       this._canvas.width = rect.width * dpr;
       this._canvas.height = rect.height * dpr;
       if (this._ctx) {

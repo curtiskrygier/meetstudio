@@ -196,6 +196,7 @@ export class A2UIEngine {
       'gdm-laser-sweep',
       'gdm-diagram-view',
       'gdm-html-panel',
+      'gdm-market-ticker',
     ]);
 
     for (const [id, item] of this.componentBuffer.entries()) {

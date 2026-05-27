@@ -133,6 +133,8 @@ export class GdmArchitectAgent extends LitElement {
   private lastSeenChatMsgName = '';
   private lastSeenChatMsgTime = '';
   private chatPollInterval: ReturnType<typeof setInterval> | null = null;
+  private standbyInterval: ReturnType<typeof setInterval> | null = null;
+  @state() private standbyRemainingSecs = 0;
 
   private parseChatSpaceId(input: string): string {
     const trimmed = input.trim();
@@ -189,17 +191,6 @@ export class GdmArchitectAgent extends LitElement {
         id: 'stage_emojis',
         element: 'gdm-emoji-burst',
         props: { active: false, emoji: '👏', count: 12 }
-      },
-      {
-        id: 'stage_standby',
-        element: 'gdm-standby-slate',
-        props: { 
-          active: this.standbyActive, 
-          badge: this.standbyBadge, 
-          title: this.standbyTitle,
-          description: this.standbyDesc,
-          seconds: this.standbySecs
-        }
       },
       {
         id: 'stage_ticker',
@@ -610,27 +601,295 @@ export class GdmArchitectAgent extends LitElement {
     console.log('[concierge] Google Chat periodic poller started (4s interval)');
   }
 
-  private toggleStandby() {
-    this.standbyActive = !this.standbyActive;
+  private pushStandbyComponents(badge: string, title: string, description: string, remainingSeconds: number) {
+    const components: any[] = [];
+
+    // 1. Root Grid
+    components.push({
+      id: 'stage_root_grid',
+      component: {
+        'gdm-stage-grid': {
+          layout: 'single',
+          children: {
+            explicitList: ['welcome_outer_container']
+          }
+        }
+      }
+    });
+
+    // 2. Outer Full-Stage Container
+    components.push({
+      id: 'welcome_outer_container',
+      component: {
+        'gdm-container': {
+          direction: 'column',
+          justify: 'center',
+          align: 'center',
+          width: '100%',
+          height: '100%',
+          background: 'rgba(10, 15, 30, 0.45)',
+          children: {
+            explicitList: ['welcome_card']
+          }
+        }
+      }
+    });
+
+    // 3. Glassmorphic Welcome Card
+    const cardChildren = [
+      'welcome_header_row',
+      'welcome_divider',
+      'welcome_title'
+    ];
+    if (description) {
+      cardChildren.push('welcome_description');
+    }
+    if (remainingSeconds > 0) {
+      cardChildren.push('welcome_countdown');
+      cardChildren.push('welcome_countdown_line');
+    }
+    cardChildren.push('welcome_progress');
+    cardChildren.push('welcome_status_row');
+
+    components.push({
+      id: 'welcome_card',
+      component: {
+        'gdm-container': {
+          direction: 'column',
+          justify: 'center',
+          align: 'center',
+          padding: '32px',
+          gap: '20px',
+          width: '500px',
+          glass: true,
+          borderRadius: '16px',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          children: {
+            explicitList: cardChildren
+          }
+        }
+      }
+    });
+
+    // 4. Header Row
+    components.push({
+      id: 'welcome_header_row',
+      component: {
+        'gdm-container': {
+          direction: 'row',
+          justify: 'space-between',
+          align: 'center',
+          width: '100%',
+          children: {
+            explicitList: ['welcome_icon', 'welcome_badge']
+          }
+        }
+      }
+    });
+
+    components.push({
+      id: 'welcome_icon',
+      component: {
+        'gdm-icon': {
+          name: 'sonar',
+          color: 'cyan',
+          size: '32px'
+        }
+      }
+    });
+
+    components.push({
+      id: 'welcome_badge',
+      component: {
+        'gdm-badge': {
+          text: badge.toUpperCase(),
+          type: 'cyan',
+          pulse: true
+        }
+      }
+    });
+
+    // 5. Divider
+    components.push({
+      id: 'welcome_divider',
+      component: {
+        'gdm-divider': {
+          vertical: false,
+          color: 'rgba(255, 255, 255, 0.15)',
+          thickness: '1px',
+          margin: '4px 0'
+        }
+      }
+    });
+
+    // 6. Title
+    components.push({
+      id: 'welcome_title',
+      component: {
+        'gdm-text': {
+          content: title,
+          size: 'h2',
+          color: 'accent',
+          pulse: true,
+          uppercase: true,
+          font: 'sans',
+          align: 'center'
+        }
+      }
+    });
+
+    // 7. Description
+    if (description) {
+      components.push({
+        id: 'welcome_description',
+        component: {
+          'gdm-text': {
+            content: description,
+            size: 'body',
+            color: 'white',
+            align: 'center'
+          }
+        }
+      });
+    }
+
+    // 8. Countdown Timer
+    if (remainingSeconds > 0) {
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = remainingSeconds % 60;
+      const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      components.push({
+        id: 'welcome_countdown',
+        component: {
+          'gdm-text': {
+            content: timeStr,
+            size: '64px',
+            weight: '800',
+            color: 'accent',
+            pulse: true,
+            font: 'mono',
+            align: 'center'
+          }
+        }
+      });
+      components.push({
+        id: 'welcome_countdown_line',
+        component: {
+          'gdm-divider': {
+            vertical: false,
+            color: 'rgba(0, 242, 255, 0.4)',
+            thickness: '2px',
+            margin: '0 auto'
+          }
+        }
+      });
+    }
+
+    // 9. Progress Bar
+    components.push({
+      id: 'welcome_progress',
+      component: {
+        'gdm-progress': {
+          value: 100.0,
+          color: 'cyan',
+          height: '8px',
+          animated: true,
+          glow: true
+        }
+      }
+    });
+
+    // 10. Status Row
+    components.push({
+      id: 'welcome_status_row',
+      component: {
+        'gdm-container': {
+          direction: 'row',
+          justify: 'space-between',
+          align: 'center',
+          width: '100%',
+          children: {
+            explicitList: ['welcome_status_lbl', 'welcome_clock']
+          }
+        }
+      }
+    });
+
+    components.push({
+      id: 'welcome_status_lbl',
+      component: {
+        'gdm-text': {
+          content: remainingSeconds > 0 ? '📡 Aligning WebSocket feeds...' : '🟢 Broadcast stage calibrated',
+          size: 'caption',
+          color: 'mute'
+        }
+      }
+    });
+
+    components.push({
+      id: 'welcome_clock',
+      component: {
+        'gdm-clock': {
+          showClock: true,
+          showDate: false,
+          format: '24h',
+          accentColor: 'cyan'
+        }
+      }
+    });
+
     const payload = {
       type: 'surfaceUpdate',
       surfaceUpdate: {
-        components: [{
-          id: 'standby_overlay',
-          component: {
-            'gdm-standby-slate': {
-              active: this.standbyActive,
-              badge: this.standbyBadge,
-              title: this.standbyTitle,
-              description: this.standbyDesc,
-              seconds: this.standbyTime
-            }
-          }
-        }]
+        components: components
       }
     };
     this.wsService?.sendJson(payload);
-    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'stage_root_grid' } });
+  }
+
+  private toggleStandby() {
+    this.standbyActive = !this.standbyActive;
+    if (this.standbyActive) {
+      this.standbyRemainingSecs = (this.standbyTime * 60) + this.standbySecs;
+      if (this.standbyInterval) {
+        clearInterval(this.standbyInterval);
+      }
+      this.pushStandbyComponents(this.standbyBadge, this.standbyTitle, this.standbyDesc, this.standbyRemainingSecs);
+      this.standbyInterval = setInterval(() => {
+        if (this.standbyRemainingSecs > 0) {
+          this.standbyRemainingSecs--;
+          this.pushStandbyComponents(this.standbyBadge, this.standbyTitle, this.standbyDesc, this.standbyRemainingSecs);
+        } else {
+          this.toggleStandby();
+        }
+      }, 1000);
+    } else {
+      if (this.standbyInterval) {
+        clearInterval(this.standbyInterval);
+        this.standbyInterval = null;
+      }
+      this.wsService?.sendJson({ type: 'deleteSurface' });
+      const restorePayload = {
+        type: 'surfaceUpdate',
+        surfaceUpdate: {
+          components: [
+            ...this.getBaseStageComponents(),
+            {
+              id: 'grid_layout',
+              component: {
+                'gdm-stage-grid': {
+                  layout: this.activeLayout,
+                  focusedPanel: 0
+                }
+              }
+            }
+          ]
+        }
+      };
+      this.wsService?.sendJson(restorePayload);
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+    }
   }
 
   private triggerSound(sound: string) {
@@ -1031,6 +1290,10 @@ export class GdmArchitectAgent extends LitElement {
     if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
     if (this.speechSilenceTimer) clearTimeout(this.speechSilenceTimer);
     if (this.diagramInterval) clearInterval(this.diagramInterval);
+    if (this.standbyInterval) {
+      clearInterval(this.standbyInterval);
+      this.standbyInterval = null;
+    }
     if (this.chatPollInterval) {
       clearInterval(this.chatPollInterval);
       this.chatPollInterval = null;

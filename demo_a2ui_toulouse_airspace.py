@@ -24,6 +24,7 @@ import os
 import sys
 import glob
 import random
+import re
 import httpx
 
 # --- Virtualenv Auto-Resolution ---
@@ -68,6 +69,74 @@ async def post_endpoint(client: httpx.AsyncClient, endpoint: str, payload: dict)
     except Exception as e:
         print(f"  {CLR_MAGENTA}⚠️ Error calling {endpoint}: {e}{CLR_RESET}", file=sys.stderr)
 
+async def fetch_lfbo_metar(client: httpx.AsyncClient) -> dict:
+    """Fetches real METAR for Toulouse Blagnac and parses it. Falls back dynamically if offline."""
+    url = "https://tgftp.nws.noaa.gov/data/observations/metar/stations/LFBO.TXT"
+    fallback = {
+        "wind": "310° @ 12kt",
+        "temp": "16°C",
+        "pressure": "1015 hPa",
+        "clouds": "Few clouds 3000ft",
+        "raw": "LFBO 262100Z 31012KT 9999 FEW030 16/11 Q1015"
+    }
+    try:
+        resp = await client.get(url, timeout=3.0)
+        if resp.status_code == 200:
+            lines = resp.text.strip().splitlines()
+            if len(lines) >= 2:
+                metar_raw = lines[1].strip()
+                # Simple parsing of wind (e.g. 32015KT, VRB05KT, 32015G25KT)
+                wind_match = re.search(r'\b(\d{3}|VRB)(\d{2})(G\d{2})?KT\b', metar_raw)
+                wind_str = "310° @ 12kt"
+                if wind_match:
+                    dir_val = wind_match.group(1)
+                    speed_val = wind_match.group(2)
+                    gust_val = wind_match.group(3)
+                    dir_deg = f"{dir_val}°" if dir_val != "VRB" else "Variable"
+                    wind_str = f"{dir_deg} @ {speed_val}kt"
+                    if gust_val:
+                        wind_str += f" (Gusts {gust_val[1:]}kt)"
+                
+                # Parse temperature (e.g. 15/10, M02/M05)
+                temp_match = re.search(r'\b(M?\d{2})\/(M?\d{2})\b', metar_raw)
+                temp_str = "16°C"
+                if temp_match:
+                    t = temp_match.group(1)
+                    t_val = int(t.replace('M', '-')) if t.startswith('M') else int(t)
+                    temp_str = f"{t_val}°C"
+                
+                # Parse pressure (e.g. Q1015)
+                qnh_match = re.search(r'\bQ(\d{4})\b', metar_raw)
+                qnh_str = "1015 hPa"
+                if qnh_match:
+                    qnh_str = f"{qnh_match.group(1)} hPa"
+                
+                # Parse clouds (e.g. FEW030, SCT045, BKN035, OVC010)
+                cloud_match = re.search(r'\b(FEW|SCT|BKN|OVC|CAVOK|NSC)(\d{3})?\b', metar_raw)
+                cloud_str = "Clear skies"
+                if cloud_match:
+                    typ = cloud_match.group(1)
+                    alt = cloud_match.group(2)
+                    if typ == "CAVOK":
+                        cloud_str = "Clear (CAVOK)"
+                    elif typ == "NSC":
+                        cloud_str = "No significant clouds"
+                    else:
+                        alt_ft = int(alt) * 100 if alt else 3000
+                        names = {"FEW": "Few", "SCT": "Scattered", "BKN": "Broken", "OVC": "Overcast"}
+                        cloud_str = f"{names.get(typ, typ)} clouds @ {alt_ft}ft"
+                
+                return {
+                    "wind": wind_str,
+                    "temp": temp_str,
+                    "pressure": qnh_str,
+                    "clouds": cloud_str,
+                    "raw": metar_raw
+                }
+    except Exception:
+        pass
+    return fallback
+
 async def render_stage_api(client: httpx.AsyncClient, space_id: str, components: list[dict], root_id: str = None):
     payload = {
         "surfaceUpdate": {
@@ -104,218 +173,181 @@ def get_fallback_flights(tick: int) -> list[dict]:
     flights = [
         {
             "callsign": "AFR6129",
+            "company": "Air France",
+            "aircraft": "Airbus A321",
             "altitude": max(150, 1150 - tick * 100),
             "speed": max(135, 260 - tick * 12),
             "vrate": -1100,
             "origin": "ORY",
-            "destination": "TLS"
+            "destination": "TLS",
+            "dep_time": "19:40",
+            "squawk": "1242"
         },
         {
             "callsign": "BAW373",
+            "company": "British Airways",
+            "aircraft": "Airbus A320",
             "altitude": max(300, 2400 - tick * 150),
             "speed": max(145, 300 - tick * 15),
             "vrate": -1400,
             "origin": "LHR",
-            "destination": "TLS"
+            "destination": "TLS",
+            "dep_time": "18:15",
+            "squawk": "2104"
         },
         {
             "callsign": "EZY4218",
+            "company": "EasyJet",
+            "aircraft": "Airbus A319",
             "altitude": max(600, 3800 - tick * 200),
             "speed": max(155, 340 - tick * 18),
             "vrate": -1700,
             "origin": "LGW",
-            "destination": "TLS"
+            "destination": "TLS",
+            "dep_time": "18:45",
+            "squawk": "4215"
         },
         {
             "callsign": "RYR109B",
+            "company": "Ryanair",
+            "aircraft": "Boeing 737",
             "altitude": max(1200, 4900 - tick * 250),
             "speed": max(165, 380 - tick * 20),
             "vrate": -900,
             "origin": "STN",
-            "destination": "TLS"
+            "destination": "TLS",
+            "dep_time": "18:30",
+            "squawk": "7302"
         },
         {
             "callsign": "DLH11A",
+            "company": "Lufthansa",
+            "aircraft": "Airbus A321",
             "altitude": max(2100, 5800 - tick * 300),
             "speed": max(180, 410 - tick * 22),
             "vrate": -1200,
             "origin": "FRA",
-            "destination": "TLS"
+            "destination": "TLS",
+            "dep_time": "19:25",
+            "squawk": "1104"
         }
     ]
+
+    # Calculate ETA based on remaining altitude and descent rate
+    for f in flights:
+        alt_m = f["altitude"]
+        vrate_fpm = abs(f["vrate"])
+        # convert altitude from meters to feet: 1m = 3.28084ft
+        alt_ft = alt_m * 3.28084
+        # minutes to touchdown = alt_ft / vrate_fpm
+        if vrate_fpm > 0:
+            minutes_to_touchdown = alt_ft / vrate_fpm
+        else:
+            minutes_to_touchdown = 5.0
+            
+        seconds_to_touchdown = int(minutes_to_touchdown * 60)
+        
+        # Calculate dynamic absolute ETA assuming current base time of 20:50:00
+        base_seconds = 20 * 3600 + 50 * 60
+        target_seconds = base_seconds + seconds_to_touchdown
+        
+        eta_hr = (target_seconds // 3600) % 24
+        eta_min = (target_seconds // 60) % 60
+        eta_sec = target_seconds % 60
+        
+        f["eta"] = f"{eta_hr:02d}:{eta_min:02d}:{eta_sec:02d}"
+        f["eta_relative"] = f"{seconds_to_touchdown // 60}m {seconds_to_touchdown % 60:02d}s"
+
     flights.sort(key=lambda f: f["altitude"])
     return flights
 
 # --- Custom HTML Console Markup Generator ---
-def make_supervisor_console_html(flights: list[dict]) -> str:
+def make_supervisor_console_html(flights: list[dict], weather: dict) -> str:
     """Generates the live ATC Sector Supervisor Console HTML panel content."""
     rows_markup = ""
     for f in flights:
         vrate = f["vrate"]
         vr_symbol = "▼" if vrate < -250 else ("▲" if vrate > 250 else "—")
-        color = "#00ff88" if vrate < -250 else ("#ffd60a" if vrate > 250 else "#00f2ff")
+        if vrate < -250:
+            color_class = "text-up"
+        elif vrate > 250:
+            color_class = "text-warning"
+        else:
+            color_class = "text-cyan"
+            
         fl = f"{int(f['altitude'] * 3.28084 / 100):03d}"
         
         # Determine airspace handover fix based on altitude
         if f["altitude"] < 500:
-            status = "LANDED"
+            status_pill = '<span class="status-pill landed">Landed</span>'
         elif f["altitude"] < 1000:
-            status = "FINAL APPROACH"
+            status_pill = '<span class="status-pill approach">Final Approach</span>'
         elif f["altitude"] < 2500:
-            status = "APPROACH FIX"
+            status_pill = '<span class="status-pill approach">Approach Fix</span>'
         else:
-            status = "ESTABLISHED"
+            status_pill = '<span class="status-pill established">Established</span>'
             
         rows_markup += f"""
         <tr>
-            <td style="color:{color}; font-weight:bold; font-family:monospace;">{f['callsign']}</td>
-            <td>FL{fl}</td>
-            <td>{f['speed']}kt</td>
-            <td style="color:{color}; font-family:monospace;">{vr_symbol} {abs(vrate)}</td>
-            <td style="font-size:10px; opacity:0.8; letter-spacing:0.5px;">{status}</td>
+            <td class="font-bold">{f['company']}</td>
+            <td class="{color_class} font-bold font-mono">{f['callsign']}</td>
+            <td class="font-mono">{f['aircraft']}</td>
+            <td class="font-mono font-bold">{f['origin']} ➔ {f['destination']}</td>
+            <td class="font-mono text-mute">{f['dep_time']}</td>
+            <td class="font-mono text-warning">{f['eta']}</td>
+            <td class="font-mono text-warning font-bold">{f['eta_relative']}</td>
+            <td class="font-mono">FL{fl} <span class="text-mute text-xs">({f['altitude']}m)</span></td>
+            <td class="{color_class} font-mono">{vr_symbol} {abs(vrate)} fpm</td>
+            <td>{status_pill}</td>
+            <td class="font-mono text-mute">{f['squawk']}</td>
         </tr>
         """
         
     return f"""
-    <style>
-        body {{
-            background: #080a14 !important;
-            color: #ffffff;
-            font-family: 'Google Sans', 'Inter', system-ui, sans-serif;
-            margin: 0;
-            padding: 16px;
-            box-sizing: border-box;
-            color-scheme: dark !important;
-        }}
-        .console-container {{
-            border: 1px solid rgba(0, 242, 255, 0.2);
-            background: rgba(12, 16, 32, 0.65);
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: inset 0 0 20px rgba(0, 242, 255, 0.05);
-        }}
-        .header {{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid rgba(0, 242, 255, 0.15);
-            padding-bottom: 12px;
-            margin-bottom: 14px;
-        }}
-        .title {{
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            color: #00f2ff;
-            text-shadow: 0 0 8px rgba(0, 242, 255, 0.3);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-        .pulse-light {{
-            width: 8px;
-            height: 8px;
-            background: #00ff88;
-            border-radius: 50%;
-            box-shadow: 0 0 8px #00ff88;
-            animation: pulse-anim 1.5s infinite alternate;
-        }}
-        @keyframes pulse-anim {{
-            from {{ opacity: 0.4; }}
-            to {{ opacity: 1; }}
-        }}
-        .metric-grid {{
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            margin-bottom: 16px;
-        }}
-        .metric-card {{
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 10px 12px;
-        }}
-        .metric-label {{
-            font-size: 9px;
-            color: rgba(255, 255, 255, 0.5);
-            text-transform: uppercase;
-            font-weight: bold;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }}
-        .metric-value {{
-            font-size: 14px;
-            font-weight: 700;
-            font-family: monospace;
-            color: #ffffff;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11px;
-            text-align: left;
-        }}
-        th {{
-            color: rgba(0, 242, 255, 0.6);
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-size: 9px;
-            padding: 8px 6px;
-            border-bottom: 1px solid rgba(0, 242, 255, 0.1);
-        }}
-        td {{
-            padding: 8px 6px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-        }}
-        .system-footer {{
-            margin-top: 14px;
-            padding-top: 10px;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            font-size: 9px;
-            color: rgba(255, 255, 255, 0.4);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-    </style>
-    <div class="console-container">
-        <div class="header">
-            <div class="title">
-                <div class="pulse-light"></div>
+    <link rel="stylesheet" href="{API_URL}/stage_components.css">
+    <div class="hud-container">
+        <div class="hud-header">
+            <div class="hud-title">
+                <div class="pulse-dot"></div>
                 📡 TLS-SECTOR SUPERVISOR CONSOLE
             </div>
-            <div style="font-size:10px; font-family:monospace; color:rgba(255,255,255,0.4)">LFBO-APP</div>
+            <div class="hud-subtitle-badge">LFBO-APP</div>
         </div>
         <div class="metric-grid">
             <div class="metric-card">
                 <div class="metric-label">Active Runway Corridor</div>
-                <div class="metric-value" style="color:#00ff88">ILS Runway 32L/R</div>
+                <div class="metric-value text-up">ILS Runway 32L/R</div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Active Wind & METAR</div>
-                <div class="metric-value">320° / 15kt</div>
+                <div class="metric-value font-mono">{weather['wind']} ({weather['temp']})</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Sector Capacity</div>
+                <div class="metric-value text-cyan">5/12 ACFT</div>
             </div>
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Callsign</th>
-                    <th>Altitude</th>
-                    <th>Speed</th>
-                    <th>V-Rate</th>
-                    <th>Sector Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows_markup}
-            </tbody>
-        </table>
-        <div class="system-footer">
-            <span>S-BAND RADAR: ONLINE</span>
-            <span>ADS-B COHERENCY: 99.8% NOMINAL</span>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Airline</th>
+                        <th>Flight No</th>
+                        <th>Aircraft</th>
+                        <th>Route</th>
+                        <th>Departure</th>
+                        <th>ETA (UTC)</th>
+                        <th>Countdown</th>
+                        <th>Altitude</th>
+                        <th>V-Rate</th>
+                        <th>Sector Status</th>
+                        <th>Squawk</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_markup}
+                </tbody>
+            </table>
         </div>
     </div>
     """
@@ -326,12 +358,6 @@ def make_target_profile_html(flight: dict, tick: int) -> str:
     fl = f"{int(altitude_ft / 100):03d}"
     vrate = flight["vrate"]
     
-    # Calculate ETA countdown based on altitude
-    eta_sec = max(5, int(flight["altitude"] / 6))
-    eta_min = eta_sec // 60
-    eta_rem = eta_sec % 60
-    eta_str = f"{eta_min:02d}m {eta_rem:02d}s"
-    
     # Deceleration progress bar (Target landing speed ~135kt, max approach speed ~340kt)
     pct_speed = int(max(0, min(100, (flight["speed"] - 135) / (340 - 135) * 100)))
     
@@ -339,188 +365,59 @@ def make_target_profile_html(flight: dict, tick: int) -> str:
     glide_deviation = "ON COURSE" if flight["altitude"] > 100 else "DECELERATION ROLL"
     
     return f"""
-    <style>
-        body {{
-            background: #080a14 !important;
-            color: #ffffff;
-            font-family: 'Google Sans', 'Inter', system-ui, sans-serif;
-            margin: 0;
-            padding: 16px;
-            box-sizing: border-box;
-            color-scheme: dark !important;
-        }}
-        .hud-container {{
-            border: 1px solid rgba(0, 255, 136, 0.3);
-            background: rgba(12, 32, 20, 0.45);
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.1), inset 0 0 20px rgba(0, 255, 136, 0.05);
-        }}
-        .header {{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid rgba(0, 255, 136, 0.2);
-            padding-bottom: 12px;
-            margin-bottom: 14px;
-        }}
-        .title {{
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            color: #00ff88;
-            text-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-        .pulse-light {{
-            width: 8px;
-            height: 8px;
-            background: #00f2ff;
-            border-radius: 50%;
-            box-shadow: 0 0 8px #00f2ff;
-            animation: pulse-anim 1s infinite alternate;
-        }}
-        @keyframes pulse-anim {{
-            from {{ opacity: 0.4; }}
-            to {{ opacity: 1; }}
-        }}
-        .target-callsign {{
-            font-size: 32px;
-            font-weight: 800;
-            font-family: monospace;
-            color: #00ff88;
-            letter-spacing: 1.5px;
-            margin-bottom: 12px;
-            text-shadow: 0 0 12px rgba(0, 255, 136, 0.4);
-        }}
-        .data-grid {{
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            margin-bottom: 16px;
-        }}
-        .data-card {{
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 8px 10px;
-        }}
-        .card-label {{
-            font-size: 8px;
-            color: rgba(255, 255, 255, 0.5);
-            text-transform: uppercase;
-            font-weight: bold;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }}
-        .card-value {{
-            font-size: 13px;
-            font-weight: 700;
-            font-family: monospace;
-        }}
-        .bar-container {{
-            background: rgba(255, 255, 255, 0.05);
-            height: 6px;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 4px;
-        }}
-        .bar-fill {{
-            background: #00ff88;
-            height: 100%;
-            width: {pct_speed}%;
-            border-radius: 3px;
-            box-shadow: 0 0 6px #00ff88;
-        }}
-        .glidepath-visual {{
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 8px;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.2);
-            text-align: center;
-            font-size: 11px;
-            margin-bottom: 12px;
-        }}
-        .glideslope-line {{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin: 8px 0;
-            position: relative;
-        }}
-        .glideslope-line::before {{
-            content: '';
-            position: absolute;
-            left: 10%;
-            right: 10%;
-            height: 1px;
-            background: rgba(255,255,255,0.15);
-            top: 50%;
-            z-index: 1;
-        }}
-        .glide-notch {{
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.3);
-            z-index: 2;
-        }}
-        .glide-diamond {{
-            width: 8px;
-            height: 8px;
-            background: #00f2ff;
-            transform: rotate(45deg);
-            box-shadow: 0 0 6px #00f2ff;
-            z-index: 3;
-            margin: 0 auto;
-        }}
-    </style>
-    <div class="hud-container">
-        <div class="header">
-            <div class="title">
-                <div class="pulse-light"></div>
+    <link rel="stylesheet" href="{API_URL}/stage_components.css">
+    <div class="hud-container green-theme">
+        <div class="hud-header green-theme">
+            <div class="hud-title green-theme">
+                <div class="pulse-dot"></div>
                 🎯 ACTIVE TARGET OPERATIONS PROFILE
             </div>
-            <div style="font-size:9px; font-family:monospace; color:rgba(0,255,136,0.7)">VECTORS LOCK ON</div>
+            <div class="hud-subtitle-badge green-theme">VECTORS LOCK ON</div>
         </div>
         
-        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div class="flex-between align-start margin-bottom-md">
             <div>
                 <div class="target-callsign">{flight['callsign']}</div>
-                <div style="font-size:10px; opacity:0.7; margin-top:-6px; text-transform:uppercase; font-weight:bold; letter-spacing:0.5px;">Air France • ORY ➔ TLS</div>
+                <div class="font-bold font-mono text-up text-uppercase text-xs">
+                    {flight['company']} • {flight['origin']} ➔ {flight['destination']}
+                </div>
             </div>
-            <div style="text-align:right;">
-                <div style="font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; font-weight:bold;">Squawk</div>
-                <div style="font-size:16px; font-family:monospace; font-weight:bold; color:#00f2ff; text-shadow: 0 0 6px rgba(0, 242, 255, 0.4)">1242</div>
+            <div class="text-right">
+                <div class="font-bold text-uppercase text-mute text-xs">Squawk</div>
+                <div class="font-bold font-mono text-cyan text-lg glow-cyan">{flight['squawk']}</div>
             </div>
         </div>
         
-        <div class="data-grid" style="margin-top:14px;">
-            <div class="data-card">
-                <div class="card-label">Primary Altitude</div>
-                <div class="card-value">{flight['altitude']}m <span style="font-size:10px; color:rgba(255,255,255,0.5)">/ FL{fl}</span></div>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-label">Primary Altitude</div>
+                <div class="metric-value">{flight['altitude']}m <span class="text-mute text-xs">/ FL{fl}</span></div>
             </div>
-            <div class="data-card">
-                <div class="card-label">Airspeed Reference</div>
-                <div class="card-value" style="color:#00ff88">{flight['speed']} kt</div>
-                <div class="bar-container"><div class="bar-fill"></div></div>
+            <div class="metric-card">
+                <div class="metric-label">Airspeed Reference</div>
+                <div class="metric-value text-up">{flight['speed']} kt</div>
+                <progress value="{pct_speed}" max="100"></progress>
             </div>
-            <div class="data-card">
-                <div class="card-label">Vertical Descent Speed</div>
-                <div class="card-value" style="color:#00ff88">{vrate} fpm</div>
+            <div class="metric-card">
+                <div class="metric-label">Vertical Descent Speed</div>
+                <div class="metric-value text-up">{vrate} fpm</div>
             </div>
-            <div class="data-card">
-                <div class="card-label">Touchdown ETA</div>
-                <div class="card-value" style="color:#ffd60a">{eta_str}</div>
+        </div>
+        
+        <div class="metric-grid grid-2 margin-bottom-md">
+            <div class="metric-card">
+                <div class="metric-label">Aircraft Type</div>
+                <div class="metric-value font-mono">{flight['aircraft']}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Touchdown ETA</div>
+                <div class="metric-value text-warning">{flight['eta_relative']} <span class="text-mute text-xs">({flight['eta']})</span></div>
             </div>
         </div>
         
         <div class="glidepath-visual">
-            <div style="font-size:8px; font-weight:bold; text-transform:uppercase; color:rgba(255,255,255,0.5); letter-spacing:0.5px; margin-bottom:4px;">3-Degree Instrument Landing Corridor</div>
-            <div style="font-weight:bold; color:#00f2ff; letter-spacing:0.5px;">{glide_deviation}</div>
+            <div class="font-bold text-uppercase text-mute text-xs text-letterspace margin-bottom-sm">3-Degree Instrument Landing Corridor</div>
+            <div class="font-bold text-cyan text-letterspace margin-bottom-sm">{glide_deviation}</div>
             <div class="glideslope-line">
                 <div class="glide-notch"></div>
                 <div class="glide-notch"></div>
@@ -528,10 +425,11 @@ def make_target_profile_html(flight: dict, tick: int) -> str:
                 <div class="glide-notch"></div>
                 <div class="glide-notch"></div>
             </div>
-            <div style="font-size:8px; color:rgba(255,255,255,0.4)">ILS GS-32L FREQ: 110.10 MHz • DME LOCK: 1.8 NM</div>
+            <div class="font-mono text-mute text-xs margin-top-sm">ILS GS-32L FREQ: 110.10 MHz • DME LOCK: 1.8 NM</div>
         </div>
     </div>
     """
+
 
 # --- Custom Airway Corridor SVG System Takeover Diagram ---
 airspace_svg = """<svg viewBox="0 0 700 350" xmlns="http://www.w3.org/2000/svg">
@@ -676,6 +574,11 @@ async def main():
         print(f"  {CLR_SLATE}Active Meeting Space:{CLR_RESET} {CLR_CYAN}{space}{CLR_RESET}")
         print(f"  {CLR_SLATE}A2UI Specification:{CLR_RESET} {CLR_CYAN}v0.8 Dark Cyberpunk Theme{CLR_RESET}\n")
 
+        # Fetch live METAR weather data
+        weather = await fetch_lfbo_metar(client)
+        print(f"  🌦️  Fetched Toulouse Live METAR: {weather['raw']}")
+        local_airspace_svg = airspace_svg.replace("QNH 1015 HPA", f"QNH {weather['pressure'].upper()}")
+
         # ───────────────────────────────────────────────────────────
         # Phase 0: S-Band Transceiver Calibration (Countdown Slate)
         # ───────────────────────────────────────────────────────────
@@ -711,7 +614,7 @@ async def main():
             "id": "airspace_ticker",
             "component": {
                 "gdm-ticker": {
-                    "text": "📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: 320° AT 15KT • QNH: 1015 HPA • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE •",
+                    "text": f"📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: {weather['wind'].upper()} • TEMP: {weather['temp']} • QNH: {weather['pressure']} • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE • RAW METAR: {weather['raw']} •",
                     "scrollSpeed": 50,
                     "active": True,
                     "accentColor": "#00ff88"
@@ -743,7 +646,7 @@ async def main():
         for tick in range(loop_ticks):
             print(f"  📡 Sweeping Sector Space (Tick {tick+1}/{loop_ticks})...")
             flights = get_fallback_flights(tick=tick)
-            html_console = make_supervisor_console_html(flights)
+            html_console = make_supervisor_console_html(flights, weather)
             
             await render_stage_api(client, space, [
                 {
@@ -761,7 +664,7 @@ async def main():
                         "gdm-3d-airspace": {
                             "flights": flights,
                             "lockedCallsign": "",
-                            "zoom": 10.0,
+                            "zoom": 5.5,
                             "cameraPitch": 35.0,
                             "cameraYaw": 45.0,
                             "showGlideSlope": True,
@@ -823,7 +726,7 @@ async def main():
                         "gdm-3d-airspace": {
                             "flights": flights,
                             "lockedCallsign": "AFR6129",
-                            "zoom": 6.0,
+                            "zoom": 4.0,
                             "cameraPitch": 25.0,
                             "cameraYaw": 135.0,
                             "showGlideSlope": True,
@@ -882,7 +785,7 @@ async def main():
                         "lockedCallsign": "AFR6129",
                         "cameraPitch": 35.0,
                         "cameraYaw": 45.0,
-                        "zoom": 10.0,
+                        "zoom": 5.5,
                         "showGlideSlope": True,
                         "showTerrain": True
                     }
@@ -892,7 +795,7 @@ async def main():
                 "id": "html_panel",
                 "component": {
                     "gdm-html-panel": {
-                        "html": make_supervisor_console_html(get_fallback_flights(2)),
+                        "html": make_supervisor_console_html(get_fallback_flights(2), weather),
                         "title": "📡 Supervisor Live Console"
                     }
                 }
@@ -901,7 +804,7 @@ async def main():
                 "id": "airspace_overlay",
                 "component": {
                     "gdm-diagram-view": {
-                        "svg": airspace_svg,
+                        "svg": local_airspace_svg,
                         "diagId": "airway_network",
                         "overlay": True
                     }
@@ -944,7 +847,7 @@ async def main():
                         "lockedCallsign": "",
                         "cameraPitch": 35.0,
                         "cameraYaw": 45.0,
-                        "zoom": 10.0,
+                        "zoom": 5.5,
                         "showGlideSlope": True,
                         "showTerrain": True,
                         "cinematicOrbit": True,
@@ -956,7 +859,7 @@ async def main():
                 "id": "html_panel",
                 "component": {
                     "gdm-html-panel": {
-                        "html": make_supervisor_console_html(get_fallback_flights(3)),
+                        "html": make_supervisor_console_html(get_fallback_flights(3), weather),
                         "title": "📡 Supervisor Live Console"
                     }
                 }
@@ -1006,7 +909,7 @@ async def main():
                             "lockedCallsign": "",
                             "cameraPitch": 35.0,
                             "cameraYaw": 45.0,
-                            "zoom": 10.0,
+                            "zoom": 5.5,
                             "showGlideSlope": True,
                             "showTerrain": True,
                             "cinematicOrbit": True,
@@ -1018,7 +921,7 @@ async def main():
                     "id": "html_panel",
                     "component": {
                         "gdm-html-panel": {
-                            "html": make_supervisor_console_html(get_fallback_flights(3)),
+                            "html": make_supervisor_console_html(get_fallback_flights(3), weather),
                             "title": "📡 Supervisor Live Console"
                         }
                     }

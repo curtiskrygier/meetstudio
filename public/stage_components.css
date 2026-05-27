@@ -1,0 +1,462 @@
+/* 
+   Meet Live Concierge — Ultra-Premium CSS Theme & Stage Components
+   Securely bypassing strict Content Security Policy (CSP) via external stylesheet loading
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@400;500;700;800&display=swap');
+
+body {
+  background: #060814 !important;
+  color: #ffffff !important;
+  font-family: 'Outfit', 'Google Sans', 'Inter', system-ui, sans-serif;
+  margin: 0;
+  padding: 16px;
+  box-sizing: border-box;
+  color-scheme: dark !important;
+  overflow: auto;
+}
+
+/* Custom modern scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 242, 255, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 242, 255, 0.35);
+}
+
+/* ───────────────────────────────────────────────────────────
+   GLASSMORPHIC HUD CONTAINER
+   ─────────────────────────────────────────────────────────── */
+.hud-container {
+  border: 1px solid rgba(0, 242, 255, 0.15);
+  background: rgba(10, 12, 26, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(0, 242, 255, 0.02);
+  height: calc(100vh - 72px); /* Full height bounds minus margin */
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.hud-container.yellow-theme {
+  border-color: rgba(255, 214, 10, 0.18);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(255, 214, 10, 0.02);
+}
+
+/* Header section */
+.hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.hud-header.yellow-theme {
+  border-bottom-color: rgba(255, 214, 10, 0.15);
+}
+
+.hud-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #00f2ff;
+  text-shadow: 0 0 10px rgba(0, 242, 255, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-title.yellow-theme {
+  color: #ffd60a;
+  text-shadow: 0 0 10px rgba(255, 214, 10, 0.25);
+}
+
+.hud-subtitle-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+/* Pulsing Status Dot */
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #00ff88;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #00ff88;
+  animation: pulse-glow 1.5s infinite alternate;
+}
+.pulse-dot.warning {
+  background: #ffd60a;
+  box-shadow: 0 0 8px #ffd60a;
+}
+.pulse-dot.danger {
+  background: #ff3b57;
+  box-shadow: 0 0 8px #ff3b57;
+}
+
+@keyframes pulse-glow {
+  from { opacity: 0.4; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1.1); }
+}
+
+/* ───────────────────────────────────────────────────────────
+   METRIC BANNER GRID
+   ─────────────────────────────────────────────────────────── */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.metric-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px 14px;
+  transition: all 0.2s ease;
+}
+.metric-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(0, 242, 255, 0.1);
+}
+
+.metric-label {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+
+.metric-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ───────────────────────────────────────────────────────────
+   CYBER TABLE LAYOUT
+   ─────────────────────────────────────────────────────────── */
+.table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.01);
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+th {
+  color: rgba(0, 242, 255, 0.75);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-size: 10px;
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(0, 242, 255, 0.15);
+  background: rgba(12, 16, 32, 0.8);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+th.yellow-theme {
+  color: rgba(255, 214, 10, 0.75);
+  border-bottom-color: rgba(255, 214, 10, 0.15);
+}
+
+td {
+  padding: 11px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  vertical-align: middle;
+}
+
+tr:hover {
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.005);
+}
+
+/* Font helpers */
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+.font-bold {
+  font-weight: 700;
+}
+
+/* Text Colors */
+.text-up {
+  color: #00ff88;
+}
+.text-down {
+  color: #ff3b57;
+}
+.text-warning {
+  color: #ffd60a;
+}
+.text-cyan {
+  color: #00f2ff;
+}
+.text-mute {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Instruction Action Badge styling */
+.action-badge {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  background: rgba(255, 255, 255, 0.03);
+  text-transform: uppercase;
+}
+
+/* Flight Board status items */
+.status-pill {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.status-pill.landed {
+  background: rgba(0, 255, 136, 0.1);
+  color: #00ff88;
+  border: 1px solid rgba(0, 255, 136, 0.2);
+}
+.status-pill.approach {
+  background: rgba(0, 242, 255, 0.1);
+  color: #00f2ff;
+  border: 1px solid rgba(0, 242, 255, 0.2);
+}
+.status-pill.established {
+  background: rgba(255, 214, 10, 0.1);
+  color: #ffd60a;
+  border: 1px solid rgba(255, 214, 10, 0.2);
+}
+.status-pill.emergency {
+  background: rgba(255, 59, 87, 0.1);
+  color: #ff3b57;
+  border: 1px solid rgba(255, 59, 87, 0.2);
+  animation: pulse-flash 1s infinite alternate;
+}
+
+@keyframes pulse-flash {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+
+/* Text alignments */
+.text-right {
+  text-align: right;
+}
+.text-center {
+  text-align: center;
+}
+
+/* ───────────────────────────────────────────────────────────
+   TARGET PROFILER & GLIDEPATH VISUALS
+   ─────────────────────────────────────────────────────────── */
+.target-callsign {
+  font-size: 32px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  color: #00ff88;
+  letter-spacing: 1.5px;
+  margin-bottom: 12px;
+  text-shadow: 0 0 12px rgba(0, 255, 136, 0.4);
+}
+
+.bar-container {
+  background: rgba(255, 255, 255, 0.05);
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.bar-fill {
+  background: #00ff88;
+  height: 100%;
+  border-radius: 3px;
+  box-shadow: 0 0 6px #00ff88;
+  transition: width 0.3s ease;
+}
+
+.glidepath-visual {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  text-align: center;
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+
+.glideslope-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0;
+  position: relative;
+}
+
+.glideslope-line::before {
+  content: '';
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: rgba(255,255,255,0.15);
+  top: 50%;
+  z-index: 1;
+}
+
+.glide-notch {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.3);
+  z-index: 2;
+}
+
+.glide-diamond {
+  width: 8px;
+  height: 8px;
+  background: #00f2ff;
+  transform: rotate(45deg);
+  box-shadow: 0 0 6px #00f2ff;
+  z-index: 3;
+  margin: 0 auto;
+}
+
+/* HTML5 progress element styling for CSP-compliant progress indicators */
+progress {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  margin-top: 4px;
+}
+progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.05);
+}
+progress::-webkit-progress-value {
+  background: #00ff88;
+  border-radius: 3px;
+  box-shadow: 0 0 6px #00ff88;
+}
+progress::-moz-progress-bar {
+  background: #00ff88;
+  border-radius: 3px;
+}
+
+/* Green Cyber-neon theme for Target Profiler HUD */
+.hud-container.green-theme {
+  border-color: rgba(0, 255, 136, 0.22);
+  background: rgba(10, 24, 16, 0.85);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(0, 255, 136, 0.02);
+}
+.hud-header.green-theme {
+  border-bottom-color: rgba(0, 255, 136, 0.15);
+}
+.hud-title.green-theme {
+  color: #00ff88;
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.25);
+}
+.hud-subtitle-badge.green-theme {
+  color: rgba(0, 255, 136, 0.7);
+  background: rgba(0, 255, 136, 0.05);
+}
+
+/* Flexbox and Layout Utilities for strict CSP compliance (eliminating inline styles) */
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+}
+.align-start {
+  align-items: flex-start;
+}
+.align-center {
+  align-items: center;
+}
+.margin-top-sm {
+  margin-top: 8px;
+}
+.margin-top-md {
+  margin-top: 14px;
+}
+.margin-bottom-sm {
+  margin-bottom: 8px;
+}
+.margin-bottom-md {
+  margin-bottom: 16px;
+}
+.d-flex {
+  display: flex;
+}
+.gap-sm {
+  gap: 8px;
+}
+.gap-md {
+  gap: 16px;
+}
+.text-xs {
+  font-size: 10px !important;
+  opacity: 0.7;
+  letter-spacing: 0.5px;
+}
+.text-lg {
+  font-size: 18px !important;
+}
+.glow-cyan {
+  text-shadow: 0 0 8px rgba(0, 242, 255, 0.4);
+}
+.grid-2 {
+  grid-template-columns: repeat(2, 1fr) !important;
+}
+.text-uppercase {
+  text-transform: uppercase;
+}
+.text-letterspace {
+  letter-spacing: 0.8px;
+}

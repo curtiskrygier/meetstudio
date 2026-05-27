@@ -174,6 +174,25 @@ import './internal/components/gdm_stage_mermaid';
 import './internal/components/gdm_stage_html';
 import './internal/components/gdm_stage_laser_sweep';
 import './internal/components/gdm_stage_3d_airspace';
+import './internal/components/gdm_stage_market_ticker';
+
+// Composable Primitives / Atomic UI Layer Elements
+import './internal/components/gdm_stage_container';
+import './internal/components/gdm_stage_text';
+import './internal/components/gdm_stage_badge';
+import './internal/components/gdm_stage_progress';
+import './internal/components/gdm_stage_divider';
+import './internal/components/gdm_stage_icon';
+import './internal/components/gdm_stage_button';
+import './internal/components/gdm_stage_clock';
+import './internal/components/gdm_stage_sparkline';
+import './internal/components/gdm_stage_table_view';
+import './internal/components/gdm_stage_trend_value';
+import './internal/components/gdm_stage_scroller';
+import './internal/components/gdm_stage_grid_layout';
+import './internal/components/gdm_stage_stat';
+import './internal/components/gdm_stage_image';
+import './internal/components/gdm_stage_spacer';
 
 const root = document.getElementById('a2ui-stage-root');
 const contentLayer = document.getElementById('content-layer');
@@ -415,6 +434,7 @@ if (root) {
   root.addEventListener('zoom-change', (e: Event) => sendAction('zoom-change', (e as CustomEvent).detail));
   root.addEventListener('tab-select',  (e: Event) => sendAction('tab-select',  (e as CustomEvent).detail));
   root.addEventListener('poll-vote',   (e: Event) => sendAction('poll-vote',   (e as CustomEvent).detail));
+  root.addEventListener('gdm-button-click', (e: Event) => sendAction('gdm-button-click', (e as CustomEvent).detail));
 }
 
 interface ActionPatch {

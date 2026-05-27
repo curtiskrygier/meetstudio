@@ -172,7 +172,7 @@ export class GdmStageHtml extends LitElement {
         ${this.html ? html`
           <iframe
             .srcdoc="${wrappedHtml}"
-            sandbox="allow-scripts allow-popups"
+            sandbox="allow-scripts allow-same-origin allow-popups"
             allowfullscreen
             loading="lazy"
           ></iframe>

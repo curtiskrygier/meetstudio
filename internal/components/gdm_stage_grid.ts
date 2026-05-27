@@ -21,8 +21,6 @@ export class GdmStageGrid extends LitElement {
       gap: 8px;
       padding: 8px;
       box-sizing: border-box;
-      transition: grid-template-columns 0.6s cubic-bezier(0.16, 1, 0.3, 1),
-                  grid-template-rows 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .grid.single {
       grid-template-columns: 1fr;
@@ -34,6 +32,12 @@ export class GdmStageGrid extends LitElement {
     .grid.split {
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr;
+    }
+    @media (max-aspect-ratio: 1/1), (max-width: 768px) {
+      .grid.split {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr;
+      }
     }
     .grid.split .slot:nth-child(n+3) {
       display: none;
@@ -61,7 +65,6 @@ export class GdmStageGrid extends LitElement {
       background: rgba(10, 12, 24, 0.4);
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.05);
-      transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .slot.focused {
       box-shadow: inset 0 0 0 2px rgba(0, 242, 255, 0.45), 0 0 30px rgba(0, 242, 255, 0.1);
