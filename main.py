@@ -81,7 +81,7 @@ from app.diagrams import generate_diagram, render_d2
 from app.images import generate_image, image_cache
 from app.mcp_server import handle_mcp
 from app.reactions import detect_emojis
-from app.a2ui_catalog import A2UI_CATALOG, validate_a2ui_surface
+from app.a2ui_catalog import A2UI_CATALOG, validate_a2ui_surface, validate_a2ui_surface_detailed
 
 from google.genai import types
 
@@ -113,7 +113,9 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
             "default-src 'self' blob: data: https://*.google.com https://*.googleusercontent.com; "
             "script-src 'self' blob: data: https://*.google.com https://*.gstatic.com https://*.googleapis.com https://*.googleusercontent.com https://cdnjs.cloudflare.com; "
-            "style-src 'self' https://fonts.googleapis.com https://*.google.com; "
+            # 'unsafe-inline' permits agent-driven dynamic styling of A2UI components
+            # (style attributes / element.style). Style injection only — script-src stays strict.
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.google.com; "
             "connect-src 'self' https://*.google.com https://*.googleapis.com https://*.google-analytics.com wss://* ws://*; "
             "img-src * data: blob:; "
             "font-src 'self' data: https://fonts.gstatic.com https://*.google.com; "
@@ -534,25 +536,21 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             
                             # Initial Welcome Card for Main Stage if empty
                             if session_space[0] not in current_a2ui_surface:
+                                welcome_components = make_composable_standby_components(
+                                    badge="GETTING STARTED",
+                                    title="🚀 Google Meet Studio",
+                                    description="Welcome! The Gemini Agent Architect is ready to build with you. Click the \"Connect\" button in your side panel to start the AI collaboration.",
+                                    remaining_seconds=0
+                                )
                                 await broadcast_to_stage(session_space[0], {
                                     "type": "surfaceUpdate",
                                     "surfaceUpdate": {
-                                        "components": [{
-                                            "id": "welcome_card",
-                                            "component": {
-                                                "gdm-stage-card": {
-                                                    "title": "🚀 Google Meet Studio",
-                                                    "text": "Welcome! The Gemini Agent Architect is ready to build with you. Click the \"Connect\" button in your side panel to start the AI collaboration.",
-                                                    "accent": "#00f2ff",
-                                                    "mode": "hero"
-                                                }
-                                            }
-                                        }]
+                                        "components": welcome_components
                                     }
                                 })
                                 await broadcast_to_stage(session_space[0], {
                                     "type": "beginRendering",
-                                    "beginRendering": {"root": "welcome_card"}
+                                    "beginRendering": {"root": "stage_root_grid"}
                                 })
                         
                         elif data.get("type") == "diagram_mode":
@@ -800,7 +798,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     comps = surface_update.get("components", [])
                                     if comps:
                                         root_id = comps[0].get("id", "")
-                                errors = validate_a2ui_surface(surface_update)
+                                errors, warnings = validate_a2ui_surface_detailed(surface_update)
                                 if errors:
                                     responses.append(types.FunctionResponse(
                                         id=fc.id, name=fc.name,
@@ -812,10 +810,15 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                         await broadcast_to_stage(session_space[0], {"type": "dataModelUpdate", "dataModelUpdate": data_model_update})
                                     if root_id:
                                         await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": root_id}})
+                                    if warnings:
+                                        logger.warning(f"[tool] render_stage surface warnings: {'; '.join(warnings)}")
                                     logger.info(f"[tool] render_stage root={root_id} n={len(surface_update.get('components', []))}")
+                                    result_msg = f"Stage rendered with root '{root_id}'."
+                                    if warnings:
+                                        result_msg += " Advisory (rendered anyway): " + "; ".join(warnings)
                                     responses.append(types.FunctionResponse(
                                         id=fc.id, name=fc.name,
-                                        response={"result": f"Stage rendered with root '{root_id}'."}
+                                        response={"result": result_msg}
                                     ))
 
                             elif fc.name == "clear_stage":
@@ -1856,22 +1859,310 @@ async def set_stage_emoji(space_id: str, request: Request):
     })
     return {"ok": True}
 
+active_standby_tasks = {}  # space_id -> asyncio.Task
+
+def make_composable_standby_components(badge: str, title: str, description: str, remaining_seconds: int) -> list:
+    """Generates a premium server-driven welcome/standby card composed entirely of atomic design primitives."""
+    components = []
+    
+    # 1. Root Grid
+    components.append({
+        "id": "stage_root_grid",
+        "component": {
+            "gdm-stage-grid": {
+                "layout": "single",
+                "children": {
+                    "explicitList": ["welcome_outer_container"]
+                }
+            }
+        }
+    })
+    
+    # 2. Outer Full-Stage Container
+    components.append({
+        "id": "welcome_outer_container",
+        "component": {
+            "gdm-container": {
+                "direction": "column",
+                "justify": "center",
+                "align": "center",
+                "width": "100%",
+                "height": "100%",
+                "background": "rgba(10, 15, 30, 0.45)", # Deep cinematic cyber backdrop
+                "children": {
+                    "explicitList": ["welcome_card"]
+                }
+            }
+        }
+    })
+    
+    # 3. Glassmorphic Welcome Card
+    card_children = [
+        "welcome_header_row",
+        "welcome_divider",
+        "welcome_title"
+    ]
+    if description:
+        card_children.append("welcome_description")
+    if remaining_seconds > 0:
+        card_children.append("welcome_countdown")
+        card_children.append("welcome_countdown_line")
+    card_children.append("welcome_progress")
+    card_children.append("welcome_status_row")
+    
+    components.append({
+        "id": "welcome_card",
+        "component": {
+            "gdm-container": {
+                "direction": "column",
+                "justify": "center",
+                "align": "center",
+                "padding": "32px",
+                "gap": "20px",
+                "width": "500px",
+                "glass": True,
+                "borderRadius": "16px",
+                "border": "1px solid rgba(255, 255, 255, 0.12)",
+                "children": {
+                    "explicitList": card_children
+                }
+            }
+        }
+    })
+    
+    # 4. Header Row
+    components.append({
+        "id": "welcome_header_row",
+        "component": {
+            "gdm-container": {
+                "direction": "row",
+                "justify": "space-between",
+                "align": "center",
+                "width": "100%",
+                "children": {
+                    "explicitList": ["welcome_icon", "welcome_badge"]
+                }
+            }
+        }
+    })
+    
+    components.append({
+        "id": "welcome_icon",
+        "component": {
+            "gdm-icon": {
+                "name": "sonar",
+                "color": "cyan",
+                "size": "32px"
+            }
+        }
+    })
+    
+    components.append({
+        "id": "welcome_badge",
+        "component": {
+            "gdm-badge": {
+                "text": badge.upper(),
+                "type": "cyan",
+                "pulse": True
+            }
+        }
+    })
+    
+    # 5. Divider
+    components.append({
+        "id": "welcome_divider",
+        "component": {
+            "gdm-divider": {
+                "vertical": False,
+                "color": "rgba(255, 255, 255, 0.15)",
+                "thickness": "1px",
+                "margin": "4px 0"
+            }
+        }
+    })
+    
+    # 6. Title
+    components.append({
+        "id": "welcome_title",
+        "component": {
+            "gdm-text": {
+                "content": title,
+                "size": "h2",
+                "color": "accent",
+                "pulse": True,
+                "uppercase": True,
+                "font": "sans",
+                "align": "center"
+            }
+        }
+    })
+    
+    # 7. Description
+    if description:
+        components.append({
+            "id": "welcome_description",
+            "component": {
+                "gdm-text": {
+                    "content": description,
+                    "size": "body",
+                    "color": "white",
+                    "align": "center"
+                }
+            }
+        })
+        
+    # 8. Countdown Timer
+    if remaining_seconds > 0:
+        minutes = remaining_seconds // 60
+        seconds = remaining_seconds % 60
+        time_str = f"{minutes:02d}:{seconds:02d}"
+        components.append({
+            "id": "welcome_countdown",
+            "component": {
+                "gdm-text": {
+                    "content": time_str,
+                    "size": "64px",
+                    "weight": "800",
+                    "color": "accent",
+                    "pulse": True,
+                    "font": "mono",
+                    "align": "center"
+                }
+            }
+        })
+        components.append({
+            "id": "welcome_countdown_line",
+            "component": {
+                "gdm-divider": {
+                    "vertical": False,
+                    "color": "rgba(0, 242, 255, 0.4)",
+                    "thickness": "2px",
+                    "margin": "0 auto"
+                }
+            }
+        })
+        
+    # 9. Progress Bar
+    components.append({
+        "id": "welcome_progress",
+        "component": {
+            "gdm-progress": {
+                "value": 100.0,
+                "color": "cyan",
+                "height": "8px",
+                "animated": True,
+                "glow": True
+            }
+        }
+    })
+    
+    # 10. Status Row
+    components.append({
+        "id": "welcome_status_row",
+        "component": {
+            "gdm-container": {
+                "direction": "row",
+                "justify": "space-between",
+                "align": "center",
+                "width": "100%",
+                "children": {
+                    "explicitList": ["welcome_status_lbl", "welcome_clock"]
+                }
+            }
+        }
+    })
+    
+    components.append({
+        "id": "welcome_status_lbl",
+        "component": {
+            "gdm-text": {
+                "content": "📡 Aligning WebSocket feeds..." if remaining_seconds > 0 else "🟢 Broadcast stage calibrated",
+                "size": "caption",
+                "color": "mute"
+            }
+        }
+    })
+    
+    components.append({
+        "id": "welcome_clock",
+        "component": {
+            "gdm-clock": {
+                "showClock": True,
+                "showDate": False,
+                "format": "24h",
+                "accentColor": "cyan"
+            }
+        }
+    })
+    
+    return components
+
+
+async def standby_countdown_task(space_id: str, badge: str, title: str, description: str, total_seconds: int):
+    """Background task to broadcast decreasing countdown state for standby screens."""
+    try:
+        remaining = total_seconds
+        while remaining >= 0:
+            components = make_composable_standby_components(badge, title, description, remaining)
+            # Send the components
+            await broadcast_to_stage(space_id, {
+                "type": "surfaceUpdate",
+                "surfaceUpdate": {
+                    "components": components
+                }
+            })
+            await broadcast_to_stage(space_id, {
+                "type": "beginRendering",
+                "beginRendering": {"root": "stage_root_grid"}
+            })
+            if remaining == 0:
+                break
+            await asyncio.sleep(1.0)
+            remaining -= 1
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"[standby] Countdown error for space {space_id}: {e}")
+    finally:
+        active_standby_tasks.pop(space_id, None)
+
+
 @app.post("/api/standby/{space_id:path}")
 async def set_stage_standby(space_id: str, request: Request):
     """
     Toggles a premium visual standby/intermission screen with an active countdown.
+    Composed entirely of atomic primitives.
     """
     check_producer_auth(request)
     body = await request.json()
-    await broadcast_to_stage(space_id, {
-        "type": "standby_event",
-        "active": body.get("active", False),
-        "duration": body.get("duration", 0),
-        "seconds": body.get("seconds", 3),
-        "badge": body.get("badge", "STUDIO INTERMISSION"),
-        "title": body.get("title", "Session Will Resume Shortly"),
-        "description": body.get("description", "Preparing next showcase stage...")
-    })
+    active = body.get("active", False)
+    
+    # 1. Cancel any pre-existing task for this space
+    existing_task = active_standby_tasks.get(space_id)
+    if existing_task:
+        existing_task.cancel()
+        active_standby_tasks.pop(space_id, None)
+        
+    if active:
+        # Calculate total seconds
+        duration_mins = int(body.get("duration", 0))
+        duration_secs = int(body.get("seconds", 3))
+        total_seconds = duration_mins * 60 + duration_secs
+        
+        badge = body.get("badge", "STUDIO INTERMISSION")
+        title = body.get("title", "Session Will Resume Shortly")
+        description = body.get("description", "Preparing next showcase stage...")
+        
+        # Start new countdown background task
+        task = asyncio.create_task(
+            standby_countdown_task(space_id, badge, title, description, total_seconds)
+        )
+        active_standby_tasks[space_id] = task
+    else:
+        # Deactivating: clear the stage to restore default clean slate
+        await broadcast_to_stage(space_id, {"type": "deleteSurface"})
+        logger.info(f"[standby] Deactivated standby for space {space_id}")
+        
     return {"ok": True}
 
 
@@ -1937,9 +2228,11 @@ async def render_stage(space_id: str, request: Request):
     body = await request.json()
 
     surface_update = body.get("surfaceUpdate", {})
-    errors = validate_a2ui_surface(surface_update)
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
+    if warnings:
+        logger.warning(f"[render-stage] surface warnings: {'; '.join(warnings)}")
 
     components = surface_update.get("components", [])
     root_id = body.get("root") or (components[0]["id"] if components else None)
@@ -1956,7 +2249,10 @@ async def render_stage(space_id: str, request: Request):
     await broadcast_to_stage(space_id, {"type": "beginRendering", "beginRendering": {"root": root_id}})
 
     logger.info(f"[render-stage] {space_id} root={root_id} components={len(components)}")
-    return {"ok": True, "root": root_id, "components": len(components)}
+    resp = {"ok": True, "root": root_id, "components": len(components)}
+    if warnings:
+        resp["warnings"] = warnings
+    return resp
 
 
 @app.post("/api/render-stage-clear/{space_id:path}")

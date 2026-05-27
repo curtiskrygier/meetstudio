@@ -7,7 +7,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.auth import check_producer_auth
-from app.a2ui_catalog import validate_a2ui_surface
+from app.a2ui_catalog import validate_a2ui_surface_detailed, render_mcp_component_summary
 
 logger = logging.getLogger("concierge")
 
@@ -163,15 +163,7 @@ _TOOLS = [
                     "type": "object",
                     "description": (
                         "A2UI v0.8 surfaceUpdate payload containing components. "
-                        "Supported components in catalog: "
-                        "gdm-stage-card, gdm-chyron, gdm-ticker, gdm-standby-slate, gdm-chat-card, "
-                        "gdm-stage-grid (layout='single'|'split'|'grid'|'grid-3'|'presentation'), "
-                        "gdm-image-panel (src, label), gdm-video-panel (src, autoplay), "
-                        "gdm-iframe-panel (src), gdm-transcript-view, gdm-telemetry-dashboard, "
-                        "gdm-radar-view, gdm-poll-overlay, gdm-notepad (content), gdm-captions, "
-                        "gdm-diagram-view (diagId, svg, version, overlay), "
-                        "gdm-mermaid-panel (syntax, title, version), "
-                        "gdm-html-panel (html, title, overlay, version)."
+                        + render_mcp_component_summary()
                     )
                 },
                 "root": {
@@ -385,10 +377,13 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn, genera
             if not space_id:
                 return _tool_error(req_id, "space_id is required")
 
-            # Validate surfaceUpdate with validate_a2ui_surface
-            errors = validate_a2ui_surface(surface_update)
+            # Validate surfaceUpdate. Unknown component names block; prop-level
+            # issues are advisory warnings (the renderer tolerates them).
+            errors, warnings = validate_a2ui_surface_detailed(surface_update)
             if errors:
                 return _tool_error(req_id, f"Validation failed: {', '.join(errors)}")
+            if warnings:
+                logger.warning(f"[mcp] render_stage surface warnings: {'; '.join(warnings)}")
 
             components = surface_update.get("components", [])
             if not root_id:
@@ -406,7 +401,10 @@ async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn, genera
             await broadcast_fn(space_id, {"type": "beginRendering", "beginRendering": {"root": root_id}})
 
             logger.info(f"[mcp] render_stage to {space_id} root={root_id} components={len(components)}")
-            return _tool_text(req_id, f"Stage rendered successfully with root '{root_id}'.")
+            msg = f"Stage rendered successfully with root '{root_id}'."
+            if warnings:
+                msg += " Advisory (rendered anyway): " + "; ".join(warnings)
+            return _tool_text(req_id, msg)
 
         if name == "clear_stage":
             space_id = (args.get("space_id") or "").strip()

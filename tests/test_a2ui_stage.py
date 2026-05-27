@@ -4,7 +4,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
 from main import app
-from app.a2ui_catalog import A2UI_CATALOG, validate_a2ui_surface
+from app.a2ui_catalog import A2UI_CATALOG, validate_a2ui_surface, validate_a2ui_surface_detailed
 from app.mcp_server import handle_mcp
 
 client = TestClient(app)
@@ -224,6 +224,7 @@ def test_validate_a2ui_property_level_valid():
 
 
 def test_validate_a2ui_property_level_invalid_extra():
+    # warn-don't-block: an extra/unknown prop is a WARNING, not a blocking error.
     surface_update = {
         "components": [
             {
@@ -238,13 +239,15 @@ def test_validate_a2ui_property_level_invalid_extra():
             }
         ]
     }
-    errors = validate_a2ui_surface(surface_update)
-    assert len(errors) == 1
-    assert "property validation failed" in errors[0]
-    assert "countdown" in errors[0]
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors  # does NOT block the render
+    assert any("countdown" in w and "property validation failed" in w for w in warnings)
+    # backward-compatible helper still returns only blocking errors
+    assert validate_a2ui_surface(surface_update) == []
 
 
 def test_validate_a2ui_property_level_type_mismatch():
+    # warn-don't-block: a prop type mismatch is a WARNING, not a blocking error.
     surface_update = {
         "components": [
             {
@@ -258,10 +261,43 @@ def test_validate_a2ui_property_level_type_mismatch():
             }
         ]
     }
-    errors = validate_a2ui_surface(surface_update)
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert any("seconds" in w and "property validation failed" in w for w in warnings)
+
+
+def test_validate_a2ui_missing_required_prop_is_warning():
+    # A missing REQUIRED prop is advisory (warning), never blocks the surface —
+    # the whole surface must still render so sibling components aren't lost.
+    surface_update = {
+        "components": [
+            {
+                "id": "mt-1",
+                "component": {
+                    "gdm-market-ticker": {
+                        "macroRow": [],
+                        "holdingsRow": [],
+                        # 'active' (required) omitted
+                    }
+                }
+            }
+        ]
+    }
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert any("active" in w for w in warnings)
+
+
+def test_validate_unknown_component_name_blocks():
+    # An unknown component NAME is a hard error — the renderer cannot draw it.
+    surface_update = {
+        "components": [
+            {"id": "x", "component": {"gdm-does-not-exist": {"foo": 1}}}
+        ]
+    }
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
     assert len(errors) == 1
-    assert "property validation failed" in errors[0]
-    assert "seconds" in errors[0]
+    assert "gdm-does-not-exist" in errors[0]
 
 
 def test_validate_a2ui_property_level_backward_compatibility():
@@ -297,7 +333,9 @@ def test_validate_gdm_3d_airspace_valid():
                         "showGlideSlope": True,
                         "showTerrain": True,
                         "zoom": 12.0,
-                        "lockedCallsign": "AFR6129"
+                        "lockedCallsign": "AFR6129",
+                        "cinematicOrbit": True,
+                        "autoTrack": False
                     }
                 }
             }
@@ -321,10 +359,11 @@ def test_validate_gdm_3d_airspace_invalid_extra():
             }
         ]
     }
-    errors = validate_a2ui_surface(surface_update)
-    assert len(errors) == 1
-    assert "property validation failed" in errors[0]
-    assert "invalid_parameter_name" in errors[0]
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert len(warnings) == 1
+    assert "property validation failed" in warnings[0]
+    assert "invalid_parameter_name" in warnings[0]
 
 
 def test_validate_gdm_3d_airspace_invalid_type():
@@ -340,9 +379,267 @@ def test_validate_gdm_3d_airspace_invalid_type():
             }
         ]
     }
-    errors = validate_a2ui_surface(surface_update)
-    assert len(errors) == 1
-    assert "property validation failed" in errors[0]
-    assert "cameraPitch" in errors[0]
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert len(warnings) == 1
+    assert "property validation failed" in warnings[0]
+    assert "cameraPitch" in warnings[0]
+
+
+def test_validate_gdm_market_ticker_valid():
+    surface_update = {
+        "components": [
+            {
+                "id": "market-ticker-1",
+                "component": {
+                    "gdm-market-ticker": {
+                        "sections": [
+                            {"label": "INDICES", "items": [
+                                {"symbol": "SPX", "price": 5300.0, "changePercent": 0.5, "isUp": True, "label": "S&P 500"}
+                            ]},
+                            {"label": "CRYPTO", "items": [
+                                {"symbol": "BTC", "price": 68000.0, "changePercent": 2.6, "isUp": True}
+                            ]},
+                        ],
+                        "active": True,
+                        "badgeText": "GLOBAL MARKET SCAN",
+                        "accentColor": "#00f2ff",
+                        "watchCount": 5
+                    }
+                }
+            }
+        ]
+    }
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert not warnings
+
+
+def test_validate_gdm_market_ticker_invalid_extra():
+    surface_update = {
+        "components": [
+            {
+                "id": "market-ticker-1",
+                "component": {
+                    "gdm-market-ticker": {
+                        "active": True,
+                        "sections": [],
+                        "some_invalid_field": "value"  # Forbidden extra field!
+                    }
+                }
+            }
+        ]
+    }
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert any("some_invalid_field" in w and "property validation failed" in w for w in warnings)
+
+
+def test_validate_gdm_market_ticker_invalid_type():
+    surface_update = {
+        "components": [
+            {
+                "id": "market-ticker-1",
+                "component": {
+                    "gdm-market-ticker": {
+                        "active": "maybe",  # Should be boolean, not string!
+                        "sections": []
+                    }
+                }
+            }
+        ]
+    }
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert any("active" in w and "property validation failed" in w for w in warnings)
+
+
+def test_validate_gdm_composable_primitives_valid():
+    surface_update = {
+        "components": [
+            {
+                "id": "composed-root",
+                "component": {
+                    "gdm-container": {
+                        "direction": "column",
+                        "justify": "center",
+                        "align": "stretch",
+                        "gap": "12px",
+                        "padding": "24px",
+                        "background": "transparent",
+                        "border": "1px solid red",
+                        "borderRadius": "16px",
+                        "width": "100%",
+                        "height": "100%",
+                        "glass": True,
+                        "scrollable": False,
+                        "grow": 1.0,
+                        "shrink": 0.0,
+                        "margin": "10px",
+                        "children": {"explicitList": ["child-text", "child-badge"]}
+                    }
+                }
+            },
+            {
+                "id": "child-text",
+                "component": {
+                    "gdm-text": {
+                        "content": "Hello Universe",
+                        "size": "h1",
+                        "weight": "bold",
+                        "color": "accent",
+                        "align": "center",
+                        "font": "mono",
+                        "opacity": 0.9,
+                        "letterSpacing": "1px",
+                        "uppercase": True,
+                        "pulse": True
+                    }
+                }
+            },
+            {
+                "id": "child-badge",
+                "component": {
+                    "gdm-badge": {
+                        "text": "ONLINE",
+                        "type": "success",
+                        "pulse": True,
+                        "outline": False
+                    }
+                }
+            },
+            {
+                "id": "child-progress",
+                "component": {
+                    "gdm-progress": {
+                        "value": 45.5,
+                        "color": "#00f2ff",
+                        "height": "12px",
+                        "animated": True,
+                        "glow": True
+                    }
+                }
+            },
+            {
+                "id": "child-divider",
+                "component": {
+                    "gdm-divider": {
+                        "vertical": True,
+                        "color": "#fff",
+                        "thickness": "2px",
+                        "margin": "15px"
+                    }
+                }
+            },
+            {
+                "id": "child-icon",
+                "component": {
+                    "gdm-icon": {
+                        "name": "sonar",
+                        "color": "success",
+                        "size": "32px"
+                    }
+                }
+            },
+            {
+                "id": "child-button",
+                "component": {
+                    "gdm-button": {
+                        "label": "Click Me",
+                        "actionId": "btn_click_1",
+                        "payload": '{"foo": "bar"}',
+                        "icon": "activity",
+                        "type": "primary",
+                        "disabled": False
+                    }
+                }
+            },
+            {
+                "id": "child-clock",
+                "component": {
+                    "gdm-clock": {
+                        "showClock": True,
+                        "showDate": True,
+                        "format": "12h",
+                        "timezone": "America/New_York",
+                        "accentColor": "warning"
+                    }
+                }
+            },
+            {
+                "id": "child-sparkline",
+                "component": {
+                    "gdm-sparkline": {
+                        "data": "10,20,15,30,25,40",
+                        "color": "accent",
+                        "width": "100px",
+                        "height": "40px",
+                        "fill": True
+                    }
+                }
+            },
+            {
+                "id": "child-table",
+                "component": {
+                    "gdm-table-view": {
+                        "headers": ["Col 1", "Col 2"],
+                        "rows": [["Cell A1", "Cell B1"], ["Cell A2", "Cell B2"]],
+                        "accentColor": "#ff00ff"
+                    }
+                }
+            },
+            {
+                "id": "child-trend",
+                "component": {
+                    "gdm-trend-value": {
+                        "symbol": "BTC",
+                        "label": "Bitcoin",
+                        "price": 68000.5,
+                        "change": 2.5,
+                        "isUp": True,
+                        "precision": 2
+                    }
+                }
+            },
+            {
+                "id": "child-scroller",
+                "component": {
+                    "gdm-scroller": {
+                        "speed": "15s",
+                        "direction": "left",
+                        "active": True,
+                        "children": {"explicitList": ["child-trend"]}
+                    }
+                }
+            }
+        ]
+    }
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert not warnings
+
+
+def test_validate_gdm_composable_primitives_invalid():
+    surface_update = {
+        "components": [
+            {
+                "id": "child-badge-invalid",
+                "component": {
+                    "gdm-badge": {
+                        "text": "ONLINE",
+                        "pulse": "maybe",
+                        "extra_unsupported_field": 123
+                    }
+                }
+            }
+        ]
+    }
+    errors, warnings = validate_a2ui_surface_detailed(surface_update)
+    assert not errors
+    assert len(warnings) >= 1
+    assert any("pulse" in w and "property validation failed" in w for w in warnings)
+    assert any("extra_unsupported_field" in w and "property validation failed" in w for w in warnings)
+
+
 
 
