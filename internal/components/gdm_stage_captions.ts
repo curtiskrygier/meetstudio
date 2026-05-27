@@ -116,18 +116,19 @@ export class GdmStageCaptions extends LitElement {
     .cap-line { display: inline; }
     .cap-word {
       display: inline-flex;
-      gap: 2px;
-      margin-right: 0.42em;
+      gap: 0.14em;          /* space between letter cards — scales with font size */
+      margin-right: 0.55em; /* space between words */
       vertical-align: middle;
+      margin-bottom: 4px;   /* breathing room when a long line wraps */
     }
     .cap-word:last-child { margin-right: 0; }
     .cap-flap-card {
       position: relative;
       display: inline-block;
-      min-width: 0.6em;
-      padding: 2px 3px;
+      min-width: 0.62em;
+      padding: 3px 5px;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      font-size: var(--gdm-cap-font-size, 18px);
+      font-size: var(--gdm-cap-font-size, 38px);
       font-weight: 800;
       line-height: 1.25;
       color: #fff;

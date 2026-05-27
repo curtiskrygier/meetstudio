@@ -18,6 +18,9 @@ export class GdmStageContainer extends LitElement {
   @property({ type: Number }) grow = 0;
   @property({ type: Number }) shrink = 1;
   @property({ type: String }) margin = '0';
+  // Entrance choreography: fade-up | scale-in | slide-left | slide-right | blur-in | flip
+  @property({ type: String, reflect: true }) reveal = '';
+  @property({ type: Number }) revealDelay = 0; // seconds — stagger panels for a staged "set the stage" entrance
 
   static styles = css`
     :host {
@@ -46,6 +49,23 @@ export class GdmStageContainer extends LitElement {
     :host(.scrollable)::-webkit-scrollbar-thumb:hover {
       background: rgba(0, 242, 255, 0.35);
     }
+
+    /* --- Entrance reveals: play once on mount. 'both' holds the start state
+       during revealDelay so staggered panels stay hidden until their turn,
+       producing a choreographed "set the stage" cascade. Animations don't
+       replay on data re-renders (the element is reused), so it's a clean intro. */
+    :host([reveal])             { animation: rv-fade-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+    :host([reveal="scale-in"])  { animation-name: rv-scale-in; }
+    :host([reveal="slide-left"]){ animation-name: rv-slide-left; }
+    :host([reveal="slide-right"]){ animation-name: rv-slide-right; }
+    :host([reveal="blur-in"])   { animation-name: rv-blur-in; }
+    :host([reveal="flip"])      { animation-name: rv-flip; transform-origin: top center; }
+    @keyframes rv-fade-up     { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+    @keyframes rv-scale-in    { from { opacity: 0; transform: scale(0.92); }      to { opacity: 1; transform: none; } }
+    @keyframes rv-slide-left  { from { opacity: 0; transform: translateX(48px); } to { opacity: 1; transform: none; } }
+    @keyframes rv-slide-right { from { opacity: 0; transform: translateX(-48px); }to { opacity: 1; transform: none; } }
+    @keyframes rv-blur-in     { from { opacity: 0; filter: blur(14px); }          to { opacity: 1; filter: none; } }
+    @keyframes rv-flip        { from { opacity: 0; transform: rotateX(-90deg); }  to { opacity: 1; transform: none; } }
   `;
 
   updated(changedProperties: Map<string, any>) {
@@ -90,6 +110,12 @@ export class GdmStageContainer extends LitElement {
         this.style.setProperty('-webkit-backdrop-filter', '');
         this.style.boxShadow = '';
       }
+    }
+
+    // Stagger the entrance. Set once; re-applying the same delay won't replay
+    // the animation, so data re-renders don't re-trigger the intro.
+    if (this.reveal) {
+      this.style.animationDelay = `${this.revealDelay || 0}s`;
     }
   }
 
