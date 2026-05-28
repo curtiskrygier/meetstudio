@@ -90,7 +90,7 @@ async def main():
             ("Alex (Lead)", "Hello and welcome to Google Meet A2UI live stage session.", False),
             ("Alex (Lead)", "Today we are demonstrating live lower-third conversational captions.", False),
             ("System", "DYNAMIC STYLES SWITCH ENABLING MICRO MECHANICAL SPLIT-FLAPS...", False),
-            ("Alex (Lead)", "GOOGLE MEET KICKS ASS IN VIBRANT MULTIPLE COMPONENT STYLES", True),
+            ("Alex (Lead)", "A2UI COMPOSABLE STAGE — REALTIME, MULTI-DOMAIN", True),
             ("Alex (Lead)", "Notice how each micro card flips rapidly to reveal the spoken sentence", True),
             ("Alex (Lead)", "This creates a luxury mechanical action that remains clean and legible", True),
             ("Alex (Lead)", "We can toggle this toggleable feature on and off dynamically per speaker", True),
