@@ -592,7 +592,8 @@ async def main():
                         "title": "📡 TLS Sector 32L/R Sweep Calibration",
                         "description": "Booting transponder tracking matrix and aligning primary S-Band receivers...",
                         "active": True,
-                        "seconds": 5
+                        "seconds": 5,
+                        "fullscreen": True
                     }
                 }
             }
@@ -653,7 +654,7 @@ async def main():
                     "id": "grid_layout",
                     "component": {
                         "gdm-stage-grid": {
-                            "layout": "split",
+                            "layout": "single",
                             "children": {"explicitList": ["radar_view", "html_panel"]}
                         }
                     }
@@ -715,7 +716,7 @@ async def main():
                     "id": "grid_layout",
                     "component": {
                         "gdm-stage-grid": {
-                            "layout": "split",
+                            "layout": "single",
                             "children": {"explicitList": ["radar_view", "html_panel"]}
                         }
                     }
@@ -772,7 +773,7 @@ async def main():
                 "id": "grid_layout",
                 "component": {
                     "gdm-stage-grid": {
-                        "layout": "split",
+                        "layout": "single",
                         "children": {"explicitList": ["radar_view", "html_panel"]}
                     }
                 }
@@ -834,7 +835,7 @@ async def main():
                 "id": "grid_layout",
                 "component": {
                     "gdm-stage-grid": {
-                        "layout": "split",
+                        "layout": "single",
                         "children": {"explicitList": ["radar_view", "html_panel"]}
                     }
                 }
@@ -896,7 +897,7 @@ async def main():
                     "id": "grid_layout",
                     "component": {
                         "gdm-stage-grid": {
-                            "layout": "split",
+                            "layout": "single",
                             "children": {"explicitList": ["radar_view", "html_panel"]}
                         }
                     }

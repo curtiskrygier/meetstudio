@@ -142,7 +142,11 @@ Do not use placeholder, generic, or randomly generated images. The following sta
 - **Sidebar UX Concept (Panel 1)**: `/panel1_a2ui.png` — Visualizes transcript feeds, AI suggestions, and sidebar controls.
 - **A2A Architecture Blueprint (Panel 2)**: `/panel2_a2a.png` — Detailed neon-digital technical workflow of the multi-agent system.
 
-### 5. Running the Pristine Showcase
+### 6. Google Meet Bottom Bar Overlay (Captions & Lower-Thirds Layout)
+- **Problem**: In an actual Google Meet integration, Meet's bottom control bar overlays the bottom ~80px to 100px of the addon main stage iframe. Any lower-third elements or captions styled with typical low-offset values (e.g. `bottom: 6px`) will be completely obscured or hidden from view.
+- **Solution**: Always style lower-third components (such as `gdm-captions`) or floating overlay panels with a safe bottom margin of at least `96px` to `110px`. This ensures the floating components clear the native Google Meet overlay flawlessly while aligning cleanly with active stage chat widgets (which use `bottom: 90px`).
+
+### 7. Running the Pristine Showcase
 - **Active Meeting Space**: `spaces/iLtvhiN9xNwB`
 - **Run non-recorded demo**:
   ```bash
@@ -153,5 +157,6 @@ Do not use placeholder, generic, or randomly generated images. The following sta
   cd /home/curtis/gemini/addons/meet-live-concierge && python3 record_stage.py
   ```
 - **Output Artifact**: High-fidelity recording at `demo_recording.mp4`.
+
 
 

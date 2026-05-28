@@ -386,6 +386,37 @@ def test_validate_gdm_3d_airspace_invalid_type():
     assert "cameraPitch" in warnings[0]
 
 
+def test_validate_gdm_3d_scene_valid():
+    surface_update = {
+        "components": [
+            {
+                "id": "scene-3d",
+                "component": {
+                    "gdm-3d-scene": {
+                        "points": [
+                            {"id": "pt-1", "x": 10.0, "y": 20.0, "z": 5.0, "label": "Point 1", "glyph": "circle", "size": 8}
+                        ],
+                        "links": [
+                            {"from": "pt-1", "to": "LFBO"}
+                        ],
+                        "camera": {
+                            "pitch": 45.0,
+                            "yaw": 90.0,
+                            "zoom": 1.5,
+                            "autoOrbit": True
+                        },
+                        "terrain": True,
+                        "grid": True,
+                        "fog": True
+                    }
+                }
+            }
+        ]
+    }
+    errors = validate_a2ui_surface(surface_update)
+    assert not errors
+
+
 def test_validate_gdm_market_ticker_valid():
     surface_update = {
         "components": [

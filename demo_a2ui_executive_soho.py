@@ -283,7 +283,7 @@ async def main():
             print(f"  {CLR_SLATE}Detecting active Google Meet side-panel staging session...{CLR_RESET}")
             space = await get_active_space(client)
             
-        if not space or space == "default":
+        if not space or (space == "default" and os.environ.get("MEET_SPACE_ID") != "default"):
             print(f"\n{CLR_MAGENTA}❌ Error: No active Google Meet side-panel session detected.{CLR_RESET}")
             print(f"  Please open Google Meet, launch the Live Concierge add-on panel, and re-run.")
             sys.exit(1)

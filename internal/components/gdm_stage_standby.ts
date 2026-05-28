@@ -8,6 +8,7 @@ export class GdmStageStandby extends LitElement {
   @property({ type: String }) description = '';
   @property({ type: Number }) seconds = 0;
   @property({ type: Boolean, reflect: true }) active = false;
+  @property({ type: Boolean, reflect: true }) fullscreen = false;
 
   @state() private _currentSeconds = 0;
   private _timerId: any = null;
@@ -56,27 +57,31 @@ export class GdmStageStandby extends LitElement {
 
   static styles = css`
     :host {
-      display: block;
-      position: fixed;
-      inset: 0;
-      z-index: 900;
+      display: block !important;
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 99999 !important;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.5s ease;
     }
     :host([active]) {
-      opacity: 1;
-      pointer-events: auto;
+      opacity: 1 !important;
+      pointer-events: auto !important;
     }
     .backdrop {
-      width: 100%;
-      height: 100%;
+      width: 100% !important;
+      height: 100% !important;
       background:
         radial-gradient(ellipse 60% 50% at 50% 50%, rgba(0,242,255,0.06) 0%, transparent 70%),
-        rgba(4, 6, 15, 0.95);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+        rgba(4, 6, 15, 0.95) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-sizing: border-box !important;
     }
     .card {
       max-width: 600px;
@@ -93,6 +98,19 @@ export class GdmStageStandby extends LitElement {
       align-items: center;
       text-align: center;
       box-sizing: border-box;
+      transition: all 0.3s ease;
+    }
+    :host([fullscreen]) .card {
+      max-width: none !important;
+      width: 100% !important;
+      height: 100% !important;
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      background: rgba(8, 10, 22, 0.6) !important;
+      backdrop-filter: blur(32px) saturate(1.6) !important;
+      -webkit-backdrop-filter: blur(32px) saturate(1.6) !important;
+      justify-content: center !important;
     }
     .badge {
       display: inline-block;

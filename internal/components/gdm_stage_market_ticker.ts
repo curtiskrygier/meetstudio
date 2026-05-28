@@ -20,16 +20,17 @@ const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', '
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 /**
- * gdm-market-ticker — "Global Market Scan" board.
+ * gdm-market-ticker — Upgraded "Global Market Scan" board with premium 3D animations and interaction.
  *
  * A realtime market-scanning showcase: a flip-clock time/date, a sweep scan-line,
  * a flexible grid of market sections (a big spread of instruments), and an
- * auto-computed "Ones to Watch" strip surfacing the biggest movers. Designed to
- * highlight the live capability, not a personal portfolio.
+ * auto-computed "Ones to Watch" strip surfacing the biggest movers.
  *
- * Flip + flash are driven by Lit's keyed `repeat`: when a digit/price changes its
- * key changes, Lit creates a fresh element, and the entrance CSS animation plays
- * once — no manual animation bookkeeping required.
+ * Upgraded with:
+ * 1. Passive 3D perspective slow float drift and tilt.
+ * 2. Real-time interactive 3D pointer tracking (tilts board dynamically to follow cursor).
+ * 3. Dynamic Specular Light / Specular Glass Highlight overlay.
+ * 4. Ultra-smooth requestAnimationFrame interpolation.
  */
 @customElement('gdm-market-ticker')
 export class GdmStageMarketTicker extends LitElement {
@@ -44,15 +45,112 @@ export class GdmStageMarketTicker extends LitElement {
   @state() private _now = new Date();
   private clockInterval?: number;
 
+  // 3D Perspective & Specular Glow animation state
+  private _animId?: number;
+  private _isHovered = false;
+
+  private _targetTiltX = 0;
+  private _targetTiltY = 0;
+  private _targetTiltZ = 0;
+  private _targetGlowX = 0;
+  private _targetGlowY = 0;
+  private _targetGlowOpacity = 0;
+
+  private _curTiltX = 0;
+  private _curTiltY = 0;
+  private _curTiltZ = 0;
+  private _curGlowX = 0;
+  private _curGlowY = 0;
+  private _curGlowOpacity = 0;
+
   connectedCallback() {
     super.connectedCallback();
     this._now = new Date();
     this.clockInterval = window.setInterval(() => { this._now = new Date(); }, 1000);
+    this._start3DLoop();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     if (this.clockInterval) clearInterval(this.clockInterval);
+    if (this._animId) cancelAnimationFrame(this._animId);
+  }
+
+  private _start3DLoop() {
+    const loop = () => {
+      if (!this._isHovered) {
+        // Slow majestic floating animation in 3D perspective space
+        const time = Date.now() * 0.001;
+        this._targetTiltX = Math.sin(time * 0.8) * 2.8; 
+        this._targetTiltY = Math.cos(time * 0.6) * 2.8; 
+        this._targetTiltZ = Math.sin(time * 0.4) * 8;   // Depth float
+        this._targetGlowOpacity = 0.12 + Math.sin(time * 1.5) * 0.04; // pulsing glass reflection
+
+        // Orbit the glow position slowly over the board
+        const rect = this.getBoundingClientRect();
+        if (rect && rect.width > 0) {
+          this._targetGlowX = rect.width / 2 + Math.sin(time * 0.4) * (rect.width * 0.18);
+          this._targetGlowY = rect.height / 2 + Math.cos(time * 0.4) * (rect.height * 0.18);
+        }
+      }
+
+      // Smooth interpolation ease
+      const ease = 0.08;
+      this._curTiltX += (this._targetTiltX - this._curTiltX) * ease;
+      this._curTiltY += (this._targetTiltY - this._curTiltY) * ease;
+      this._curTiltZ += (this._targetTiltZ - this._curTiltZ) * ease;
+      this._curGlowX += (this._targetGlowX - this._curGlowX) * 0.12;
+      this._curGlowY += (this._targetGlowY - this._curGlowY) * 0.12;
+      this._curGlowOpacity += (this._targetGlowOpacity - this._curGlowOpacity) * ease;
+
+      // Apply styles to shadow DOM `.board` wrapper
+      const board = this.shadowRoot?.querySelector('.board') as HTMLElement;
+      if (board) {
+        board.style.setProperty('--tilt-x', `${this._curTiltX.toFixed(3)}deg`);
+        board.style.setProperty('--tilt-y', `${this._curTiltY.toFixed(3)}deg`);
+        board.style.setProperty('--tilt-z', `${this._curTiltZ.toFixed(2)}px`);
+        board.style.setProperty('--glow-x', `${this._curGlowX.toFixed(1)}px`);
+        board.style.setProperty('--glow-y', `${this._curGlowY.toFixed(1)}px`);
+        board.style.setProperty('--glow-opacity', `${this._curGlowOpacity.toFixed(3)}`);
+      }
+
+      this._animId = requestAnimationFrame(loop);
+    };
+    this._animId = requestAnimationFrame(loop);
+  }
+
+  private _onPointerEnter() {
+    this._isHovered = true;
+    this._targetGlowOpacity = 0.55; // Intensify speculative reflection on hover
+  }
+
+  private _onPointerMove(e: PointerEvent) {
+    const board = e.currentTarget as HTMLElement;
+    const rect = board.getBoundingClientRect();
+    
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Normalized displacement from center (-1.0 to 1.0)
+    const normX = (x / rect.width) * 2 - 1;
+    const normY = (y / rect.height) * 2 - 1;
+    
+    // Maximum tilt parameters (7.5 degrees and 15px pull forward)
+    const maxTilt = 7.5;
+    this._targetTiltX = -normY * maxTilt; 
+    this._targetTiltY = normX * maxTilt;  
+    this._targetTiltZ = 15;               
+    
+    this._targetGlowX = x;
+    this._targetGlowY = y;
+  }
+
+  private _onPointerLeave() {
+    this._isHovered = false;
+    this._targetTiltX = 0;
+    this._targetTiltY = 0;
+    this._targetTiltZ = 0;
+    this._targetGlowOpacity = 0;
   }
 
   static styles = css`
@@ -67,6 +165,7 @@ export class GdmStageMarketTicker extends LitElement {
       pointer-events: none;
       transition: opacity 0.5s ease;
       font-family: 'Google Sans', 'Inter', sans-serif;
+      perspective: 2500px; /* Enable deep 3D perspective viewport */
     }
     :host([active]) { opacity: 1; }
 
@@ -76,18 +175,39 @@ export class GdmStageMarketTicker extends LitElement {
       max-height: 90vh;
       display: flex;
       flex-direction: column;
-      background: linear-gradient(160deg, rgba(10, 14, 32, 0.94), rgba(6, 9, 22, 0.96));
-      border: 1px solid rgba(0, 242, 255, 0.28);
+      background: linear-gradient(160deg, rgba(8, 12, 28, 0.95), rgba(4, 6, 16, 0.97));
+      border: 1px solid rgba(0, 242, 255, 0.22);
       border-radius: 18px;
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65), 0 0 48px rgba(0, 242, 255, 0.08);
-      backdrop-filter: blur(28px);
-      -webkit-backdrop-filter: blur(28px);
+      box-shadow: 0 35px 95px rgba(0, 0, 0, 0.75), 0 0 50px rgba(0, 242, 255, 0.05);
+      backdrop-filter: blur(32px);
+      -webkit-backdrop-filter: blur(32px);
       overflow: hidden;
       position: relative;
-      transform: translateY(24px) scale(0.985);
-      transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      transform-style: preserve-3d;
+      
+      /* 3D Transform driven by JS animation loop properties */
+      transform: translateY(24px) scale(0.975) rotateX(0deg) rotateY(0deg) translateZ(0px);
+      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease, box-shadow 0.3s ease;
     }
-    :host([active]) .board { transform: none; }
+    :host([active]) .board {
+      transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateZ(var(--tilt-z, 0px));
+      transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    :host([active]) .board:hover {
+      border-color: rgba(0, 242, 255, 0.45);
+      box-shadow: 0 45px 110px rgba(0, 0, 0, 0.82), 0 0 65px rgba(0, 242, 255, 0.12);
+    }
+
+    /* Specular Reflection Highlighting Glow Overlay */
+    .specular-glow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 4;
+      background: radial-gradient(circle at var(--glow-x, 50%) var(--glow-y, 50%), rgba(0, 242, 255, 0.14) 0%, transparent 60%);
+      opacity: var(--glow-opacity, 0);
+      mix-blend-mode: screen;
+    }
 
     /* sweeping scan line */
     .scan-line {
@@ -321,7 +441,6 @@ export class GdmStageMarketTicker extends LitElement {
   `;
 
   private _renderFlipGroup(value: string, isWord = false) {
-    // each char keyed by position+value so a changed char re-creates → flip animation
     return repeat(
       value.split(''),
       (ch, i) => `${i}:${ch}`,
@@ -365,7 +484,6 @@ export class GdmStageMarketTicker extends LitElement {
     const up = item.isUp ?? (item.changePercent >= 0);
     const caret = up ? '▲' : '▼';
     const sign = up ? '+' : '';
-    // adaptive precision: sub-$10 instruments (FX / small caps / cheap crypto) need more decimals
     const dp = item.price < 10 ? 4 : 2;
     const price = item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: dp });
     return html`
@@ -377,7 +495,6 @@ export class GdmStageMarketTicker extends LitElement {
         <span class="price">${price}</span>
         ${repeat(
           [item.changePercent],
-          // key on the rounded change so a moved price re-creates the cell → flash
           (v) => `${item.symbol}:${v.toFixed(2)}:${up}`,
           (v) => html`<span class="chg flash ${up ? 'up' : 'down'}">${caret} ${sign}${v.toFixed(2)}%</span>`,
         )}
@@ -396,7 +513,14 @@ export class GdmStageMarketTicker extends LitElement {
     const total = this.sections.reduce((n, s) => n + (s.items?.length || 0), 0);
     const movers = this._movers();
     return html`
-      <div class="board" style="--accent:${this.accentColor}">
+      <div 
+        class="board" 
+        style="--accent:${this.accentColor}"
+        @pointermove=${this._onPointerMove}
+        @pointerenter=${this._onPointerEnter}
+        @pointerleave=${this._onPointerLeave}
+      >
+        <div class="specular-glow"></div>
         <div class="scan-line"></div>
 
         <div class="header">

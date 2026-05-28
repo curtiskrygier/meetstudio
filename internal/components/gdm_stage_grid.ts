@@ -65,6 +65,17 @@ export class GdmStageGrid extends LitElement {
       background: rgba(10, 12, 24, 0.4);
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    .slot ::slotted(*) {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      display: flex !important;
+      flex-direction: column;
     }
     .slot.focused {
       box-shadow: inset 0 0 0 2px rgba(0, 242, 255, 0.45), 0 0 30px rgba(0, 242, 255, 0.1);

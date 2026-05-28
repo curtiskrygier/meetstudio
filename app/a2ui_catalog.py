@@ -179,6 +179,8 @@ CATALOG: "dict[str, Comp]" = {
             Prop("grow", "number", False, 'Flexbox flex-grow factor.', pytype=float),
             Prop("shrink", "number", False, 'Flexbox flex-shrink factor.', pytype=float),
             Prop("margin", "string", False, 'CSS margin (e.g. `"8px"`).', pytype=str),
+            Prop("reveal", "string", False, 'Entrance animation played once on mount: `"fade-up"`, `"scale-in"`, `"slide-left"`, `"slide-right"`, `"blur-in"`, `"flip"`.', pytype=str),
+            Prop("revealDelay", "number", False, 'Seconds to delay the entrance — stagger across panels to choreograph a staged "set the stage" reveal.', pytype=float),
             Prop("children", doc=False, pytype=dict),
         ],
     ),
@@ -441,6 +443,7 @@ CATALOG: "dict[str, Comp]" = {
             Prop("description", "string", False, "Detail text.", pytype=str),
             Prop("seconds", "integer", False, "Timer countdown duration.", pytype=int),
             Prop("active", "boolean", True, "Toggle visibility.", pytype=bool),
+            Prop("fullscreen", "boolean", False, "Stretch slate to cover the entire viewport.", pytype=bool),
         ],
     ),
     "gdm-poll-overlay": Comp(
@@ -460,6 +463,7 @@ CATALOG: "dict[str, Comp]" = {
             Prop("speaker", "string", False, 'Speaker label shown above the line (default `"Speaker"`).'),
             Prop("active", "boolean", True, "Toggle caption visibility."),
             Prop("accentColor", "string", False, "CSS color for the speaker label (default `#00f2ff`)."),
+            Prop("flip", "boolean", False, "Toggle mechanical split-flap rendering.", pytype=bool),
         ],
     ),
     "gdm-transcript-view": Comp(
@@ -505,6 +509,18 @@ CATALOG: "dict[str, Comp]" = {
             Prop("autoTrack", pytype=bool),
         ],
     ),
+    "gdm-3d-scene": Comp(
+        group="panel", in_prompt=False, strict=True,
+        desc="Generic high-performance interactive 3D scene engine (points, links, camera, terrain, grid, fog).",
+        props=[
+            Prop("points", pytype=Union[List[Any], Dict[str, Any], str]),
+            Prop("links", pytype=Union[List[Any], Dict[str, Any], str]),
+            Prop("camera", pytype=dict),
+            Prop("terrain", pytype=bool),
+            Prop("grid", pytype=bool),
+            Prop("fog", pytype=bool),
+        ],
+    ),
     "gdm-market-ticker": Comp(
         group="overlay", in_prompt=False, strict=True,
         desc="Live global market-scan board: flip-clock time/date, market sections (a big spread of instruments), and an auto-highlighted 'ones to watch' movers strip.",
@@ -517,6 +533,18 @@ CATALOG: "dict[str, Comp]" = {
             Prop("watchCount", pytype=int),
             Prop("showClock", pytype=bool),
             Prop("showDate", pytype=bool),
+        ],
+    ),
+    "gdm-flip-slate": Comp(
+        group="overlay", in_prompt=False, strict=True,
+        desc="Mechanical split-flap letter presentation board.",
+        props=[
+            Prop("text", req=True, pytype=str),
+            Prop("active", req=True, pytype=bool),
+            Prop("badgeText", pytype=str),
+            Prop("subtitle", pytype=str),
+            Prop("accentColor", pytype=str),
+            Prop("delayMs", pytype=int),
         ],
     ),
 }

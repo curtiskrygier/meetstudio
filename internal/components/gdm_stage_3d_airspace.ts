@@ -1,5 +1,6 @@
 import { LitElement, css, html } from 'lit';
-import { customElement, property, state, query } from 'lit/decorators.js';
+import { customElement, property, state } from 'lit/decorators.js';
+import { ScenePoint, SceneLink } from './gdm_stage_3d_scene';
 
 interface Flight {
   callsign: string;
@@ -20,12 +21,6 @@ interface Point3D {
   x: number; // Ground East-West (positive East)
   y: number; // Ground North-South (positive North)
   z: number; // Vertical Altitude
-}
-
-interface Point2D {
-  u: number;
-  v: number;
-  depth: number;
 }
 
 const FLIGHT_WAYPOINTS: Record<string, Waypoint[]> = {
@@ -125,27 +120,12 @@ export class GdmStage3DAirspace extends LitElement {
   @property({ type: Boolean }) cinematicOrbit = false;
   @property({ type: Boolean }) autoTrack = false;
 
-  @state() private _canvasW = 400;
-  @state() private _canvasH = 400;
   @state() private _activeTab = '3d'; // side panels: '3d', 'traffic'
   @state() private _showAltDropLines = true;
   @state() private _showTrails = true;
   @state() private _showCylinders = true;
 
-  @query('canvas') private _canvas!: HTMLCanvasElement;
-
-  private _ctx: CanvasRenderingContext2D | null = null;
-  private _animationFrameId: number | null = null;
-  private _resizeObserver: ResizeObserver | null = null;
   private _trails = new Map<string, Point3D[]>();
-
-  // Drag interaction variables
-  private _isDragging = false;
-  private _lastPointerX = 0;
-  private _lastPointerY = 0;
-
-  // Render loop control
-  private _radarSweepAngle = 0;
 
   static styles = css`
     :host {
@@ -174,16 +154,10 @@ export class GdmStage3DAirspace extends LitElement {
       background: radial-gradient(circle at center, rgb(8, 14, 36) 0%, rgb(4, 7, 18) 100%);
     }
 
-    canvas {
+    gdm-3d-scene {
       display: block;
       width: 100%;
       height: 100%;
-      cursor: grab;
-      touch-action: none;
-    }
-
-    canvas:active {
-      cursor: grabbing;
     }
 
     /* Premium Neon Overlay panels */
@@ -532,50 +506,6 @@ export class GdmStage3DAirspace extends LitElement {
     }
   `;
 
-  connectedCallback() {
-    super.connectedCallback();
-    this._resizeObserver = new ResizeObserver(() => this._handleResize());
-    this.nextAnimationFrame();
-  }
-
-  disconnectedCallback() {
-    if (this._resizeObserver) {
-      this._resizeObserver.disconnect();
-      this._resizeObserver = null;
-    }
-    if (this._animationFrameId) {
-      cancelAnimationFrame(this._animationFrameId);
-      this._animationFrameId = null;
-    }
-    super.disconnectedCallback();
-  }
-
-  firstUpdated() {
-    if (this._canvas) {
-      this._ctx = this._canvas.getContext('2d');
-
-      // Observe the host element itself so the ResizeObserver fires whenever
-      // the host (or any ancestor) resizes — including the initial layout pass.
-      // Observing `parentElement` (the fixed-height #a2ui-stage-root, which never
-      // resizes again) fired the observer only once before the flex layout of
-      // .viewport-wrapper had settled, locking _canvasW/_canvasH at a stale/half
-      // size — that's why the scene rendered only in the top vertical half.
-      this._resizeObserver?.observe(this);
-
-      // Also observe the shadow-DOM viewport wrapper directly so any internal
-      // reflow (e.g. HUD panel toggling) is captured.
-      const viewportWrapper = this.shadowRoot?.querySelector('.viewport-wrapper');
-      if (viewportWrapper) {
-        this._resizeObserver?.observe(viewportWrapper);
-      }
-
-      // Immediate best-effort measure, then a rAF-deferred measure so we capture
-      // the size after the flex layout has fully settled.
-      this._handleResize();
-      requestAnimationFrame(() => this._handleResize());
-    }
-  }
-
   willUpdate(changedProperties: Map<string | number | symbol, unknown>) {
     if (changedProperties.has('flights')) {
       let flightsParsed = this.flights;
@@ -608,7 +538,6 @@ export class GdmStage3DAirspace extends LitElement {
           trail = [];
           this._trails.set(flight.callsign, trail);
         }
-        // Avoid duplicate trailing points if flight is completely stationary
         const last = trail[trail.length - 1];
         if (!last || last.x !== pos.x || last.y !== pos.y || last.z !== pos.z) {
           trail.push({ x: pos.x, y: pos.y, z: pos.z });
@@ -620,468 +549,168 @@ export class GdmStage3DAirspace extends LitElement {
     }
   }
 
-  private _handleResize() {
-    const viewportWrapper = this.shadowRoot?.querySelector('.viewport-wrapper');
-    if (viewportWrapper && this._canvas) {
-      const rect = viewportWrapper.getBoundingClientRect();
-      // Guard against degenerate sizes — don't lock in a stale/zero size before
-      // layout settles (the cause of the top-half-only render).
-      if (rect.width < 10 || rect.height < 10) return;
-      const dpr = window.devicePixelRatio || 1;
-      this._canvasW = rect.width;
-      this._canvasH = rect.height;
-      // Setting canvas.width/height resets the 2D context transform entirely,
-      // so ctx.scale(dpr, dpr) MUST come after these assignments.
-      this._canvas.width = rect.width * dpr;
-      this._canvas.height = rect.height * dpr;
-      if (this._ctx) {
-        this._ctx.scale(dpr, dpr);
-      }
-    }
-  }
-
-  // 3D Projection Engine
-  private _project(p: Point3D): Point2D {
-    const yawRad = (this.cameraYaw) * Math.PI / 180;
-    const pitchRad = (this.cameraPitch) * Math.PI / 180;
-
-    let px = p.x;
-    let py = p.y;
-    let pz = p.z;
-
-    if (this.autoTrack && this.lockedCallsign) {
-      const lockedF = this.flights.find(f => f.callsign === this.lockedCallsign);
-      if (lockedF) {
-        const targetPos = getFlight3DPosition(lockedF);
-        px = px - targetPos.x;
-        py = py - targetPos.y;
-        pz = pz - targetPos.z;
-      }
-    }
-
-    // Z Elevation exaggeration for tactical clarity (industry-standard 3D TMA representation)
-    const verticalExaggeration = 5.0;
-    const zScaled = (pz / 6076.12) * verticalExaggeration;
-
-    // 1. Rotate Yaw around Z axis
-    const cosY = Math.cos(yawRad);
-    const sinY = Math.sin(yawRad);
-    const x1 = px * cosY - py * sinY;
-    const y1 = px * sinY + py * cosY;
-    const z1 = zScaled;
-
-    // 2. Rotate Pitch around horizontal screen X axis
-    const cosP = Math.cos(pitchRad);
-    const sinP = Math.sin(pitchRad);
-    const x2 = x1;
-    const y2 = y1 * cosP - z1 * sinP;
-    const z2 = y1 * sinP + z1 * cosP;
-
-    // 3. Camera distance scale based on zoom property
-    const baseDist = 45;
-    const cameraDistance = baseDist * (12 / this.zoom);
-
-    // 4. Perspective Projection division
-    const f = Math.min(this._canvasW, this._canvasH) * 0.95;
-    const depth = y2 + cameraDistance;
-    const scale = depth > 0.5 ? f / depth : f / 0.5;
-
+  private _mapToScenePoint(pos: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
+    const scaleXY = 3.5;
+    // Map 0..6000 feet to 12..48 units in scene space to clear terrain waves
+    const zScene = 12 + (pos.z / 6000) * 36;
     return {
-      u: this._canvasW / 2 + x2 * scale,
-      v: this._canvasH / 2 - z2 * scale,
-      depth: y2
+      x: pos.x * scaleXY,
+      y: pos.y * scaleXY,
+      z: zScene
     };
   }
 
-  private nextAnimationFrame() {
-    this._animationFrameId = requestAnimationFrame(() => {
-      if (this.cinematicOrbit && !this._isDragging) {
-        this.cameraYaw = (this.cameraYaw + 0.05) % 360;
-      }
-      this._drawScene();
-      this.nextAnimationFrame();
-    });
-  }
+  private _getPoints(): ScenePoint[] {
+    const pointsList: ScenePoint[] = [];
 
-  private _drawScene() {
-    const ctx = this._ctx;
-    if (!ctx) return;
-
-    // 1. Clear background
-    ctx.clearRect(0, 0, this._canvasW, this._canvasH);
-
-    // Update procedural sweep line
-    this._radarSweepAngle = (this._radarSweepAngle + 0.015) % (Math.PI * 2);
-
-    // 2. Draw ground terrain/airspace structures
-    if (this.showTerrain) {
-      this._drawGrid(ctx);
-    }
-
-    // 3. Draw ILS glide path landing corridor
-    if (this.showGlideSlope) {
-      this._drawGlideSlope(ctx);
-    }
-
-    // 4. Draw flights, trails, and labels
-    this._drawFlightsAndTrails(ctx);
-
-    // 5. Draw digital compass border / horizon
-    this._drawHUDHorizon(ctx);
-  }
-
-  private _drawGrid(ctx: CanvasRenderingContext2D) {
-    const rings = [10, 20, 30]; // radii in NM
-    const steps = 36; // radial lines every 10 degrees
-
-    // Draw concentric radar rings projected onto Z = 0
-    ctx.lineWidth = 0.5;
-    rings.forEach((r, idx) => {
-      ctx.strokeStyle = idx === 2 ? 'rgba(0, 242, 255, 0.22)' : 'rgba(0, 242, 255, 0.08)';
-      ctx.beginPath();
-      for (let i = 0; i <= steps; i++) {
-        const theta = (i / steps) * Math.PI * 2;
-        const pt = this._project({ x: r * Math.cos(theta), y: r * Math.sin(theta), z: 0 });
-        if (i === 0) ctx.moveTo(pt.u, pt.v);
-        else ctx.lineTo(pt.u, pt.v);
-      }
-      ctx.stroke();
-
-      // Label rings
-      const lblPt = this._project({ x: r * Math.cos(Math.PI / 4), y: r * Math.sin(Math.PI / 4), z: 0 });
-      ctx.fillStyle = 'rgba(0, 242, 255, 0.4)';
-      ctx.font = '7px monospace';
-      ctx.fillText(`${r}NM`, lblPt.u + 2, lblPt.v - 2);
+    // 1. Airfield LFBO ground marker
+    pointsList.push({
+      id: 'LFBO',
+      x: 0,
+      y: 0,
+      z: 11,
+      color: '#00f2ff',
+      label: 'LFBO (Toulouse Blagnac)',
+      glyph: 'square',
+      size: 7
     });
 
-    // Draw axes line crosses
-    ctx.strokeStyle = 'rgba(0, 242, 255, 0.06)';
-    ctx.lineWidth = 0.5;
-    const axises = [
-      { start: { x: -30, y: 0, z: 0 }, end: { x: 30, y: 0, z: 0 } },
-      { start: { x: 0, y: -30, z: 0 }, end: { x: 0, y: 30, z: 0 } }
-    ];
-    axises.forEach(ax => {
-      const p1 = this._project(ax.start);
-      const p2 = this._project(ax.end);
-      ctx.beginPath();
-      ctx.moveTo(p1.u, p1.v);
-      ctx.lineTo(p2.u, p2.v);
-      ctx.stroke();
-    });
-
-    // Draw cardinal direction points
-    const cardinals = [
-      { char: 'N', x: 0, y: 32 },
-      { char: 'S', x: 0, y: -32 },
-      { char: 'E', x: 32, y: 0 },
-      { char: 'W', x: -32, y: 0 }
-    ];
-    ctx.font = 'bold 8px sans-serif';
-    ctx.fillStyle = 'rgba(0, 242, 255, 0.55)';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    cardinals.forEach(card => {
-      const pt = this._project({ x: card.x, y: card.y, z: 0 });
-      ctx.fillText(card.char, pt.u, pt.v);
-    });
-
-    // Draw vertical reference cage cylinders to represent the 3D terminal airspace block boundaries
-    if (this._showCylinders) {
-      ctx.strokeStyle = 'rgba(0, 242, 255, 0.04)';
-      ctx.lineWidth = 0.5;
-      const tmaPoints = 12;
-      const tmaRadius = 30;
-      for (let i = 0; i < tmaPoints; i++) {
-        const theta = (i / tmaPoints) * Math.PI * 2;
-        const cosT = Math.cos(theta);
-        const sinT = Math.sin(theta);
-        const base = this._project({ x: tmaRadius * cosT, y: tmaRadius * sinT, z: 0 });
-        const ceiling = this._project({ x: tmaRadius * cosT, y: tmaRadius * sinT, z: 6000 });
-        ctx.beginPath();
-        ctx.moveTo(base.u, base.v);
-        ctx.lineTo(ceiling.u, ceiling.v);
-        ctx.stroke();
-      }
-
-      // Draw top-ceiling ring bounding limit
-      ctx.strokeStyle = 'rgba(0, 242, 255, 0.06)';
-      ctx.beginPath();
-      for (let i = 0; i <= steps; i++) {
-        const theta = (i / steps) * Math.PI * 2;
-        const pt = this._project({ x: tmaRadius * Math.cos(theta), y: tmaRadius * Math.sin(theta), z: 6000 });
-        if (i === 0) ctx.moveTo(pt.u, pt.v);
-        else ctx.lineTo(pt.u, pt.v);
-      }
-      ctx.stroke();
-    }
-
-    // Central airfield indicator (Toulouse LFBO airfield ground marker)
-    const hubPt = this._project({ x: 0, y: 0, z: 0 });
-    ctx.fillStyle = '#00f2ff';
-    ctx.beginPath();
-    ctx.arc(hubPt.u, hubPt.v, 1.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(0, 242, 255, 0.4)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(hubPt.u, hubPt.v, 4, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(0, 242, 255, 0.5)';
-    ctx.font = '8px monospace';
-    ctx.fillText('LFBO (Toulouse Blagnac)', hubPt.u, hubPt.v + 12);
-  }
-
-  private _drawGlideSlope(ctx: CanvasRenderingContext2D) {
-    // Runway 32 heading is 320 degrees. Approaching from southeast bearing 140.
-    // Bearing 140 is -50 degrees mathematically.
+    // 2. Approach waypoints along the final glide slope approach
     const thetaApproach = -50 * Math.PI / 180;
-    const glideAngle = 3 * Math.PI / 180; // Standard 3-deg glide path
-    const maxGlideDistance = 15; // NM
-
-    // 1. Draw glowing landing corridor cone
-    const steps = 4; // drawing slices along the final approach course
-    ctx.lineWidth = 0.5;
-    ctx.strokeStyle = 'rgba(255, 0, 128, 0.16)';
+    const glideAngle = 3 * Math.PI / 180;
+    const maxGlideDistance = 15;
+    const steps = 4;
 
     for (let i = 1; i <= steps; i++) {
       const d = (i / steps) * maxGlideDistance;
       const centerAlt = d * 6076.12 * Math.tan(glideAngle);
-
       const cx = -d * Math.cos(thetaApproach);
       const cy = -d * Math.sin(thetaApproach);
 
-      // Render outer bounds ellipse at each slice
-      const coneRadiusUnits = d * 0.08; // width expands at distance
-      const centerPt = this._project({ x: cx, y: cy, z: centerAlt });
-
-      ctx.beginPath();
-      for (let j = 0; j <= 24; j++) {
-        const phi = (j / 24) * Math.PI * 2;
-        // Project points around the center
-        const p = this._project({
-          x: cx + coneRadiusUnits * Math.cos(phi),
-          y: cy + coneRadiusUnits * Math.sin(phi),
-          z: centerAlt
-        });
-        if (j === 0) ctx.moveTo(p.u, p.v);
-        else ctx.lineTo(p.u, p.v);
-      }
-      ctx.stroke();
-
-      // Label approach segment
-      if (i === steps) {
-        ctx.fillStyle = 'rgba(255, 0, 128, 0.4)';
-        ctx.font = '7px monospace';
-        ctx.fillText(`ILS 32 APPROACH CONE`, centerPt.u, centerPt.v - 8);
-      }
+      const scenePos = this._mapToScenePoint({ x: cx, y: cy, z: centerAlt });
+      pointsList.push({
+        id: `ILS-WP-${i}`,
+        x: scenePos.x,
+        y: scenePos.y,
+        z: scenePos.z,
+        color: 'rgba(255, 0, 128, 0.45)',
+        label: i === steps ? 'ILS 32 APPROACH PATH' : `ILS-WP-${i}`,
+        glyph: 'diamond',
+        size: 5
+      });
     }
 
-    // 2. Draw central Localizer/Glide slope center line
-    const start3D = { x: 0, y: 0, z: 0 };
-    const endAlt = maxGlideDistance * 6076.12 * Math.tan(glideAngle);
-    const end3D = {
-      x: -maxGlideDistance * Math.cos(thetaApproach),
-      y: -maxGlideDistance * Math.sin(thetaApproach),
-      z: endAlt
-    };
-
-    const pStart = this._project(start3D);
-    const pEnd = this._project(end3D);
-
-    ctx.strokeStyle = 'rgba(255, 0, 128, 0.4)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(pStart.u, pStart.v);
-    ctx.lineTo(pEnd.u, pEnd.v);
-    ctx.stroke();
-    ctx.setLineDash([]); // clear dash
-  }
-
-  private _drawFlightsAndTrails(ctx: CanvasRenderingContext2D) {
+    // 3. Flight contacts
     this.flights.forEach(f => {
       const pos3D = getFlight3DPosition(f);
-      const pos2D = this._project(pos3D);
+      const scenePos = this._mapToScenePoint(pos3D);
       const isLocked = f.callsign === this.lockedCallsign;
 
-      // Color based on vertical rate (emerald descending, amber climbing, cyan level)
       let blipColor = '#00f2ff';
-      if (f.vrate < -250) blipColor = '#00ff88'; // descending
-      else if (f.vrate > 250) blipColor = '#ffd60a'; // climbing
+      if (f.vrate < -250) blipColor = '#00ff88'; // descending (emerald)
+      else if (f.vrate > 250) blipColor = '#ffd60a'; // climbing (amber)
 
-      // 1. Draw glowing trail history
+      // Convert radians heading to degrees clockwise from North (+Y)
+      const headingDeg = 90 - (pos3D.heading * 180 / Math.PI);
+
+      let mappedTrail: Array<{ x: number; y: number; z: number }> | undefined = undefined;
       if (this._showTrails) {
         const trail = this._trails.get(f.callsign);
-        if (trail && trail.length > 1) {
-          ctx.lineWidth = isLocked ? 1.5 : 0.8;
-          for (let i = 0; i < trail.length - 1; i++) {
-            const pt1 = this._project(trail[i]);
-            const pt2 = this._project(trail[i+1]);
-
-            // Gradient fade: older segments are highly transparent
-            const opacity = (i / trail.length) * (isLocked ? 0.8 : 0.5);
-            ctx.strokeStyle = blipColor;
-            ctx.globalAlpha = opacity;
-            ctx.beginPath();
-            ctx.moveTo(pt1.u, pt1.v);
-            ctx.lineTo(pt2.u, pt2.v);
-            ctx.stroke();
-          }
-          ctx.globalAlpha = 1.0; // reset opacity
+        if (trail) {
+          mappedTrail = trail.map(pt => this._mapToScenePoint(pt));
         }
       }
 
-      // 2. Draw tactical altitude drop strings linking airplane down to base grid
-      if (this._showAltDropLines) {
-        const groundPt = this._project({ x: pos3D.x, y: pos3D.y, z: 0 });
-        ctx.strokeStyle = isLocked ? 'rgba(0, 242, 255, 0.45)' : 'rgba(255, 255, 255, 0.12)';
-        ctx.lineWidth = 0.5;
-        ctx.setLineDash([2, 2]);
-        ctx.beginPath();
-        ctx.moveTo(pos2D.u, pos2D.v);
-        ctx.lineTo(groundPt.u, groundPt.v);
-        ctx.stroke();
-        ctx.setLineDash([]); // reset
-
-        // Small circle on ground projection
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.beginPath();
-        ctx.arc(groundPt.u, groundPt.v, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 3. Draw aircraft icon (sleek premium 3D vector delta wing symbol)
-      ctx.save();
-      ctx.translate(pos2D.u, pos2D.v);
-
-      // Add gorgeous premium neon glow filters for locked targets
-      if (isLocked) {
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = blipColor;
-      }
-
-      ctx.fillStyle = blipColor;
-      ctx.beginPath();
-      // Draw a neat delta symbol oriented along the heading angle
-      // We compensate for camera yaw so the aircraft rotates visually inside the orbit scene
-      const localAngle = pos3D.heading - (this.cameraYaw * Math.PI / 180);
-      const size = isLocked ? 5 : 4.2;
-
-      ctx.moveTo(size * 1.5 * Math.cos(localAngle), size * 1.5 * Math.sin(localAngle));
-      ctx.lineTo(size * Math.cos(localAngle + 2.4), size * Math.sin(localAngle + 2.4));
-      ctx.lineTo(size * 0.4 * Math.cos(localAngle + Math.PI), size * 0.4 * Math.sin(localAngle + Math.PI));
-      ctx.lineTo(size * Math.cos(localAngle - 2.4), size * Math.sin(localAngle - 2.4));
-      ctx.closePath();
-      ctx.fill();
-
-      // Additional concentric ring for locked target
-      if (isLocked) {
-        ctx.strokeStyle = blipColor;
-        ctx.lineWidth = 0.7;
-        ctx.beginPath();
-        ctx.arc(0, 0, 9, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // 4. Tactical Data tags next to flight
-      ctx.fillStyle = isLocked ? '#ffffff' : 'rgba(255, 255, 255, 0.82)';
-      ctx.font = isLocked ? 'bold 8px monospace' : '7.5px monospace';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-
-      const offsetU = isLocked ? 12 : 9;
-      const fl = Math.round(f.altitude * 3.28084 / 100).toString().padStart(3, '0');
-      const textTag = `${f.callsign}\nFL${fl} ${f.speed}KT`;
-
-      const lines = textTag.split('\n');
-      lines.forEach((line, lineIdx) => {
-        ctx.fillText(line, pos2D.u + offsetU, pos2D.v - 6 + (lineIdx * 8.5));
+      pointsList.push({
+        id: f.callsign,
+        x: scenePos.x,
+        y: scenePos.y,
+        z: scenePos.z,
+        color: blipColor,
+        label: f.callsign,
+        glyph: isLocked ? 'aircraft' : 'circle',
+        size: isLocked ? 10 : 7,
+        heading: headingDeg,
+        trail: mappedTrail
       });
-    });
-  }
 
-  private _drawHUDHorizon(ctx: CanvasRenderingContext2D) {
-    // Clean digital border overlays representing spatial cockpit metrics
-    ctx.strokeStyle = 'rgba(0, 242, 255, 0.15)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(10, 10, this._canvasW - 20, this._canvasH - 20);
-
-    // Decorative corner ticks
-    const tickLen = 6;
-    ctx.strokeStyle = '#00f2ff';
-    ctx.lineWidth = 1.2;
-
-    const corners = [
-      // Top-Left
-      { x: 10, y: 10, dx: 1, dy: 1 },
-      // Top-Right
-      { x: this._canvasW - 10, y: 10, dx: -1, dy: 1 },
-      // Bottom-Left
-      { x: 10, y: this._canvasH - 10, dx: 1, dy: -1 },
-      // Bottom-Right
-      { x: this._canvasW - 10, y: this._canvasH - 10, dx: -1, dy: -1 }
-    ];
-
-    corners.forEach(c => {
-      ctx.beginPath();
-      ctx.moveTo(c.x, c.y + c.dy * tickLen);
-      ctx.lineTo(c.x, c.y);
-      ctx.lineTo(c.x + c.dx * tickLen, c.y);
-      ctx.stroke();
+      // 4. Altitude drop-lines representation (we can add a ground anchor point and link to it)
+      if (this._showAltDropLines) {
+        const groundId = `ground-${f.callsign}`;
+        pointsList.push({
+          id: groundId,
+          x: scenePos.x,
+          y: scenePos.y,
+          z: 0,
+          color: 'rgba(255, 255, 255, 0.15)',
+          glyph: 'circle',
+          size: 2
+        });
+      }
     });
 
-    // Pitch & Yaw digital tickers
-    ctx.fillStyle = 'rgba(0, 242, 255, 0.45)';
-    ctx.font = '7.5px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(`PITCH: ${Math.round(this.cameraPitch)}°`, this._canvasW - 16, this._canvasH - 22);
-    ctx.fillText(`YAW: ${Math.round(this.cameraYaw)}°`, this._canvasW - 16, this._canvasH - 13);
+    return pointsList;
   }
 
-  // Interaction handlers
-  private _onPointerDown(e: PointerEvent) {
-    this._isDragging = true;
-    this._lastPointerX = e.clientX;
-    this._lastPointerY = e.clientY;
-    this._canvas.setPointerCapture(e.pointerId);
+  private _getLinks(): SceneLink[] {
+    const linksList: SceneLink[] = [];
+
+    // 1. ILS Approach Corridor Links
+    if (this.showGlideSlope) {
+      const steps = 4;
+      for (let i = 1; i <= steps; i++) {
+        const fromId = `ILS-WP-${i}`;
+        const toId = i === 1 ? 'LFBO' : `ILS-WP-${i-1}`;
+        linksList.push({
+          from: fromId,
+          to: toId,
+          color: 'rgba(255, 0, 128, 0.4)'
+        });
+      }
+    }
+
+    // 2. Flight altitude drop strings represented as Links
+    if (this._showAltDropLines) {
+      this.flights.forEach(f => {
+        linksList.push({
+          from: f.callsign,
+          to: `ground-${f.callsign}`,
+          color: f.callsign === this.lockedCallsign ? 'rgba(0, 242, 255, 0.35)' : 'rgba(255, 255, 255, 0.08)'
+        });
+      });
+    }
+
+    return linksList;
   }
 
-  private _onPointerMove(e: PointerEvent) {
-    if (!this._isDragging) return;
-
-    const deltaX = e.clientX - this._lastPointerX;
-    const deltaY = e.clientY - this._lastPointerY;
-
-    this._lastPointerX = e.clientX;
-    this._lastPointerY = e.clientY;
-
-    // Orbit Yaw (orbiting around Z, horizontal pointer movement updates Yaw)
-    let newYaw = this.cameraYaw - deltaX * 0.4;
-    if (newYaw < 0) newYaw += 360;
-    if (newYaw >= 360) newYaw -= 360;
-    this.cameraYaw = newYaw;
-
-    // Orbit Pitch (vertical tilt, vertical pointer movement updates Pitch)
-    // Clamped strictly between 5 degrees (almost horizontal profile) and 85 degrees (almost flat top-down)
-    const newPitch = Math.min(Math.max(5, this.cameraPitch + deltaY * 0.4), 85);
-    this.cameraPitch = newPitch;
-
-    // Dispatch angle updates back to backend to keep states synchronized
-    this.dispatchEvent(new CustomEvent('camera-rotate', {
-      detail: { pitch: this.cameraPitch, yaw: this.cameraYaw },
-      bubbles: true,
-      composed: true
-    }));
+  private _getCamera() {
+    return {
+      pitch: this.cameraPitch,
+      yaw: this.cameraYaw,
+      zoom: this.zoom / 10.0,
+      autoOrbit: this.cinematicOrbit,
+      lockTo: this.autoTrack && this.lockedCallsign ? this.lockedCallsign : null
+    };
   }
 
-  private _onPointerUp(e: PointerEvent) {
-    if (this._isDragging) {
-      this._isDragging = false;
-      this._canvas.releasePointerCapture(e.pointerId);
+  private _onCameraChange(e: CustomEvent) {
+    const cam = e.detail.camera;
+    if (cam) {
+      if (typeof cam.pitch === 'number') {
+        this.cameraPitch = cam.pitch;
+      }
+      if (typeof cam.yaw === 'number') {
+        this.cameraYaw = cam.yaw;
+      }
+      if (typeof cam.zoom === 'number') {
+        this.zoom = cam.zoom * 10.0;
+      }
+
+      this.dispatchEvent(new CustomEvent('camera-rotate', {
+        detail: { pitch: this.cameraPitch, yaw: this.cameraYaw },
+        bubbles: true,
+        composed: true
+      }));
     }
   }
 
@@ -1142,7 +771,7 @@ export class GdmStage3DAirspace extends LitElement {
 
     return html`
       <div class="tma-deck-container">
-        <!-- 3D Canvas Space Viewport -->
+        <!-- 3D Canvas Space Viewport via nested gdm-3d-scene molecule -->
         <div class="viewport-wrapper">
           <div class="hud-title-bar">
             <h1 class="hud-title">
@@ -1178,17 +807,21 @@ export class GdmStage3DAirspace extends LitElement {
               </div>
 
               <div class="toggle-control" @click="${() => this._toggleControl('cylinders')}">
-                <span class="toggle-text">Airspace ceiling boundary</span>
+                <span class="toggle-text">Airspace boundary</span>
                 <div class="toggle-switch ${this._showCylinders ? 'active' : ''}"></div>
               </div>
             </div>
           </div>
 
-          <canvas
-            @pointerdown="${this._onPointerDown}"
-            @pointermove="${this._onPointerMove}"
-            @pointerup="${this._onPointerUp}"
-          ></canvas>
+          <gdm-3d-scene
+            .points="${this._getPoints()}"
+            .links="${this._getLinks()}"
+            .camera="${this._getCamera()}"
+            .terrain="${this.showTerrain}"
+            .grid="${this._showCylinders}"
+            .fog="${this.showTerrain}"
+            @camera-change="${this._onCameraChange}"
+          ></gdm-3d-scene>
 
           <!-- Floating details card for currently locked flight -->
           ${lockedFlight ? html`
@@ -1312,5 +945,11 @@ export class GdmStage3DAirspace extends LitElement {
         </div>
       </div>
     `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'gdm-3d-airspace': GdmStage3DAirspace;
   }
 }

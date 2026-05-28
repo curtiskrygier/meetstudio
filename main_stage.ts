@@ -174,7 +174,9 @@ import './internal/components/gdm_stage_mermaid';
 import './internal/components/gdm_stage_html';
 import './internal/components/gdm_stage_laser_sweep';
 import './internal/components/gdm_stage_3d_airspace';
+import './internal/components/gdm_stage_3d_scene';
 import './internal/components/gdm_stage_market_ticker';
+import './internal/components/gdm_stage_flip_slate';
 
 // Composable Primitives / Atomic UI Layer Elements
 import './internal/components/gdm_stage_container';
