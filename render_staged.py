@@ -51,11 +51,14 @@ def staged_board(tick: int):
     ]
     for i, (label, value, delta, up, accent) in enumerate(TILES):
         # each tile cascades in, staggered left-to-right / top-to-bottom
+        delay = round(0.4 + i * 0.09, 2)
         comps.append(C(f"tile{i}", "gdm-container", {
             "direction": "column", "padding": "18px", "glass": True, "borderRadius": "14px",
-            "reveal": "fade-up", "revealDelay": round(0.4 + i * 0.09, 2),
+            "reveal": "fade-up", "revealDelay": delay,
             "children": {"explicitList": [f"stat{i}"]}}))
-        comps.append(C(f"stat{i}", "gdm-stat", {"label": label, "value": value, "delta": delta, "isUp": up, "accent": accent, "size": "md"}))
+        comps.append(C(f"stat{i}", "gdm-stat", {"label": label, "value": value, "delta": delta,
+                                                "isUp": up, "accent": accent, "size": "md",
+                                                "countUp": True, "countDelay": delay, "countDuration": 0.9}))
     return comps
 
 async def main():
