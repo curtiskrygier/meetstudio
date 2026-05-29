@@ -95,6 +95,10 @@ The `open_stage.sh` script (written during this conversation) is in the repo roo
   - `@app.get("/{path:path}", include_in_schema=False)` — SPA-fallback catch-all that explicitly `raise HTTPException(404)` for `api/*` paths. Any `@app.get` declared *after* in source for an `api/*` path returns 404 even though it's registered — the catch-all wins first.
   - Symmetric rule: anything that matches greedily by path must come AFTER specific routes. Both currently live at the bottom of `main.py` — keep them there. When appending new endpoints, put them BEFORE these two blocks or move the blocks down to remain last.
 - **Browser bundle caching after `npm run build`.** Vite emits hash-based asset filenames (`main_stage-{HASH}.js`). After a build, the browser tab is still loading the OLD hash from a prior session — a normal refresh re-fetches the same cached HTML which still points at the old asset. Must **hard-refresh** (`Ctrl+Shift+R` / `Cmd+Shift+R`) to get the new HTML pointing at the new hash. Symptoms when you forget: clicks dispatch old-event-mode CustomEvents with empty fields, or new atoms/props silently no-op. See §12.7 Bug 3.
+- **A2UI v0.9 wire shape gotchas (post-migration):**
+  - Component encoding is FLAT, not nested. `{"id": "x", "component": "gdm-text", "size": "60px"}` not `{"id": "x", "component": {"gdm-text": {...}}}`. If you see the nested form anywhere new, that's a v0.8 leak.
+  - C() helper has a collision guard — emitting a prop named `id` or `component` is silently dropped. If a slide doesn't render expected content, check whether the YAML accidentally uses those names.
+  - Broadcast envelopes are LEAN: `{"updateComponents": {...}}` not `{"type": "updateComponents", "updateComponents": {...}}`. Engine dispatches via `Object.keys(msg)[0]`. Adding an outer `type` field will silently fail to match.
 
 ---
 
@@ -1451,6 +1455,89 @@ The migration scope is narrowly the wire envelope. Everything above stays.
 
 ---
 
-_End of handover. Pick up at §8 / §9 / §12 / §13 / §14 / §15 / §16 to continue._
+## 17. v0.9 migration applied — wire-format hard-cutover + lean envelopes
 
-_Next move: branch `feature/a2ui-0.9-migration` off `checkpoint/a2ui-0.8`, do the wire-format migration, regression-test, publish._
+ _2026-05-29 evening to night. A2UI v0.8 → v0.9 wire format migration completed on branch `feature/a2ui-0.9-migration`, off `checkpoint/a2ui-0.8`. Hard-cutover; no dual-mode shim (branch + checkpoint IS the safety net). Five commits, all 5 playbooks regression-clean._
+
+ ### 17.1 What landed
+
+ File                                Phase  Change
+ ─────────────────────────────────────────────────────────────────────
+ internal/a2ui/engine.ts             1      Hard-cut to v0.9. Message dispatch uses
+                                             Object.keys(msg)[0] lean discriminator.
+                                             compile() reads component as string,
+                                             props from top-level item.
+ playbooks/templates.py + 9 others   2      C() helper now emits flat shape with
+                                             id/component collision guard.
+ main.py                             3      Broadcast envelopes flipped to lean shape.
+                                             12+ sites: updateComponents, createSurface,
+                                             updateDataModel, deleteSurface.
+ app/a2ui_catalog.py                 5+7    Validator decodes flat shape; new
+                                             --emit-json CLI generates v0.9 catalog.
+ catalog/gdm-v0.1.json               7      Public catalog artifact (1444 lines).
+                                             v0.9 swappable-catalog spec compliant.
+ tests/test_a2ui_stage.py            5      23 fixtures refactored to v0.9 flat shape.
+ app/config.py                       5      Agent system prompt rewritten — prompt-
+                                             first, prose-led, v0.9 examples.
+
+ ### 17.2 Sparring decisions locked in code
+
+ Sparred with Gemini 3.5 Pro. All 9 points resolved:
+
+ | # | Decision | Locked-in shape |
+ |---|---|---|
+ | 1 | Folder rename timing | Pre-migration (mv done as Phase 0) |
+ | 2 | C() helper props spread | `clean_props = {k:v for k,v in props.items() if k not in ('id','component')}` — guard against author/LLM clobbering structural keys |
+ | 3 | Broadcast envelope shape | Lean `{updateComponents: {...}}` — no redundant outer `type` field. Object.keys[0] discriminator |
+ | 4 | Side panel migration scope | Included — `index.tsx` migrated alongside main_stage to avoid split-brain |
+ | 5 | Agent prompt rewrite scope | Local-only; Cloud Run redeploy out of scope |
+ | 6 | ValidationFailed depth | Send-side only (telemetry). No retry/healing |
+ | 7 | Dual-mode engine shim | Rejected. Hard-cutover. Branch + checkpoint is the safety net |
+ | 8 | Catalog version label | `v0.1` — humble + evolving |
+ | 9 | Cloud Run deploy strategy | Out of scope. Local-only until publication |
+
+ ### 17.3 Verification
+
+ ✓ all 5 playbooks register at startup
+ ✓ all 5 playbooks fire intro slide with correct component counts:
+     demo_poc/slide_1_intro      → 5 components  (baseline match)
+     kickoff/intro               → 6 components  (baseline match)
+     article/intro               → 6 components  (baseline match)
+     market/intro                → 6 components  (baseline match)
+     stocks/intro                → 6 components  (baseline match)
+ ✓ pytest tests/test_a2ui_stage.py: 23 passed
+ ✓ live builder output confirmed v0.9 flat shape
+ ✓ npm run build: clean (24.73s)
+ ✓ catalog/gdm-v0.1.json: 1444 lines, valid JSON
+
+ ### 17.4 What's NOT in scope (sparred + closed, do not reopen without reason)
+
+ - Drive readonly auth + doc-to-deck loop closure (§14)
+ - Mode C presenter URL build
+ - Agent-authored YAML generation from a real doc
+ - Replacing `_interpolate` helper with v0.9's native `formatString` function
+ - BigQuery / Polygon API source wiring
+ - Cloud Run redeploy (deployed Meet add-on still on v0.8)
+ - Public README + blog post draft (separate publication track)
+ - `meet-live-concierge` doc-reference updates in `staging/README.md` (historical)
+
+ ### 17.5 Recovery path
+
+ ```bash
+ git checkout checkpoint/a2ui-0.8     # back to v0.8 known-good
+ git reset --hard v0.8-final          # equivalent
+ ```
+
+ The migration branch is fully reversible. If any regression surfaces post-publication, this is a one-command rollback.
+
+ ### 17.6 The prompt-first observation
+
+ v0.9's "prompt-first" paradigm shift (from "structured-output-first") quietly validates the substrate principle. Our catalogue + templates + YAML + warn-don't-block validation + restaurant-metaphor vocabulary were all prompt-first decisions made instinctively, before v0.9 named the principle. The migration didn't require rethinking those choices — only the wire envelope.
+
+ Substrate = vocabulary = prompt-first. Compositions = schemas = constraint-mode.
+
+ ---
+
+ _End of handover. Pick up at §8 / §9 / §12 / §13 / §14 / §15 / §16 / §17 to continue._
+
+ _Next move: branch `feature/a2ui-0.9-migration` off `checkpoint/a2ui-0.8`, do the wire-format migration, regression-test, publish._
