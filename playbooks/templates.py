@@ -43,8 +43,11 @@ _COLOR_NAMES = {
 
 
 def C(cid: str, el: str, props: dict) -> dict:
-    """A2UI component tuple — matches project convention."""
-    return {"id": cid, "component": {el: props}}
+    """Build a v0.9 component dict. Strips structural keys from props to
+    prevent accidental clobbering of `id` / `component` if a YAML author
+    or LLM emits those as component-level attributes."""
+    clean_props = {k: v for k, v in props.items() if k not in ('id', 'component')}
+    return {"id": cid, "component": el, **clean_props}
 
 
 def _interpolate(value, data: dict):

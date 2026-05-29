@@ -101,8 +101,11 @@ STOCK_TICKERS = [
 
 
 def C(cid: str, el: str, props: dict) -> dict:
-    """Helper to structure A2UI components."""
-    return {"id": cid, "component": {el: props}}
+    """Build a v0.9 component dict. Strips structural keys from props to
+    prevent accidental clobbering of `id` / `component` if a YAML author
+    or LLM emits those as component-level attributes."""
+    clean_props = {k: v for k, v in props.items() if k not in ('id', 'component')}
+    return {"id": cid, "component": el, **clean_props}
 
 
 def get_fluctuated_stocks(tick: int) -> list[dict]:

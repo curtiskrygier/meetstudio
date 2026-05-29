@@ -18,7 +18,12 @@ API   = os.environ.get("CONCIERGE_API_URL", "http://127.0.0.1:8085")
 KEY   = os.environ.get("STAGE_API_KEY", "meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA")
 SPACE = os.environ.get("CAPTURE_SPACE", "default")
 
-def C(cid, el, props): return {"id": cid, "component": {el: props}}
+def C(cid: str, el: str, props: dict) -> dict:
+    """Build a v0.9 component dict. Strips structural keys from props to
+    prevent accidental clobbering of `id` / `component` if a YAML author
+    or LLM emits those as component-level attributes."""
+    clean_props = {k: v for k, v in props.items() if k not in ('id', 'component')}
+    return {"id": cid, "component": el, **clean_props}
 
 # ────────────────────────────────────────────────────────────────────────────
 # Act 0 — Title card

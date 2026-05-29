@@ -22,7 +22,12 @@ INSTRUMENTS = [
     ("NVIDIA", 1090.20, 3.82, "#00ff88"), ("EUR / USD", 1.0854, 0.12, "#b388ff"),
 ]
 
-def C(cid, el, props): return {"id": cid, "component": {el: props}}
+def C(cid: str, el: str, props: dict) -> dict:
+    """Build a v0.9 component dict. Strips structural keys from props to
+    prevent accidental clobbering of `id` / `component` if a YAML author
+    or LLM emits those as component-level attributes."""
+    clean_props = {k: v for k, v in props.items() if k not in ('id', 'component')}
+    return {"id": cid, "component": el, **clean_props}
 
 def board(tick: int):
     random.seed(99 + tick)
