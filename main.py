@@ -167,14 +167,20 @@ async def token_or_api_key_required(token: str = Depends(get_token_from_header))
 
 async def broadcast_to_stage(meeting_id: str, message: dict, exclude_ws: WebSocket = None):
     if not meeting_id: return
-    msg_type = message.get("type")
+    
+    # We can detect the key/type based on either the outer key or the "type" field
+    msg_type = message.get("type") if isinstance(message, dict) else None
+    if not msg_type and isinstance(message, dict) and message:
+        # If there is no "type" field, the discriminator is the first key (v0.9 layout)
+        msg_type = next(iter(message))
+
     if msg_type == "view_change":
         current_view[meeting_id] = message
-    elif msg_type == "surfaceUpdate":
+    elif msg_type == "updateComponents":
         current_a2ui_surface[meeting_id] = message
-    elif msg_type == "dataModelUpdate":
+    elif msg_type == "updateDataModel":
         current_a2ui_datamodel[meeting_id] = message
-    elif msg_type == "beginRendering":
+    elif msg_type == "createSurface":
         current_a2ui_root[meeting_id] = message
     elif msg_type == "deleteSurface":
         current_a2ui_surface.pop(meeting_id, None)
@@ -192,8 +198,8 @@ async def broadcast_to_stage(meeting_id: str, message: dict, exclude_ws: WebSock
         try: await ws.send_text(payload)
         except Exception: pass
 
-    if message.get("type") == "transcript":
-        for emoji in detect_emojis(message.get("text", "")):
+    if msg_type == "transcript" or (isinstance(message, dict) and message.get("type") == "transcript"):
+        for emoji in detect_emojis(message.get("text", "") if isinstance(message, dict) else ""):
             await asyncio.sleep(0.4)
             emoji_payload = json.dumps({"type": "emoji_reaction", "emoji": emoji})
             for ws in list(stage_listeners.get(meeting_id, [])):
@@ -544,14 +550,12 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     remaining_seconds=0
                                 )
                                 await broadcast_to_stage(session_space[0], {
-                                    "type": "surfaceUpdate",
-                                    "surfaceUpdate": {
+                                    "updateComponents": {
                                         "components": welcome_components
                                     }
                                 })
                                 await broadcast_to_stage(session_space[0], {
-                                    "type": "beginRendering",
-                                    "beginRendering": {"root": "stage_root_grid"}
+                                    "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_root_grid"}
                                 })
                         
                         elif data.get("type") == "diagram_mode":
@@ -806,11 +810,11 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                         response={"result": f"Validation failed: {', '.join(errors)}"}
                                     ))
                                 else:
-                                    await broadcast_to_stage(session_space[0], {"type": "surfaceUpdate", "surfaceUpdate": surface_update})
+                                    await broadcast_to_stage(session_space[0], {"updateComponents": {"components": surface_update.get("components", [])}})
                                     if data_model_update:
-                                        await broadcast_to_stage(session_space[0], {"type": "dataModelUpdate", "dataModelUpdate": data_model_update})
+                                        await broadcast_to_stage(session_space[0], {"updateDataModel": data_model_update})
                                     if root_id:
-                                        await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": root_id}})
+                                        await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id}})
                                     if warnings:
                                         logger.warning(f"[tool] render_stage surface warnings: {'; '.join(warnings)}")
                                     logger.info(f"[tool] render_stage root={root_id} n={len(surface_update.get('components', []))}")
@@ -823,7 +827,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     ))
 
                             elif fc.name == "clear_stage":
-                                await broadcast_to_stage(session_space[0], {"type": "deleteSurface"})
+                                await broadcast_to_stage(session_space[0], {"deleteSurface": {}})
                                 logger.info(f"[tool] clear_stage for {session_space[0]}")
                                 responses.append(types.FunctionResponse(
                                     id=fc.id, name=fc.name,
@@ -848,9 +852,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 current_turn.update({"id": str(uuid_lib.uuid4()), "role": "user"})
                             transcript_msg = {"type": "transcript", "role": "user", "label": "You", "text": t_text, "turn_id": current_turn["id"], "is_final": is_final}
                             await websocket.send_text(json.dumps(transcript_msg))
-                            caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "component": {"gdm-captions": {"text": t_text, "speaker": "You", "active": True}}}]}}
+                            caption_surface = {"updateComponents": {"components": [{"id": "stage_captions", "component": "gdm-captions", "text": t_text, "speaker": "You", "active": True}]}}
                             await broadcast_to_stage(session_space[0], caption_surface)
-                            await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": "stage_captions"}})
+                            await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_captions"}})
                             if is_final: current_turn["role"] = None
 
                     if sc.model_turn:
@@ -864,9 +868,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                         current_turn.update({"id": str(uuid_lib.uuid4()), "role": "agent"})
                                     transcript_msg = {"type": "transcript", "role": "agent", "label": "Gemini Architect", "text": part.text, "turn_id": current_turn["id"], "is_final": False}
                                     await websocket.send_text(json.dumps(transcript_msg))
-                                    caption_surface = {"type": "surfaceUpdate", "surfaceUpdate": {"components": [{"id": "stage_captions", "component": {"gdm-captions": {"text": part.text, "speaker": "Gemini Architect", "active": True}}}]}}
+                                    caption_surface = {"updateComponents": {"components": [{"id": "stage_captions", "component": "gdm-captions", "text": part.text, "speaker": "Gemini Architect", "active": True}]}}
                                     await broadcast_to_stage(session_space[0], caption_surface)
-                                    await broadcast_to_stage(session_space[0], {"type": "beginRendering", "beginRendering": {"root": "stage_captions"}})
+                                    await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_captions"}})
                     
                     if sc.turn_complete: current_turn["role"] = None
         except Exception as e:
@@ -978,23 +982,22 @@ async def handle_tab_select_action(meeting_id: str, tab_id: str):
         logger.warning(f"[interactive_tabs] No surface cached for meeting {meeting_id}")
         return
         
-    components = surface.get("surfaceUpdate", {}).get("components", [])
+    components = surface.get("updateComponents", {}).get("components", [])
     updated = False
     
     for comp in components:
         if comp.get("id") == "telemetry_dashboard":
-            dashboard = comp.get("component", {}).get("gdm-telemetry-dashboard", {})
-            if dashboard:
-                dashboard["activeTabId"] = tab_id
+            if comp.get("component") == "gdm-telemetry-dashboard":
+                comp["activeTabId"] = tab_id
                 if tab_id == "stk":
-                    dashboard["metrics"] = stocks_metrics
-                    dashboard["chartData"] = charts["stk"]
+                    comp["metrics"] = stocks_metrics
+                    comp["chartData"] = charts["stk"]
                 elif tab_id == "pwr":
-                    dashboard["metrics"] = bikes_metrics
-                    dashboard["chartData"] = charts["pwr"]
+                    comp["metrics"] = bikes_metrics
+                    comp["chartData"] = charts["pwr"]
                 elif tab_id == "ac":
-                    dashboard["metrics"] = metro_metrics
-                    dashboard["chartData"] = charts["ac"]
+                    comp["metrics"] = metro_metrics
+                    comp["chartData"] = charts["ac"]
                 updated = True
                 break
                 
@@ -1109,10 +1112,9 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
                     if action_spec.get("dm_path") and action_spec.get("dm_val_fn"):
                         dm_val = action_spec["dm_val_fn"](detail)
                         dm_msg = {
-                            "type": "dataModelUpdate",
-                            "dataModelUpdate": {
+                            "updateDataModel": {
                                 "path": action_spec["dm_path"],
-                                "contents": [{"key": action_spec["dm_path"].split("/")[-1], "valueString": dm_val}]
+                                "contents": {action_spec["dm_path"].split("/")[-1]: dm_val}
                             }
                         }
                         await broadcast_to_stage(meeting_id, dm_msg, exclude_ws=websocket)
@@ -2107,14 +2109,12 @@ async def standby_countdown_task(space_id: str, badge: str, title: str, descript
             components = make_composable_standby_components(badge, title, description, remaining)
             # Send the components
             await broadcast_to_stage(space_id, {
-                "type": "surfaceUpdate",
-                "surfaceUpdate": {
+                "updateComponents": {
                     "components": components
                 }
             })
             await broadcast_to_stage(space_id, {
-                "type": "beginRendering",
-                "beginRendering": {"root": "stage_root_grid"}
+                "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_root_grid"}
             })
             if remaining == 0:
                 break
@@ -2161,7 +2161,7 @@ async def set_stage_standby(space_id: str, request: Request):
         active_standby_tasks[space_id] = task
     else:
         # Deactivating: clear the stage to restore default clean slate
-        await broadcast_to_stage(space_id, {"type": "deleteSurface"})
+        await broadcast_to_stage(space_id, {"deleteSurface": {}})
         logger.info(f"[standby] Deactivated standby for space {space_id}")
         
     return {"ok": True}
@@ -2240,14 +2240,14 @@ async def render_stage(space_id: str, request: Request):
     if not root_id:
         raise HTTPException(status_code=422, detail={"errors": ["No root component id"]})
 
-    # Broadcast in A2UI protocol order: surfaceUpdate → (optional) dataModelUpdate → beginRendering
-    await broadcast_to_stage(space_id, {"type": "surfaceUpdate", "surfaceUpdate": surface_update})
+    # Broadcast in A2UI protocol order: updateComponents → (optional) updateDataModel → createSurface
+    await broadcast_to_stage(space_id, {"updateComponents": {"components": components}})
 
     data_model_update = body.get("dataModelUpdate")
     if data_model_update:
-        await broadcast_to_stage(space_id, {"type": "dataModelUpdate", "dataModelUpdate": data_model_update})
+        await broadcast_to_stage(space_id, {"updateDataModel": data_model_update})
 
-    await broadcast_to_stage(space_id, {"type": "beginRendering", "beginRendering": {"root": root_id}})
+    await broadcast_to_stage(space_id, {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id}})
 
     logger.info(f"[render-stage] {space_id} root={root_id} components={len(components)}")
     resp = {"ok": True, "root": root_id, "components": len(components)}
@@ -2260,7 +2260,7 @@ async def render_stage(space_id: str, request: Request):
 async def render_stage_clear(space_id: str, request: Request):
     """Clear the A2UI surface on the stage (deleteSurface)."""
     check_producer_auth(request)
-    await broadcast_to_stage(space_id, {"type": "deleteSurface"})
+    await broadcast_to_stage(space_id, {"deleteSurface": {}})
     logger.info(f"[render-stage] clear {space_id}")
     return {"ok": True}
 
@@ -2565,12 +2565,10 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
     #    beginRendering. (This is the bug that bit the first draft.)
     root_id = components[0].get("id", "root")
     await broadcast_to_stage(space_id, {
-        "type": "surfaceUpdate",
-        "surfaceUpdate": {"components": components},
+        "updateComponents": {"components": components},
     })
     await broadcast_to_stage(space_id, {
-        "type": "beginRendering",
-        "beginRendering": {"root": root_id},
+        "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id},
     })
     logger.info(f"[playbook] fired {playbook_name}/{slide_id} -> {space_id} "
                 f"({len(components)} components, root={root_id})")
@@ -2600,12 +2598,10 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
                         break
                     if partial:
                         await broadcast_to_stage(space_id, {
-                            "type": "surfaceUpdate",
-                            "surfaceUpdate": {"components": partial},
+                            "updateComponents": {"components": partial},
                         })
                         await broadcast_to_stage(space_id, {
-                            "type": "beginRendering",
-                            "beginRendering": {"root": root_id},
+                            "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id},
                         })
                     tick += 1
             except asyncio.CancelledError:
