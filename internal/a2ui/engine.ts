@@ -34,43 +34,56 @@ export class A2UIEngine {
    * Returns true if the message was an A2UI protocol message and was consumed.
    */
   handleMessage(msg: any): boolean {
-    if (msg.type === 'surfaceUpdate') {
-      if (msg.surfaceUpdate?.components) {
-        this._lastUpdatedIds = new Set<string>();
-        for (const comp of msg.surfaceUpdate.components) {
-          this.componentBuffer.set(comp.id, comp);
-          this._lastUpdatedIds.add(comp.id);
-        }
-      }
-      return true;
-    }
+    if (!msg || typeof msg !== 'object') return false;
+    const msgType = Object.keys(msg)[0];
+    if (!msgType) return false;
 
-    if (msg.type === 'dataModelUpdate') {
-      if (msg.dataModelUpdate) {
-        const dmu = msg.dataModelUpdate;
-        const baseMap = this.parseDataModelContents(dmu.contents || []);
-        if (dmu.path) {
-          this.updateDataModelPath(dmu.path, baseMap);
-        } else {
-          for (const [k, v] of Object.entries(baseMap)) {
-            this.dataModelStore.set(k, v);
+    switch (msgType) {
+      case 'updateComponents': {
+        const payload = msg.updateComponents;
+        if (payload?.components) {
+          this._lastUpdatedIds = new Set<string>();
+          for (const comp of payload.components) {
+            this.componentBuffer.set(comp.id, comp);
+            this._lastUpdatedIds.add(comp.id);
           }
         }
+        return true;
       }
-      return true;
-    }
 
-    if (msg.type === 'beginRendering') {
-      if (msg.beginRendering?.root) {
-        this.onRender(this.compile(msg.beginRendering.root));
+      case 'updateDataModel': {
+        const dmu = msg.updateDataModel;
+        if (dmu) {
+          const baseMap = this.parseDataModelContents(dmu.contents);
+          if (dmu.path) {
+            this.updateDataModelPath(dmu.path, baseMap);
+          } else {
+            for (const [k, v] of Object.entries(baseMap)) {
+              this.dataModelStore.set(k, v);
+            }
+          }
+        }
+        return true;
       }
-      return true;
-    }
 
-    if (msg.type === 'deleteSurface') {
-      this.clear();
-      this.onRender([]);
-      return true;
+      case 'createSurface': {
+        const payload = msg.createSurface;
+        if (payload) {
+          if (payload.catalogId) {
+            console.warn(`[A2UI Engine] createSurface catalogId: ${payload.catalogId}`);
+          }
+          if (payload.root) {
+            this.onRender(this.compile(payload.root));
+          }
+        }
+        return true;
+      }
+
+      case 'deleteSurface': {
+        this.clear();
+        this.onRender([]);
+        return true;
+      }
     }
 
     return false;
@@ -143,16 +156,8 @@ export class A2UIEngine {
     }
   }
 
-  private parseDataModelContents(contents: any[]): Record<string, any> {
-    const result: Record<string, any> = {};
-    for (const entry of contents) {
-      if (!entry || !entry.key) continue;
-      if ('valueString' in entry) result[entry.key] = entry.valueString;
-      else if ('valueBoolean' in entry) result[entry.key] = entry.valueBoolean;
-      else if ('valueNumber' in entry) result[entry.key] = entry.valueNumber;
-      else if ('valueMap' in entry) result[entry.key] = this.parseDataModelContents(entry.valueMap);
-    }
-    return result;
+  private parseDataModelContents(contents: any): Record<string, any> {
+    return contents && typeof contents === 'object' ? { ...contents } : {};
   }
 
   private compile(rootId: string): A2UIComponent[] {
@@ -164,12 +169,10 @@ export class A2UIEngine {
       visited.add(id);
 
       const item = this.componentBuffer.get(id);
-      if (!item?.component) return;
+      if (!item || typeof item.component !== 'string') return;
 
-      const keys = Object.keys(item.component);
-      if (keys.length === 0) return;
-      const elementName = keys[0];
-      const rawProps = item.component[elementName];
+      const elementName = item.component;
+      const { id: _, component: __, ...rawProps } = item;
 
       const resolvedProps: Record<string, any> = {};
       for (const [k, v] of Object.entries(rawProps)) {
@@ -217,10 +220,8 @@ export class A2UIEngine {
 
     for (const [id, item] of this.componentBuffer.entries()) {
       if (visited.has(id)) continue;
-      if (!item?.component) continue;
-      const keys = Object.keys(item.component);
-      if (keys.length === 0) continue;
-      const el = keys[0].toLowerCase();
+      if (!item || typeof item.component !== 'string') continue;
+      const el = item.component.toLowerCase();
       if (overlayTypes.has(el)) {
         traverse(id);
       }
