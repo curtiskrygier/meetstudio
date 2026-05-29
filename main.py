@@ -2660,6 +2660,214 @@ async def list_playbook_slides(playbook_name: str):
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Doc-to-Deck Conversion (A2UI v0.9 Playbook Drafting)
+# ═══════════════════════════════════════════════════════════════════════════
+
+DRAFT_FROM_DOC_PROMPT = """You convert markdown articles into A2UI v0.9 playbook YAML for the
+Google Meet Studio.
+
+The studio renders presentations by composing slides from a small set of
+template recipes. Each playbook is one YAML file with a `name:` and a
+`slides:` list. Pick the right recipe for each section of the article.
+
+AVAILABLE TEMPLATES (the menu):
+
+  title              hero opener — badge + glitch headline + typeOn subtitle
+                     + optional next_action button. Use for the article's
+                     intro and section breaks.
+                     props: badge {text, type, pulse}, title, subtitle, next_action
+                     {text, fires}
+
+  hero_stat          single big number — label + value + delta. Use when
+                     one number is the whole point (revenue, count,
+                     percentage). Numbers under 5 format as decimal, 5-10000
+                     as $X.XX, >10000 as $X,XXX.
+                     props: badge, label, value, delta, is_up, next_action
+                     data binding: data.<key> with source/refresh/fallback
+
+  split_with_action  asymmetric 2-panel — narrative left (badge + glitch
+                     title + typeOn body), action buttons right. Use for
+                     architectural explanations or "here's what + here's
+                     where to act" slides.
+                     props: left {badge, title, body}, right.actions []
+                     each action: {text, variant, fires|links|emits|agent}
+
+  list_5             up to 5 numbered points, staggered reveal. Use for
+                     principles, features, takeaways. Cap at 5; if the
+                     article has more, pick the 5 strongest.
+                     props: badge, title, points [string...], next_action
+
+  signoff            multi-line glitch close + brand callout + chef beat +
+                     tagline. Always the last slide. Use for the article's
+                     concluding payoff.
+                     props: lines [{text, color}], brands {left, right},
+                     badge_text, chef_line, chef_sub, tagline
+
+ACTION SHORTCUTS in buttons:
+  fires: <slide_id>      → server-side fire, advances to that slide
+  links: <url>           → opens URL in new tab
+  emits: <event_name>    → dispatches event for the host page
+  agent: <action_id>     → existing agent-mode (legacy)
+
+GOOD YAML EXAMPLE:
+
+  name: q3_review
+  slides:
+    - id: intro
+      template: title
+      badge: { text: "Q3 REVIEW", type: danger, pulse: true }
+      title: "FOURTH QUARTER OUTLOOK"
+      subtitle: "what we shipped, what's next"
+      next_action: { text: "Numbers", fires: arr }
+
+    - id: arr
+      template: hero_stat
+      badge: { text: "ARR", type: primary }
+      label: "Annual Recurring Revenue"
+      data:
+        revenue: { source: literal, value: "$48.2M" }
+      value: "{{ revenue }}"
+      delta: "+18%"
+      is_up: true
+      next_action: { text: "Continue", fires: close }
+
+    - id: close
+      template: signoff
+      lines:
+        - { text: "FOURTH QUARTER.", color: white }
+        - { text: "SHIPPED.", color: phosphor }
+      brands: { left: "Q3", right: "DONE" }
+      badge_text: "ON TIME · ON BUDGET"
+      chef_line: "WE CALLED IT."
+      tagline: "next: q4."
+
+RULES:
+- Output ONLY YAML. No prose, no markdown fences, no explanation.
+- Aim for 3-6 slides per article. Don't over-segment.
+- Use the article's actual headlines and key phrases as the title/subtitle/body text.
+- Match each section to its closest template — don't shoehorn.
+- Always end with a `signoff` slide.
+- Use `fires:` to chain slides forward (each next_action points to the next slide's id).
+- Pick badge.type from: primary, danger, success, info, warning.
+- Pick signoff.lines[*].color from: white, phosphor, cyan.
+- If the article mentions a number that warrants a hero_stat, use one.
+- Keep slide ids snake_case, descriptive (intro, principles, arr, conclusion, close)."""
+
+
+class DriveScopeMissingError(Exception):
+    pass
+
+
+async def _fetch_doc_as_markdown(doc_id: str, user_token: str) -> str:
+    """Export a Google Doc as markdown via Drive Files.export().
+    Raises DriveScopeMissingError if the user's OAuth lacks drive.readonly."""
+    export_url = f"https://www.googleapis.com/drive/v3/files/{doc_id}/export?mimeType=text/markdown"
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(export_url, headers={"Authorization": f"Bearer {user_token}"})
+        if r.status_code == 403:
+            raise DriveScopeMissingError()
+        r.raise_for_status()
+        return r.text
+
+
+async def _draft_yaml_via_gemini(markdown: str) -> str:
+    """Call Gemini with the doc→YAML system prompt; return raw YAML string."""
+    from google import genai
+    client = genai.Client(vertexai=True, project=os.environ["GEMINI_PROJECT"],
+                          location=os.environ.get("REGION", "us-central1"))
+    # Use Gemini 2.5 (or whichever model is current). Aim for a structured-but-loose
+    # mode — set temperature low (0.2) for reliable schema-matching.
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model="gemini-2.5-pro",  # or whichever model is current
+        contents=[DRAFT_FROM_DOC_PROMPT, "\n\nARTICLE TO CONVERT:\n\n", markdown],
+        config={"temperature": 0.2, "max_output_tokens": 8000},
+    )
+    raw = response.text.strip()
+    # Strip markdown fences if Gemini added them
+    if raw.startswith("```yaml"):
+        raw = raw[len("```yaml"):].strip()
+    if raw.startswith("```"):
+        raw = raw[3:].strip()
+    if raw.endswith("```"):
+        raw = raw[:-3].strip()
+    return raw
+
+
+@app.post("/api/playbook/draft-from-doc/{space_id:path}")
+async def draft_playbook_from_doc(
+    space_id: str,
+    body: dict = Body(...),
+    token: str = Depends(token_or_api_key_required),
+):
+    """Convert a markdown article or Google Doc into a YAML playbook
+    via Gemini, save it to playbooks/, trigger reload, return playbook
+    metadata. The killer-loop closer.
+
+    Body shape:
+      { "source": "markdown", "content": "..." }
+      { "source": "drive", "doc_url": "https://docs.google.com/document/d/..." }
+    """
+    source = body.get("source")
+    if source == "markdown":
+        markdown_content = body.get("content", "")
+    elif source == "drive":
+        doc_url = body.get("doc_url", "")
+        # Extract doc ID from URL
+        m = re.search(r"/document/d/([a-zA-Z0-9_-]+)", doc_url)
+        if not m:
+            raise HTTPException(400, "invalid Google Doc URL")
+        doc_id = m.group(1)
+        # Fetch via Drive API — requires drive.readonly scope on user OAuth
+        try:
+            markdown_content = await _fetch_doc_as_markdown(doc_id, token)
+        except DriveScopeMissingError:
+            return {
+                "error": "scope_missing",
+                "detail": "Drive readonly scope required. User must re-consent.",
+                "required_scope": "https://www.googleapis.com/auth/drive.readonly",
+                "fallback": "Use source=markdown and paste the doc content"
+            }
+    else:
+        raise HTTPException(400, "source must be 'markdown' or 'drive'")
+
+    if not markdown_content or len(markdown_content) < 100:
+        raise HTTPException(400, "content too short to draft a playbook")
+
+    # Call Gemini with the doc→YAML system prompt
+    yaml_str = await _draft_yaml_via_gemini(markdown_content)
+
+    # Validate it parses
+    import yaml as yaml_mod
+    try:
+        parsed = yaml_mod.safe_load(yaml_str)
+        assert isinstance(parsed, dict)
+        assert "name" in parsed and "slides" in parsed
+        assert isinstance(parsed["slides"], list)
+        assert len(parsed["slides"]) >= 2
+    except Exception as e:
+        raise HTTPException(500, f"Gemini output not valid playbook YAML: {e}")
+
+    # Save to playbooks/ with slugified name
+    pb_name = re.sub(r"[^a-z0-9_]", "_", parsed["name"].lower())[:40] or "drafted"
+    playbook_path = os.path.join("playbooks", f"{pb_name}.yaml")
+    with open(playbook_path, "w") as f:
+        f.write(yaml_str)
+
+    # Trigger reload
+    from playbooks.yaml_loader import register_yaml_playbooks_in_dir
+    register_yaml_playbooks_in_dir()
+
+    return {
+        "ok": True,
+        "playbook_name": pb_name,
+        "playbook_path": playbook_path,
+        "slide_ids": [s["id"] for s in parsed["slides"]],
+        "fire_url": f"/api/playbook/fire/{pb_name}/{parsed['slides'][0]['id']}/{space_id}",
+    }
+
+
 # SPA-fallback GET catch-all — explicitly 404s any unmatched api/* path,
 # otherwise serves the requested file from dist/ or falls back to index.html.
 # Placed near the end so api/* GET endpoints registered above (e.g. the
