@@ -24,12 +24,9 @@ def test_validate_a2ui_surface_valid():
         "components": [
             {
                 "id": "comp-1",
-                "component": {
-                    "gdm-stage-card": {
-                        "title": "Hello",
-                        "text": "World"
-                    }
-                }
+                "component": "gdm-stage-card",
+                "title": "Hello",
+                "text": "World"
             }
         ]
     }
@@ -41,11 +38,8 @@ def test_validate_a2ui_surface_invalid_component():
         "components": [
             {
                 "id": "comp-1",
-                "component": {
-                    "gdm-unknown-component": {
-                        "title": "Hello"
-                    }
-                }
+                "component": "gdm-unknown-component",
+                "title": "Hello"
             }
         ]
     }
@@ -78,9 +72,8 @@ def test_api_render_stage_success(mock_auth_key, mock_broadcast):
             "components": [
                 {
                     "id": "comp-1",
-                    "component": {
-                        "gdm-stage-card": {"title": "Hello"}
-                    }
+                    "component": "gdm-stage-card",
+                    "title": "Hello"
                 }
             ]
         },
@@ -92,11 +85,11 @@ def test_api_render_stage_success(mock_auth_key, mock_broadcast):
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
     
-    # Broadcast order: surfaceUpdate -> dataModelUpdate -> beginRendering
+    # Broadcast order: updateComponents -> updateDataModel -> createSurface
     assert mock_broadcast.call_count == 3
-    mock_broadcast.assert_any_call("spaces/test", {"type": "surfaceUpdate", "surfaceUpdate": payload["surfaceUpdate"]})
-    mock_broadcast.assert_any_call("spaces/test", {"type": "dataModelUpdate", "dataModelUpdate": payload["dataModelUpdate"]})
-    mock_broadcast.assert_any_call("spaces/test", {"type": "beginRendering", "beginRendering": {"root": "comp-1"}})
+    mock_broadcast.assert_any_call("spaces/test", {"updateComponents": {"components": payload["surfaceUpdate"]["components"]}})
+    mock_broadcast.assert_any_call("spaces/test", {"updateDataModel": payload["dataModelUpdate"]})
+    mock_broadcast.assert_any_call("spaces/test", {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "comp-1"}})
 
 def test_api_render_stage_validation_failure(mock_auth_key):
     headers = {"Authorization": f"Bearer {mock_auth_key}"}
@@ -105,9 +98,8 @@ def test_api_render_stage_validation_failure(mock_auth_key):
             "components": [
                 {
                     "id": "comp-1",
-                    "component": {
-                        "gdm-unknown-component": {"title": "Hello"}
-                    }
+                    "component": "gdm-unknown-component",
+                    "title": "Hello"
                 }
             ]
         }
@@ -132,9 +124,8 @@ async def test_mcp_render_stage_success():
                     "components": [
                         {
                             "id": "comp-1",
-                            "component": {
-                                "gdm-stage-card": {"title": "Hello"}
-                            }
+                            "component": "gdm-stage-card",
+                            "title": "Hello"
                         }
                     ]
                 },
@@ -163,7 +154,7 @@ async def test_mcp_render_stage_success():
     # Verify order of broadcast_fn calls: surfaceUpdate -> dataModelUpdate -> beginRendering
     assert mock_broadcast_fn.call_count == 3
     mock_broadcast_fn.assert_any_call("spaces/test", {"type": "surfaceUpdate", "surfaceUpdate": {
-        "components": [{"id": "comp-1", "component": {"gdm-stage-card": {"title": "Hello"}}}]
+        "components": [{"id": "comp-1", "component": "gdm-stage-card", "title": "Hello"}]
     }})
     mock_broadcast_fn.assert_any_call("spaces/test", {"type": "dataModelUpdate", "dataModelUpdate": {"some": "data"}})
     mock_broadcast_fn.assert_any_call("spaces/test", {"type": "beginRendering", "beginRendering": {"root": "comp-1"}})
@@ -208,14 +199,11 @@ def test_validate_a2ui_property_level_valid():
         "components": [
             {
                 "id": "slate-1",
-                "component": {
-                    "gdm-standby-slate": {
-                        "badge": "INTERMISSION",
-                        "title": "Short Break",
-                        "seconds": 120,
-                        "active": True
-                    }
-                }
+                "component": "gdm-standby-slate",
+                "badge": "INTERMISSION",
+                "title": "Short Break",
+                "seconds": 120,
+                "active": True
             }
         ]
     }
@@ -229,13 +217,10 @@ def test_validate_a2ui_property_level_invalid_extra():
         "components": [
             {
                 "id": "slate-1",
-                "component": {
-                    "gdm-standby-slate": {
-                        "badge": "INTERMISSION",
-                        "countdown": 120,  # Invalid extra property! (should be 'seconds')
-                        "active": True
-                    }
-                }
+                "component": "gdm-standby-slate",
+                "badge": "INTERMISSION",
+                "countdown": 120,  # Invalid extra property! (should be 'seconds')
+                "active": True
             }
         ]
     }
@@ -252,12 +237,9 @@ def test_validate_a2ui_property_level_type_mismatch():
         "components": [
             {
                 "id": "slate-1",
-                "component": {
-                    "gdm-standby-slate": {
-                        "seconds": "not-a-number",  # Type mismatch! (should be int)
-                        "active": True
-                    }
-                }
+                "component": "gdm-standby-slate",
+                "seconds": "not-a-number",  # Type mismatch! (should be int)
+                "active": True
             }
         ]
     }
@@ -273,13 +255,10 @@ def test_validate_a2ui_missing_required_prop_is_warning():
         "components": [
             {
                 "id": "mt-1",
-                "component": {
-                    "gdm-market-ticker": {
-                        "macroRow": [],
-                        "holdingsRow": [],
-                        # 'active' (required) omitted
-                    }
-                }
+                "component": "gdm-market-ticker",
+                "macroRow": [],
+                "holdingsRow": [],
+                # 'active' (required) omitted
             }
         ]
     }
@@ -292,7 +271,7 @@ def test_validate_unknown_component_name_blocks():
     # An unknown component NAME is a hard error — the renderer cannot draw it.
     surface_update = {
         "components": [
-            {"id": "x", "component": {"gdm-does-not-exist": {"foo": 1}}}
+            {"id": "x", "component": "gdm-does-not-exist", "foo": 1}
         ]
     }
     errors, warnings = validate_a2ui_surface_detailed(surface_update)
@@ -305,12 +284,9 @@ def test_validate_a2ui_property_level_backward_compatibility():
         "components": [
             {
                 "id": "dashboard-1",
-                "component": {
-                    "gdm-telemetry-dashboard": {
-                        "title": "System Logs",
-                        "any_extra_property": "is_perfectly_fine"  # Lenient fallback!
-                    }
-                }
+                "component": "gdm-telemetry-dashboard",
+                "title": "System Logs",
+                "any_extra_property": "is_perfectly_fine"  # Lenient fallback!
             }
         ]
     }
@@ -323,21 +299,18 @@ def test_validate_gdm_3d_airspace_valid():
         "components": [
             {
                 "id": "airspace-3d",
-                "component": {
-                    "gdm-3d-airspace": {
-                        "flights": [
-                            {"callsign": "AFR6129", "altitude": 3000, "speed": 220, "vrate": -1000}
-                        ],
-                        "cameraPitch": 35.0,
-                        "cameraYaw": 45.0,
-                        "showGlideSlope": True,
-                        "showTerrain": True,
-                        "zoom": 12.0,
-                        "lockedCallsign": "AFR6129",
-                        "cinematicOrbit": True,
-                        "autoTrack": False
-                    }
-                }
+                "component": "gdm-3d-airspace",
+                "flights": [
+                    {"callsign": "AFR6129", "altitude": 3000, "speed": 220, "vrate": -1000}
+                ],
+                "cameraPitch": 35.0,
+                "cameraYaw": 45.0,
+                "showGlideSlope": True,
+                "showTerrain": True,
+                "zoom": 12.0,
+                "lockedCallsign": "AFR6129",
+                "cinematicOrbit": True,
+                "autoTrack": False
             }
         ]
     }
@@ -350,12 +323,9 @@ def test_validate_gdm_3d_airspace_invalid_extra():
         "components": [
             {
                 "id": "airspace-3d",
-                "component": {
-                    "gdm-3d-airspace": {
-                        "cameraPitch": 35.0,
-                        "invalid_parameter_name": "value"  # Forbidden extra field!
-                    }
-                }
+                "component": "gdm-3d-airspace",
+                "cameraPitch": 35.0,
+                "invalid_parameter_name": "value"  # Forbidden extra field!
             }
         ]
     }
@@ -371,11 +341,8 @@ def test_validate_gdm_3d_airspace_invalid_type():
         "components": [
             {
                 "id": "airspace-3d",
-                "component": {
-                    "gdm-3d-airspace": {
-                        "cameraPitch": "flat-view"  # Should be float/int, not string!
-                    }
-                }
+                "component": "gdm-3d-airspace",
+                "cameraPitch": "flat-view"  # Should be float/int, not string!
             }
         ]
     }
@@ -391,25 +358,22 @@ def test_validate_gdm_3d_scene_valid():
         "components": [
             {
                 "id": "scene-3d",
-                "component": {
-                    "gdm-3d-scene": {
-                        "points": [
-                            {"id": "pt-1", "x": 10.0, "y": 20.0, "z": 5.0, "label": "Point 1", "glyph": "circle", "size": 8}
-                        ],
-                        "links": [
-                            {"from": "pt-1", "to": "LFBO"}
-                        ],
-                        "camera": {
-                            "pitch": 45.0,
-                            "yaw": 90.0,
-                            "zoom": 1.5,
-                            "autoOrbit": True
-                        },
-                        "terrain": True,
-                        "grid": True,
-                        "fog": True
-                    }
-                }
+                "component": "gdm-3d-scene",
+                "points": [
+                    {"id": "pt-1", "x": 10.0, "y": 20.0, "z": 5.0, "label": "Point 1", "glyph": "circle", "size": 8}
+                ],
+                "links": [
+                    {"from": "pt-1", "to": "LFBO"}
+                ],
+                "camera": {
+                    "pitch": 45.0,
+                    "yaw": 90.0,
+                    "zoom": 1.5,
+                    "autoOrbit": True
+                },
+                "terrain": True,
+                "grid": True,
+                "fog": True
             }
         ]
     }
@@ -422,22 +386,19 @@ def test_validate_gdm_market_ticker_valid():
         "components": [
             {
                 "id": "market-ticker-1",
-                "component": {
-                    "gdm-market-ticker": {
-                        "sections": [
-                            {"label": "INDICES", "items": [
-                                {"symbol": "SPX", "price": 5300.0, "changePercent": 0.5, "isUp": True, "label": "S&P 500"}
-                            ]},
-                            {"label": "CRYPTO", "items": [
-                                {"symbol": "BTC", "price": 68000.0, "changePercent": 2.6, "isUp": True}
-                            ]},
-                        ],
-                        "active": True,
-                        "badgeText": "GLOBAL MARKET SCAN",
-                        "accentColor": "#00f2ff",
-                        "watchCount": 5
-                    }
-                }
+                "component": "gdm-market-ticker",
+                "sections": [
+                    {"label": "INDICES", "items": [
+                        {"symbol": "SPX", "price": 5300.0, "changePercent": 0.5, "isUp": True, "label": "S&P 500"}
+                    ]},
+                    {"label": "CRYPTO", "items": [
+                        {"symbol": "BTC", "price": 68000.0, "changePercent": 2.6, "isUp": True}
+                    ]},
+                ],
+                "active": True,
+                "badgeText": "GLOBAL MARKET SCAN",
+                "accentColor": "#00f2ff",
+                "watchCount": 5
             }
         ]
     }
@@ -451,13 +412,10 @@ def test_validate_gdm_market_ticker_invalid_extra():
         "components": [
             {
                 "id": "market-ticker-1",
-                "component": {
-                    "gdm-market-ticker": {
-                        "active": True,
-                        "sections": [],
-                        "some_invalid_field": "value"  # Forbidden extra field!
-                    }
-                }
+                "component": "gdm-market-ticker",
+                "active": True,
+                "sections": [],
+                "some_invalid_field": "value"  # Forbidden extra field!
             }
         ]
     }
@@ -471,12 +429,9 @@ def test_validate_gdm_market_ticker_invalid_type():
         "components": [
             {
                 "id": "market-ticker-1",
-                "component": {
-                    "gdm-market-ticker": {
-                        "active": "maybe",  # Should be boolean, not string!
-                        "sections": []
-                    }
-                }
+                "component": "gdm-market-ticker",
+                "active": "maybe",  # Should be boolean, not string!
+                "sections": []
             }
         ]
     }
@@ -490,158 +445,122 @@ def test_validate_gdm_composable_primitives_valid():
         "components": [
             {
                 "id": "composed-root",
-                "component": {
-                    "gdm-container": {
-                        "direction": "column",
-                        "justify": "center",
-                        "align": "stretch",
-                        "gap": "12px",
-                        "padding": "24px",
-                        "background": "transparent",
-                        "border": "1px solid red",
-                        "borderRadius": "16px",
-                        "width": "100%",
-                        "height": "100%",
-                        "glass": True,
-                        "scrollable": False,
-                        "grow": 1.0,
-                        "shrink": 0.0,
-                        "margin": "10px",
-                        "children": {"explicitList": ["child-text", "child-badge"]}
-                    }
-                }
+                "component": "gdm-container",
+                "direction": "column",
+                "justify": "center",
+                "align": "stretch",
+                "gap": "12px",
+                "padding": "24px",
+                "background": "transparent",
+                "border": "1px solid red",
+                "borderRadius": "16px",
+                "width": "100%",
+                "height": "100%",
+                "glass": True,
+                "scrollable": False,
+                "grow": 1.0,
+                "shrink": 0.0,
+                "margin": "10px",
+                "children": {"explicitList": ["child-text", "child-badge"]}
             },
             {
                 "id": "child-text",
-                "component": {
-                    "gdm-text": {
-                        "content": "Hello Universe",
-                        "size": "h1",
-                        "weight": "bold",
-                        "color": "accent",
-                        "align": "center",
-                        "font": "mono",
-                        "opacity": 0.9,
-                        "letterSpacing": "1px",
-                        "uppercase": True,
-                        "pulse": True
-                    }
-                }
+                "component": "gdm-text",
+                "content": "Hello Universe",
+                "size": "h1",
+                "weight": "bold",
+                "color": "accent",
+                "align": "center",
+                "font": "mono",
+                "opacity": 0.9,
+                "letterSpacing": "1px",
+                "uppercase": True,
+                "pulse": True
             },
             {
                 "id": "child-badge",
-                "component": {
-                    "gdm-badge": {
-                        "text": "ONLINE",
-                        "type": "success",
-                        "pulse": True,
-                        "outline": False
-                    }
-                }
+                "component": "gdm-badge",
+                "text": "ONLINE",
+                "type": "success",
+                "pulse": True,
+                "outline": False
             },
             {
                 "id": "child-progress",
-                "component": {
-                    "gdm-progress": {
-                        "value": 45.5,
-                        "color": "#00f2ff",
-                        "height": "12px",
-                        "animated": True,
-                        "glow": True
-                    }
-                }
+                "component": "gdm-progress",
+                "value": 45.5,
+                "color": "#00f2ff",
+                "height": "12px",
+                "animated": True,
+                "glow": True
             },
             {
                 "id": "child-divider",
-                "component": {
-                    "gdm-divider": {
-                        "vertical": True,
-                        "color": "#fff",
-                        "thickness": "2px",
-                        "margin": "15px"
-                    }
-                }
+                "component": "gdm-divider",
+                "vertical": True,
+                "color": "#fff",
+                "thickness": "2px",
+                "margin": "15px"
             },
             {
                 "id": "child-icon",
-                "component": {
-                    "gdm-icon": {
-                        "name": "sonar",
-                        "color": "success",
-                        "size": "32px"
-                    }
-                }
+                "component": "gdm-icon",
+                "name": "sonar",
+                "color": "success",
+                "size": "32px"
             },
             {
                 "id": "child-button",
-                "component": {
-                    "gdm-button": {
-                        "label": "Click Me",
-                        "actionId": "btn_click_1",
-                        "payload": '{"foo": "bar"}',
-                        "icon": "activity",
-                        "type": "primary",
-                        "disabled": False
-                    }
-                }
+                "component": "gdm-button",
+                "label": "Click Me",
+                "actionId": "btn_click_1",
+                "payload": '{"foo": "bar"}',
+                "icon": "activity",
+                "type": "primary",
+                "disabled": False
             },
             {
                 "id": "child-clock",
-                "component": {
-                    "gdm-clock": {
-                        "showClock": True,
-                        "showDate": True,
-                        "format": "12h",
-                        "timezone": "America/New_York",
-                        "accentColor": "warning"
-                    }
-                }
+                "component": "gdm-clock",
+                "showClock": True,
+                "showDate": True,
+                "format": "12h",
+                "timezone": "America/New_York",
+                "accentColor": "warning"
             },
             {
                 "id": "child-sparkline",
-                "component": {
-                    "gdm-sparkline": {
-                        "data": "10,20,15,30,25,40",
-                        "color": "accent",
-                        "width": "100px",
-                        "height": "40px",
-                        "fill": True
-                    }
-                }
+                "component": "gdm-sparkline",
+                "data": "10,20,15,30,25,40",
+                "color": "accent",
+                "width": "100px",
+                "height": "40px",
+                "fill": True
             },
             {
                 "id": "child-table",
-                "component": {
-                    "gdm-table-view": {
-                        "headers": ["Col 1", "Col 2"],
-                        "rows": [["Cell A1", "Cell B1"], ["Cell A2", "Cell B2"]],
-                        "accentColor": "#ff00ff"
-                    }
-                }
+                "component": "gdm-table-view",
+                "headers": ["Col 1", "Col 2"],
+                "rows": [["Cell A1", "Cell B1"], ["Cell A2", "Cell B2"]],
+                "accentColor": "#ff00ff"
             },
             {
                 "id": "child-trend",
-                "component": {
-                    "gdm-trend-value": {
-                        "symbol": "BTC",
-                        "label": "Bitcoin",
-                        "price": 68000.5,
-                        "change": 2.5,
-                        "isUp": True,
-                        "precision": 2
-                    }
-                }
+                "component": "gdm-trend-value",
+                "symbol": "BTC",
+                "label": "Bitcoin",
+                "price": 68000.5,
+                "change": 2.5,
+                "isUp": True,
+                "precision": 2
             },
             {
                 "id": "child-scroller",
-                "component": {
-                    "gdm-scroller": {
-                        "speed": "15s",
-                        "direction": "left",
-                        "active": True,
-                        "children": {"explicitList": ["child-trend"]}
-                    }
-                }
+                "component": "gdm-scroller",
+                "speed": "15s",
+                "direction": "left",
+                "active": True,
+                "children": {"explicitList": ["child-trend"]}
             }
         ]
     }
@@ -655,13 +574,10 @@ def test_validate_gdm_composable_primitives_invalid():
         "components": [
             {
                 "id": "child-badge-invalid",
-                "component": {
-                    "gdm-badge": {
-                        "text": "ONLINE",
-                        "pulse": "maybe",
-                        "extra_unsupported_field": 123
-                    }
-                }
+                "component": "gdm-badge",
+                "text": "ONLINE",
+                "pulse": "maybe",
+                "extra_unsupported_field": 123
             }
         ]
     }
@@ -670,7 +586,3 @@ def test_validate_gdm_composable_primitives_invalid():
     assert len(warnings) >= 1
     assert any("pulse" in w and "property validation failed" in w for w in warnings)
     assert any("extra_unsupported_field" in w and "property validation failed" in w for w in warnings)
-
-
-
-

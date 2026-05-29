@@ -614,24 +614,18 @@ def validate_a2ui_surface_detailed(surface_update: dict) -> ValidationResult:
 
     for comp in components:
         comp_id = comp.get("id", "<no-id>")
-        component_def = comp.get("component", {})
-        if not component_def:
+        element_name = comp.get("component", "")
+        if not element_name:
             errors.append(f"Component '{comp_id}' has no component definition")
             continue
 
-        element_name = next(iter(component_def)).lower()
+        element_name = element_name.lower()
         if element_name not in A2UI_CATALOG:
             errors.append(f"Component '{element_name}' not in catalog (id={comp_id})")
             continue
 
-        props = component_def.get(element_name)
-        if props is None:
-            props = {}
-        if not isinstance(props, dict):
-            warnings.append(
-                f"Component '{element_name}' properties should be a dictionary (id={comp_id})"
-            )
-            continue
+        props = {k: v for k, v in comp.items() if k not in ("id", "component")}
+
 
         schema_cls = COMPONENT_SCHEMAS.get(element_name)
         if schema_cls is None:
