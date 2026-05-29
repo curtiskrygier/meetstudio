@@ -2230,13 +2230,23 @@ async def render_stage(space_id: str, request: Request):
 
     surface_update = body.get("surfaceUpdate", {})
     errors, warnings = validate_a2ui_surface_detailed(surface_update)
-    if errors:
-        raise HTTPException(status_code=422, detail={"errors": errors})
-    if warnings:
-        logger.warning(f"[render-stage] surface warnings: {'; '.join(warnings)}")
 
     components = surface_update.get("components", [])
     root_id = body.get("root") or (components[0]["id"] if components else None)
+
+    import datetime
+    if errors:
+        await broadcast_to_stage(space_id, {
+            "validationFailed": {
+                "errors": errors,
+                "surfaceId": root_id if 'root_id' in locals() else None,
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            }
+        })
+        raise HTTPException(status_code=422, detail={"errors": errors})
+
+    if warnings:
+        logger.warning(f"[render-stage] surface warnings: {'; '.join(warnings)}")
     if not root_id:
         raise HTTPException(status_code=422, detail={"errors": ["No root component id"]})
 
@@ -2564,6 +2574,18 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
     #    the engine buffer but does not repaint — must follow with
     #    beginRendering. (This is the bug that bit the first draft.)
     root_id = components[0].get("id", "root")
+
+    errors, warnings = validate_a2ui_surface_detailed({"components": components})
+    import datetime
+    if errors:
+        await broadcast_to_stage(space_id, {
+            "validationFailed": {
+                "errors": errors,
+                "surfaceId": root_id if 'root_id' in locals() else None,
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            }
+        })
+
     await broadcast_to_stage(space_id, {
         "updateComponents": {"components": components},
     })

@@ -84,6 +84,11 @@ export class A2UIEngine {
         this.onRender([]);
         return true;
       }
+
+      case 'validationFailed': {
+        console.warn('[a2ui] validation failed:', msg.validationFailed);
+        return true;
+      }
     }
 
     return false;
