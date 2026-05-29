@@ -30,6 +30,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY assets ./assets
 COPY app ./app
+COPY playbooks ./playbooks
+COPY catalog ./catalog
 COPY main.py .
 COPY --from=frontend /app/dist ./dist
 
