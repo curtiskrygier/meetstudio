@@ -705,3 +705,53 @@ def render_mcp_component_summary() -> str:
         else:
             parts.append(name)
     return "Supported components in catalog: " + ", ".join(parts) + "."
+
+
+def emit_json_catalog():
+    """Convert CATALOG to v0.9-shaped JSON and write to catalog/gdm-v0.1.json."""
+    import os
+    import json
+
+    catalog_data = {
+        "catalogId": "gdm-v0.1",
+        "description": "Google Meet Studio GDM Component Catalog",
+        "components": {}
+    }
+
+    for comp_name, comp in CATALOG.items():
+        props_dict = {}
+        for p in comp.props:
+            prop_info = {
+                "type": p.type_label or "any",
+                "required": p.req if p.req is not None else False,
+                "description": p.note
+            }
+            props_dict[p.name] = prop_info
+            
+        catalog_data["components"][comp_name] = {
+            "group": comp.group,
+            "description": comp.desc,
+            "strict": comp.strict,
+            "properties": props_dict
+        }
+
+    # Write to catalog/gdm-v0.1.json relative to the root directory
+    workspace_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    catalog_dir = os.path.join(workspace_dir, "catalog")
+    os.makedirs(catalog_dir, exist_ok=True)
+    catalog_path = os.path.join(catalog_dir, "gdm-v0.1.json")
+
+    with open(catalog_path, "w", encoding="utf-8") as f:
+        json.dump(catalog_data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    print(f"Catalog JSON successfully generated and written to: {catalog_path}")
+
+
+if __name__ == "__main__":
+    import sys
+    if "--emit-json" in sys.argv:
+        emit_json_catalog()
+    else:
+        print("Usage: python3 -m app.a2ui_catalog --emit-json")
+
