@@ -119,6 +119,11 @@ export class GdmStage3DAirspace extends LitElement {
   @property({ type: Number }) zoom = 10.0;
   @property({ type: Boolean }) cinematicOrbit = false;
   @property({ type: Boolean }) autoTrack = false;
+  // Embedded-mode: hide ALL internal chrome (title bar, side panel, controls,
+  // lock card, zoom overlay) so the molecule contributes only the 3D scene to
+  // an outer composition. Use when wrapping in a composed deck where the outer
+  // chrome (header, sidebar, captions) owns the UI.
+  @property({ type: Boolean, reflect: true }) compact = false;
 
   @state() private _activeTab = '3d'; // side panels: '3d', 'traffic'
   @state() private _showAltDropLines = true;
@@ -128,6 +133,16 @@ export class GdmStage3DAirspace extends LitElement {
   private _trails = new Map<string, Point3D[]>();
 
   static styles = css`
+    /* Embedded mode: hide every internal chrome element so the molecule
+       contributes only the 3D scene to an outer composition. The flex
+       .viewport-wrapper has flex:1 and the .hud-side-panel is display:none,
+       so the scene expands to fill the whole host. */
+    :host([compact]) .hud-title-bar,
+    :host([compact]) .hud-side-panel,
+    :host([compact]) .hud-controls-overlay,
+    :host([compact]) .lock-card,
+    :host([compact]) .zoom-overlay { display: none !important; }
+
     :host {
       display: block;
       width: 100%;
@@ -820,6 +835,7 @@ export class GdmStage3DAirspace extends LitElement {
             .terrain="${this.showTerrain}"
             .grid="${this._showCylinders}"
             .fog="${this.showTerrain}"
+            .compact="${this.compact}"
             @camera-change="${this._onCameraChange}"
           ></gdm-3d-scene>
 

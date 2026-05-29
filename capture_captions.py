@@ -17,7 +17,7 @@ OUT = "/tmp/cap"
 def caption(text):
     return {"surfaceUpdate": {"components": [
         {"id": "cap", "component": {"gdm-captions": {
-            "text": text, "speaker": "Alex", "active": True, "flip": True, "fontSize": 22}}}
+            "text": text, "speaker": "Curtis Krygier", "active": True, "flip": True, "fontSize": 22}}}
     ]}, "root": "cap"}
 
 async def main():

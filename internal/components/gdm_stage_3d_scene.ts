@@ -37,6 +37,9 @@ export class GdmStage3DScene extends LitElement {
   @property({ type: Boolean }) terrain = true;
   @property({ type: Boolean }) grid = true;
   @property({ type: Boolean }) fog = true;
+  // Embedded mode: hide the internal camera-yaw/pitch HUD overlay so an outer
+  // composition can own all chrome. Piped through from gdm-3d-airspace.compact.
+  @property({ type: Boolean, reflect: true }) compact = false;
 
   @state() private _canvasW = 400;
   @state() private _canvasH = 400;
@@ -48,12 +51,17 @@ export class GdmStage3DScene extends LitElement {
   private _resizeObserver: ResizeObserver | null = null;
   private _trails = new Map<string, Array<{ x: number; y: number; z: number }>>();
 
-  // Orbit drag interaction state
+  // Orbit drag + pinch interaction state
   private _isDragging = false;
   private _lastPointerX = 0;
   private _lastPointerY = 0;
+  private _pointers = new Map<number, { x: number; y: number }>(); // active pointers (for pinch detection)
+  private _lastPinchDist: number | null = null;                     // distance between the two pinching pointers on last move
 
   static styles = css`
+    /* Embedded/compact: hide the camera HUD so the parent composition owns chrome. */
+    :host([compact]) .hud-overlay { display: none !important; }
+
     :host {
       display: block;
       width: 100%;
@@ -180,7 +188,13 @@ export class GdmStage3DScene extends LitElement {
     if (this._canvas) {
       this._ctx = this._canvas.getContext('2d');
       this._resizeObserver?.observe(this);
-      
+
+      // Wheel listener must be NON-passive so preventDefault() actually blocks
+      // the browser's pinch-zoom (trackpad pinches arrive as ctrl+wheel events;
+      // a passive listener can't cancel them). Lit's @wheel registers passive
+      // by default, so we bind it imperatively here.
+      this._canvas.addEventListener('wheel', this._onWheel.bind(this), { passive: false });
+
       const viewportWrapper = this.shadowRoot?.querySelector('.viewport-wrapper');
       if (viewportWrapper) {
         this._resizeObserver?.observe(viewportWrapper);
@@ -756,19 +770,21 @@ export class GdmStage3DScene extends LitElement {
         ctx.scale(dpr, dpr);
         ctx.shadowBlur = 0; // disable shadow for label rendering
 
-        // D. Draw Info Label
+        // D. Draw Info Label — sized for stage-distance legibility (~4× the
+        // old 9px). Offsets bumped proportionally so the big text doesn't
+        // crowd the plane icon.
         if (pt.label) {
           ctx.globalAlpha = fogFactor * 0.88;
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 9px "JetBrains Mono", "Fira Code", monospace';
+          ctx.font = 'bold 36px "JetBrains Mono", "Fira Code", monospace';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText(pt.label, proj.u + scaledSize + 5, proj.v);
+          ctx.fillText(pt.label, proj.u + scaledSize + 14, proj.v - 12);
 
           // Subtitle displaying elevation coordinates
           ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-          ctx.font = '8px monospace';
-          ctx.fillText(`ALT: ${Math.round(pt.z)}`, proj.u + scaledSize + 5, proj.v + 10);
+          ctx.font = '28px monospace';
+          ctx.fillText(`ALT: ${Math.round(pt.z)}`, proj.u + scaledSize + 14, proj.v + 22);
         }
 
         ctx.restore();
@@ -821,15 +837,51 @@ export class GdmStage3DScene extends LitElement {
     ctx.restore();
   }
 
-  // Pointer/Mouse drag orbit listeners
+  // Pointer/Mouse listeners — single-pointer = orbit drag (yaw/pitch),
+  // two-pointer = pinch zoom (relative distance ratio). Wheel = zoom too.
   private _onPointerDown(e: PointerEvent) {
-    this._isDragging = true;
-    this._lastPointerX = e.clientX;
-    this._lastPointerY = e.clientY;
+    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     this._canvas.setPointerCapture(e.pointerId);
+    if (this._pointers.size === 1) {
+      this._isDragging = true;
+      this._lastPointerX = e.clientX;
+      this._lastPointerY = e.clientY;
+    } else if (this._pointers.size === 2) {
+      // Two pointers down → pinch mode (suspend drag)
+      this._isDragging = false;
+      this._lastPinchDist = this._pinchDistance();
+    }
+  }
+
+  private _pinchDistance(): number {
+    const pts = Array.from(this._pointers.values());
+    if (pts.length < 2) return 0;
+    const dx = pts[0].x - pts[1].x;
+    const dy = pts[0].y - pts[1].y;
+    return Math.hypot(dx, dy);
   }
 
   private _onPointerMove(e: PointerEvent) {
+    if (!this._pointers.has(e.pointerId)) return;
+    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // PINCH zoom: two active pointers — adjust zoom by distance ratio
+    if (this._pointers.size === 2) {
+      const d = this._pinchDistance();
+      if (this._lastPinchDist && d > 0) {
+        const ratio = d / this._lastPinchDist;
+        const cur = this.camera.zoom ?? 1.0;
+        const next = Math.max(0.2, Math.min(20, cur * ratio));
+        if (next !== cur) {
+          this.camera = { ...this.camera, zoom: next };
+          this.dispatchEvent(new CustomEvent('camera-change', { detail: { camera: this.camera } }));
+        }
+      }
+      this._lastPinchDist = d;
+      return;
+    }
+
+    // SINGLE-pointer drag: yaw/pitch
     if (!this._isDragging) return;
     const dx = e.clientX - this._lastPointerX;
     const dy = e.clientY - this._lastPointerY;
@@ -838,8 +890,6 @@ export class GdmStage3DScene extends LitElement {
 
     const currentYaw = this.camera.yaw ?? 45;
     const currentPitch = this.camera.pitch ?? 35;
-
-    // Update yaw and pitch based on delta dragging
     const newYaw = (currentYaw - dx * 0.45) % 360;
     const newPitch = Math.max(5, Math.min(85, currentPitch + dy * 0.45));
 
@@ -848,16 +898,34 @@ export class GdmStage3DScene extends LitElement {
       yaw: newYaw < 0 ? newYaw + 360 : newYaw,
       pitch: newPitch
     };
-
-    // Dispatch event so parent layout views can react to manual adjustments
-    this.dispatchEvent(new CustomEvent('camera-change', {
-      detail: { camera: this.camera }
-    }));
+    this.dispatchEvent(new CustomEvent('camera-change', { detail: { camera: this.camera } }));
   }
 
   private _onPointerUp(e: PointerEvent) {
-    this._isDragging = false;
-    this._canvas.releasePointerCapture(e.pointerId);
+    this._pointers.delete(e.pointerId);
+    try { this._canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (this._pointers.size < 2) this._lastPinchDist = null;
+    if (this._pointers.size === 0) this._isDragging = false;
+    else if (this._pointers.size === 1) {
+      // Resume drag from the remaining pointer
+      const [pt] = Array.from(this._pointers.values());
+      this._isDragging = true;
+      this._lastPointerX = pt.x;
+      this._lastPointerY = pt.y;
+    }
+  }
+
+  // Wheel zoom for desktop / trackpad — same camera.zoom field as pinch
+  private _onWheel(e: WheelEvent) {
+    e.preventDefault();
+    const cur = this.camera.zoom ?? 1.0;
+    // deltaY > 0 = scroll down = zoom out; multiplicative for natural feel
+    const factor = e.deltaY > 0 ? 1 / 1.12 : 1.12;
+    const next = Math.max(0.2, Math.min(20, cur * factor));
+    if (next !== cur) {
+      this.camera = { ...this.camera, zoom: next };
+      this.dispatchEvent(new CustomEvent('camera-change', { detail: { camera: this.camera } }));
+    }
   }
 
   render() {
@@ -881,6 +949,8 @@ export class GdmStage3DScene extends LitElement {
           @pointerdown=${this._onPointerDown}
           @pointermove=${this._onPointerMove}
           @pointerup=${this._onPointerUp}
+          @pointercancel=${this._onPointerUp}
+          style="touch-action: none;"
         ></canvas>
 
         <div class="camera-hud">

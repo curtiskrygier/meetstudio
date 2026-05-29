@@ -49,26 +49,24 @@ export class GdmStageDiagram extends LitElement {
       width: 100vw;
       height: 100vh;
       z-index: 999;
-      background: rgba(4, 6, 12, 0.7);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      padding: 40px;
+      /* Solid full-screen dark — same value the stage uses — so the
+         letterboxing from preserveAspectRatio:meet blends into the stage
+         instead of reading as a centred dark card on a darker backdrop. */
+      background: #000;
+      padding: 0;
       box-sizing: border-box;
-      animation: backdrop-fade-in 300ms ease-out forwards;
+      animation: backdrop-fade-in 220ms ease-out forwards;
     }
 
+    /* True fullscreen — no centred-card chrome (no max-width / max-height /
+       border / radius). The diagram itself owns the whole viewport, with a
+       small inset so its edges don't kiss the screen. */
     :host([overlay]) .diagram-host {
       width: 100%;
       height: 100%;
-      max-width: 1200px;
-      max-height: 85vh;
-      background: rgba(12, 16, 32, 0.65);
-      border: 1px solid rgba(0, 242, 255, 0.2);
-      border-radius: 16px;
-      box-shadow: 0 20px 50px rgba(0, 242, 255, 0.1), inset 0 0 20px rgba(0, 242, 255, 0.05);
-      padding: 24px;
+      padding: 16px;
       box-sizing: border-box;
-      animation: scale-up 350ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      animation: scale-up 320ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
     }
 
     @keyframes backdrop-fade-in {
@@ -98,12 +96,12 @@ export class GdmStageDiagram extends LitElement {
     }
 
     /* SVG node is styled imperatively after injection; these rules act as
-       safe defaults in case the element is already present. */
+       safe defaults in case the element is already present. The SVG fills
+       its host; preserveAspectRatio="xMidYMid meet" keeps the diagram
+       proportional (letterboxed if needed) instead of stretching. */
     .diagram-host svg {
-      max-width: 100%;
-      max-height: 100%;
-      width: auto;
-      height: auto;
+      width: 100%;
+      height: 100%;
       display: block;
       border-radius: 12px;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
@@ -191,10 +189,18 @@ export class GdmStageDiagram extends LitElement {
     if (!host) return;
 
     // Sanitize — use DOMPurify when globally available on the page, otherwise
-    // fall back to the raw string (DOMPurify is loaded by the stage page).
+    // fall back to the raw string. The SVG profile lets <defs>, <filter>,
+    // <pattern>, <feGaussianBlur>, <feMerge> through (needed by the polish
+    // layer's glow); ADD_TAGS: ['style'] explicitly keeps <style> blocks so
+    // d2's embedded @font-face declarations + our marching-ants @keyframes
+    // both survive. Without ADD_TAGS the SVG profile alone has been observed
+    // to drop <style> in some DOMPurify versions, which kills custom fonts.
     const domPurify = (window as any).DOMPurify;
     const sanitized: string = domPurify
-      ? domPurify.sanitize(this.svg)
+      ? domPurify.sanitize(this.svg, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+          ADD_TAGS: ['style'],
+        })
       : this.svg;
 
     if (!sanitized || !sanitized.trim()) {
@@ -210,16 +216,23 @@ export class GdmStageDiagram extends LitElement {
       return;
     }
 
-    // Strip fixed dimensions so the SVG scales responsively.
+    // Strip fixed dimensions so the SVG scales responsively. Use 'meet' so
+    // the whole diagram is always visible (slice was cropping too aggressively
+    // on overlay). The letterboxing previously made it LOOK like a centred
+    // card because of the dark-blue card backdrop — the overlay :host
+    // background is now solid full-stage-dark so the letterbox just blends
+    // into the stage rather than looking framed.
     svgEl.removeAttribute('width');
     svgEl.removeAttribute('height');
     svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
-    // Constrain via inline styles; the CSS rules above are a backup.
-    svgEl.style.maxWidth = '100%';
-    svgEl.style.maxHeight = '100%';
-    svgEl.style.width = 'auto';
-    svgEl.style.height = 'auto';
+    // Fill the host via inline styles (CSS rules above are a backup). With
+    // preserveAspectRatio="xMidYMid meet" set on the <svg> above, the
+    // diagram scales up to fill the panel while preserving aspect ratio;
+    // without this, a width/height-less SVG falls back to the browser
+    // default 300×150 and sits tiny in the middle of the host.
+    svgEl.style.width = '100%';
+    svgEl.style.height = '100%';
     svgEl.style.display = 'block';
     svgEl.style.borderRadius = '12px';
     svgEl.style.boxShadow = '0 10px 40px rgba(0,0,0,0.5)';

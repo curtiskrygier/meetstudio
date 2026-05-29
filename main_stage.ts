@@ -285,9 +285,16 @@ function renderA2UI(components: A2UIComponent[]) {
         el.id = comp.id; // Also set standard DOM ID for convenience
       }
 
-      // Update properties/attributes on the element
+      // Update properties/attributes on the element — but ONLY for components
+      // marked _fresh (i.e. included in the latest surfaceUpdate). Components
+      // pulled from the engine's buffer during compile (e.g. on a partial-update
+      // tick that only sends the caption) are left untouched, so LOCAL
+      // interactive state (camera zoom from pinch, preset toggles, etc.) is
+      // preserved instead of being reset to the buffered server values.
+      // Element creation/reuse + nesting (below) still runs for all components.
       const props = comp.props || {};
-      for (const [k, v] of Object.entries(props)) {
+      const isFresh = (comp as any)._fresh !== false;
+      if (isFresh) for (const [k, v] of Object.entries(props)) {
         if (k === 'children' || k === 'child') continue; // structural
         
         const anyEl = el as any;

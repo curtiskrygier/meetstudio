@@ -87,13 +87,13 @@ async def main():
 
         # Define speech sequence
         sequence = [
-            ("Alex (Lead)", "Hello and welcome to Google Meet A2UI live stage session.", False),
-            ("Alex (Lead)", "Today we are demonstrating live lower-third conversational captions.", False),
+            ("Curtis Krygier", "Hello and welcome to Google Meet A2UI live stage session.", False),
+            ("Curtis Krygier", "Today we are demonstrating live lower-third conversational captions.", False),
             ("System", "DYNAMIC STYLES SWITCH ENABLING MICRO MECHANICAL SPLIT-FLAPS...", False),
-            ("Alex (Lead)", "A2UI COMPOSABLE STAGE — REALTIME, MULTI-DOMAIN", True),
-            ("Alex (Lead)", "Notice how each micro card flips rapidly to reveal the spoken sentence", True),
-            ("Alex (Lead)", "This creates a luxury mechanical action that remains clean and legible", True),
-            ("Alex (Lead)", "We can toggle this toggleable feature on and off dynamically per speaker", True),
+            ("Curtis Krygier", "A2UI COMPOSABLE STAGE — REALTIME, MULTI-DOMAIN", True),
+            ("Curtis Krygier", "Notice how each micro card flips rapidly to reveal the spoken sentence", True),
+            ("Curtis Krygier", "This creates a luxury mechanical action that remains clean and legible", True),
+            ("Curtis Krygier", "We can toggle this toggleable feature on and off dynamically per speaker", True),
         ]
 
         # Let the user force a specific configuration via env variables if they want

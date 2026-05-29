@@ -10,6 +10,8 @@ export class GdmStageCaptions extends LitElement {
   @property({ type: String }) accentColor = '#00f2ff';
   @property({ type: Number }) fontSize = 0;
   @property({ type: Boolean }) flip = false; // Toggle split-flap style
+  @property({ type: Boolean }) showPrev = true; // Show the small faded "previous line" pill above (default true for back-compat)
+  @property({ type: String, reflect: true }) position = 'bottom'; // 'bottom' (default narration) | 'center' (intro headline)
 
   @state() private _prev = '';
   private _lastText = '';
@@ -57,6 +59,25 @@ export class GdmStageCaptions extends LitElement {
     :host([active]) {
       opacity: 1;
       transform: translateY(0);
+    }
+
+    /* Center-screen "intro headline" mode (per-act announcement).
+       Same enter choreography (slide-up + fade), positioned middle of viewport.
+       Flap cards are bigger here so the headline reads as a hero moment. */
+    :host([position="center"]) {
+      top: 50%;
+      bottom: auto;
+      transform: translate(0, calc(-50% + 8px));
+    }
+    :host([position="center"][active]) {
+      transform: translate(0, -50%);
+    }
+    :host([position="center"]) .cap-flap-card {
+      font-size: var(--gdm-cap-font-size, 56px);
+      padding: 5px 8px;
+    }
+    :host([position="center"]) .pill.active {
+      font-size: var(--gdm-cap-font-size, 56px);
     }
     .pill {
       width: 100%;
@@ -186,7 +207,7 @@ export class GdmStageCaptions extends LitElement {
       : html`<span class="content">${this.text}</span>`;
 
     return html`
-      ${this._prev && !this.flip
+      ${this._prev && !this.flip && this.showPrev
         ? html`<div class="pill prev"><span class="content">${this._prev}</span></div>`
         : ''}
       <div class="pill active">

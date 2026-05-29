@@ -2,6 +2,11 @@ export interface A2UIComponent {
   id: string;
   element: string;
   props: Record<string, any>;
+  // True when this component was in the LATEST surfaceUpdate (vs pulled from the
+  // buffer during compile). main_stage uses this to skip re-applying props for
+  // buffered components, which preserves local interactive state (camera zoom,
+  // toggle buttons, etc.) across server-driven partial updates.
+  _fresh?: boolean;
 }
 
 export type A2UIRenderCallback = (components: A2UIComponent[]) => void;
@@ -14,6 +19,10 @@ export type A2UIRenderCallback = (components: A2UIComponent[]) => void;
 export class A2UIEngine {
   private componentBuffer = new Map<string, any>();
   private dataModelStore = new Map<string, any>();
+  // Component ids included in the LATEST surfaceUpdate. Used during compile() to
+  // mark which components are server-fresh vs pulled from the buffer — so the
+  // renderer can preserve local interactive state on buffered components.
+  private _lastUpdatedIds = new Set<string>();
   private onRender: A2UIRenderCallback;
 
   constructor(onRender: A2UIRenderCallback) {
@@ -27,8 +36,10 @@ export class A2UIEngine {
   handleMessage(msg: any): boolean {
     if (msg.type === 'surfaceUpdate') {
       if (msg.surfaceUpdate?.components) {
+        this._lastUpdatedIds = new Set<string>();
         for (const comp of msg.surfaceUpdate.components) {
           this.componentBuffer.set(comp.id, comp);
+          this._lastUpdatedIds.add(comp.id);
         }
       }
       return true;
@@ -170,7 +181,12 @@ export class A2UIEngine {
         if (el === 'column' || el === 'row') el = 'div';
       }
 
-      out.push({ id: item.id, element: el, props: resolvedProps });
+      out.push({
+        id: item.id,
+        element: el,
+        props: resolvedProps,
+        _fresh: this._lastUpdatedIds.has(item.id),
+      });
 
       if (rawProps.children?.explicitList) {
         for (const childId of rawProps.children.explicitList) traverse(childId);

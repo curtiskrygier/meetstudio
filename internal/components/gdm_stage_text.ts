@@ -1,5 +1,5 @@
 import { LitElement, css, html } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { customElement, property, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 
 @customElement('gdm-text')
@@ -15,6 +15,65 @@ export class GdmStageText extends LitElement {
   @property({ type: Boolean }) uppercase = false;
   @property({ type: Boolean }) pulse = false;
   @property({ type: Boolean }) flip = false;   // animate each character when content changes
+  @property({ type: Boolean }) typeOn = false; // typewriter — chars appear left-to-right with cursor
+  @property({ type: Boolean }) glitch = false; // matrix-decrypt — random chars cycle, then settle
+
+  // Internal display buffers — content shown while typeOn / glitch animate.
+  @state() private _typeDisplay = '';
+  @state() private _glitchDisplay = '';
+  private _glitchTimer: number | undefined;
+  private _typeTimer: number | undefined;
+  private _GLITCH_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*<>/=?+';
+
+  willUpdate(changed: Map<string | number | symbol, unknown>) {
+    if (changed.has('content') || changed.has('glitch') || changed.has('typeOn')) {
+      if (this.glitch && this.content) this._startGlitch();
+      else if (this.typeOn && this.content) this._startType();
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._glitchTimer !== undefined) window.clearTimeout(this._glitchTimer);
+    if (this._typeTimer !== undefined) window.clearTimeout(this._typeTimer);
+  }
+
+  /** Matrix-style decrypt: chars cycle random ASCII, settling left-to-right. */
+  private _startGlitch() {
+    if (this._glitchTimer !== undefined) window.clearTimeout(this._glitchTimer);
+    const target = String(this.content);
+    const maxIters = 18;
+    let iter = 0;
+    const tick = () => {
+      const progress = iter / maxIters;
+      const settled = Math.floor(target.length * progress);
+      let out = target.slice(0, settled);
+      for (let i = settled; i < target.length; i++) {
+        const c = target[i];
+        out += c === ' ' ? ' ' : this._GLITCH_CHARSET[
+          Math.floor(Math.random() * this._GLITCH_CHARSET.length)];
+      }
+      this._glitchDisplay = out;
+      iter++;
+      if (iter <= maxIters) this._glitchTimer = window.setTimeout(tick, 32);
+      else this._glitchDisplay = target;
+    };
+    tick();
+  }
+
+  /** Typewriter: chars appear one-at-a-time, ~35ms per char. */
+  private _startType() {
+    if (this._typeTimer !== undefined) window.clearTimeout(this._typeTimer);
+    const target = String(this.content);
+    let idx = 0;
+    const tick = () => {
+      idx++;
+      this._typeDisplay = target.slice(0, idx);
+      if (idx < target.length) this._typeTimer = window.setTimeout(tick, 35);
+    };
+    this._typeDisplay = '';
+    tick();
+  }
 
   static styles = css`
     :host {
@@ -56,6 +115,16 @@ export class GdmStageText extends LitElement {
       55%  { transform: rotateX(-14deg); opacity: 1; }
       100% { transform: rotateX(0deg); }
     }
+
+    /* Typewriter cursor — blinks at the end of the typed-in text. */
+    .typeon-cursor {
+      display: inline-block;
+      width: 0.6ch;
+      margin-left: 2px;
+      background: currentColor;
+      animation: typeon-blink 0.7s step-end infinite;
+    }
+    @keyframes typeon-blink { 50% { opacity: 0; } }
   `;
 
   render() {
@@ -94,15 +163,25 @@ export class GdmStageText extends LitElement {
       this.pulse ? 'pulse' : ''
     ].filter(Boolean).join(' ');
 
-    const body = this.flip
-      ? repeat(
-          String(this.content).split(''),
-          (ch, i) => `${i}:${ch}`,                       // changed char re-keys → flip animation
-          (ch) => ch === ' '
-            ? html`<span>&nbsp;</span>`
-            : html`<span class="flip-char">${ch}</span>`,
-        )
-      : this.content;
+    // glitch / typeOn / flip are mutually exclusive presentation atoms.
+    // Precedence: glitch > typeOn > flip > plain.
+    let body: any;
+    if (this.glitch) {
+      body = this._glitchDisplay || this.content;
+    } else if (this.typeOn) {
+      const typed = this._typeDisplay;
+      body = html`${typed}<span class="typeon-cursor">&nbsp;</span>`;
+    } else if (this.flip) {
+      body = repeat(
+        String(this.content).split(''),
+        (ch, i) => `${i}:${ch}`,                         // changed char re-keys → flip animation
+        (ch) => ch === ' '
+          ? html`<span>&nbsp;</span>`
+          : html`<span class="flip-char">${ch}</span>`,
+      );
+    } else {
+      body = this.content;
+    }
 
     return html`
       <span class="${classes}" style="${inlineStyles}">
