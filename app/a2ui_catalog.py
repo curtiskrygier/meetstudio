@@ -292,13 +292,23 @@ CATALOG: "dict[str, Comp]" = {
     ),
     "gdm-button": Comp(
         group="panel", strict=True,
-        desc="Interactive button element that forwards click event actions over WebSockets.",
+        desc="Interactive button element with four action modes: agent (dispatches gdm-button-click event for the agent), link (opens a URL), fire (POSTs to a server endpoint — used by Mode C playbook triggers), or emit (dispatches a custom event).",
         props=[
-            Prop("label", "string", True, 'Button text content.', pytype=str),
-            Prop("actionId", "string", True, 'ID dispatched in the event details payload.', pytype=str),
-            Prop("payload", "string", False, 'Optional payload JSON string returned back.', pytype=str),
+            # Text content — either `text` or legacy `label` works; `text` wins if both set.
+            Prop("text", "string", False, 'Button label (new). Falls back to legacy `label` if empty.', pytype=str),
+            Prop("label", "string", False, 'Button label (legacy alias for `text`).', pytype=str),
+            # Action — discriminated union for the four modes. Shorthand props
+            # (`actionId`, `targetUrl`) still resolve to the right mode for back-compat.
+            Prop("action", "object", False, 'Action descriptor: `{type:"link",url,newTab?}` | `{type:"fire",endpoint,payload?}` | `{type:"emit",event,detail?}` | `{type:"agent",actionId,payload?}`.', pytype=dict),
+            Prop("actionId", "string", False, 'Legacy shorthand for agent mode — dispatches `gdm-button-click` with this id.', pytype=str),
+            Prop("payload", "string", False, 'Legacy payload (JSON string parsed if it starts with `{` or `[`). Used only with `actionId`.', pytype=str),
+            Prop("targetUrl", "string", False, 'Legacy shorthand for link mode — opens this URL in a new tab.', pytype=str),
+            # Visual
+            Prop("type", "string", False, 'Theme preset (`"primary"`, `"secondary"`, `"danger"`, `"ghost"`, `"success"`).', pytype=str),
+            Prop("size", "string", False, 'Size variant (`"sm"`, `"md"` default, `"lg"`, `"hero"`).', pytype=str),
             Prop("icon", "string", False, 'Optional leading icon name.', pytype=str),
-            Prop("type", "string", False, 'Button theme preset (`"primary"`, `"secondary"`, `"danger"`, `"ghost"`).', pytype=str),
+            Prop("pulse", "boolean", False, 'Apply continuous glow pulse animation.', pytype=bool),
+            Prop("loading", "boolean", False, 'Replaces label with a spinner; auto-set during fire-mode fetch.', pytype=bool),
             Prop("disabled", "boolean", False, 'Toggles user click-ability.', pytype=bool),
         ],
     ),
@@ -507,6 +517,7 @@ CATALOG: "dict[str, Comp]" = {
             Prop("zoom", pytype=float),
             Prop("cinematicOrbit", pytype=bool),
             Prop("autoTrack", pytype=bool),
+            Prop("compact", pytype=bool),  # hides internal HUD chrome for embedded compositions
         ],
     ),
     "gdm-3d-scene": Comp(

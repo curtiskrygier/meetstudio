@@ -14,3 +14,4 @@ python-dotenv
 pandas
 numpy
 yfinance
+pyyaml>=6.0

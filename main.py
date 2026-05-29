@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import inspect
 import json
 import os
 import re
@@ -2467,19 +2468,198 @@ async def serve_index():
     response = FileResponse("dist/index.html")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return response
+# NOTE: the @app.get("/{path:path}") catch-all SPA-fallback used to live here.
+# Moved to the END of this file (next to the StaticFiles mount) so it doesn't
+# intercept GET requests for /api/* endpoints registered below — being a
+# greedy path:path matcher declared first means it wins for any GET it sees,
+# including legitimate API endpoints whose declarations come later in source.
+# Same problem class as the StaticFiles mount, same fix: catch-alls go LAST.
+
+# NOTE: app.mount("/", StaticFiles(...)) used to live here. Moved to the END
+# of this file so it doesn't intercept POST requests for routes registered
+# below (e.g. /api/playbook/fire/...). A Starlette mount at "/" catches every
+# path under that prefix and StaticFiles only serves GET/HEAD → POST 405.
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGED FILE — destination: APPEND to main.py
+#
+# ## TODO before apply
+#   - This is a CODE FRAGMENT to be PASTED at the bottom of main.py, NOT a
+#     standalone module. The `app`, `broadcast_to_stage`, `logger`,
+#     `HTTPException`, `Request` symbols must already be in scope from
+#     main.py's existing imports — they are.
+#   - The endpoint is currently UNAUTHED. This is fine for localhost PoC
+#     because the audience stage's click should not carry STAGE_API_KEY (an
+#     audience-side credential is a leak risk). Before deploying:
+#         OPTION A: Mint a per-space "fire ticket" at stage-ticket time,
+#                   embed in the rendered button's payload, require server-side
+#                   on /api/playbook/fire/...
+#         OPTION B: Only enable fire endpoint when a presenter ticket is
+#                   active for the space (Mode C v0 separates presenter
+#                   URL from audience URL — presenter URL holds the auth).
+#     For PoC, the unauthed local endpoint is the right tradeoff.
+#   - The `_ACTIVE_TICKS` dict is module-global. Cloud Run multi-instance
+#     would need a different state model (Redis, Firestore, etc.) — fine
+#     while you're on a single uvicorn process.
+# ═══════════════════════════════════════════════════════════════════════════
+
+import asyncio
+
+# Active tick loops per space — cancelled when a new slide fires on the
+# same space, so a previous slide's ticker doesn't keep painting under the
+# new slide.
+_ACTIVE_TICKS: dict[str, asyncio.Task] = {}
+
+
+@app.post("/api/playbook/fire/{playbook_name}/{slide_id}/{space_id:path}")
+async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
+                              request: Request):
+    """Resolve a playbook slide, cancel any in-flight tick loop on this space,
+    broadcast the new surface to the audience stage (full A2UI protocol order:
+    surfaceUpdate → beginRendering), then optionally start a fresh tick loop.
+
+    NOTE on auth: unauthed for localhost PoC. See TODO at top of staged file
+    for the deployment auth options."""
+    # Lazy import to avoid main.py↔playbooks circular-import issues at module
+    # load time. By the time the endpoint is HIT, playbooks/__init__.py has
+    # long-since registered everything.
+    from playbooks.manager import playbook_manager
+
+    # 1. Cancel any active tick loop on this space — one slide's ticker
+    #    shouldn't keep ticking after the next slide takes the stage.
+    existing = _ACTIVE_TICKS.pop(space_id, None)
+    if existing is not None:
+        existing.cancel()
+
+    # 2. Resolve the slide.
+    slide = playbook_manager.get_slide(playbook_name, slide_id)
+    if not slide:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Slide '{slide_id}' not found in playbook '{playbook_name}'.")
+
+    # 3. Build the surface. Calling convention: builder(space_id, tick=0).
+    #    Tolerate both sync (demo_poc.py style) and async (yaml_loader style)
+    #    builders, and both 1-arg and 2-arg signatures, during the PoC.
+    b = slide.builder
+    try:
+        if inspect.iscoroutinefunction(b):
+            try:
+                components = await b(space_id, 0)
+            except TypeError:
+                components = await b(space_id)
+        else:
+            try:
+                components = b(space_id, 0)
+            except TypeError:
+                components = b(space_id) if callable(b) else b
+    except Exception as e:
+        raise HTTPException(status_code=500,
+                            detail=f"Slide builder failed: {e}")
+
+    if not components:
+        raise HTTPException(status_code=500,
+                            detail="Slide builder returned no components.")
+
+    # 4. Broadcast in full A2UI protocol order. Bare surfaceUpdate populates
+    #    the engine buffer but does not repaint — must follow with
+    #    beginRendering. (This is the bug that bit the first draft.)
+    root_id = components[0].get("id", "root")
+    await broadcast_to_stage(space_id, {
+        "type": "surfaceUpdate",
+        "surfaceUpdate": {"components": components},
+    })
+    await broadcast_to_stage(space_id, {
+        "type": "beginRendering",
+        "beginRendering": {"root": root_id},
+    })
+    logger.info(f"[playbook] fired {playbook_name}/{slide_id} -> {space_id} "
+                f"({len(components)} components, root={root_id})")
+
+    # 5. If the slide ticks, start a fresh background loop. Each tick re-calls
+    #    the builder with an incrementing tick number; the builder decides
+    #    whether to return a full surface or just changed components.
+    if getattr(slide, "ticks", False):
+        hz = getattr(slide, "hz", 1) or 1
+        delay = 1.0 / hz
+
+        async def run_loop():
+            tick = 1
+            b = slide.builder
+            is_coro = inspect.iscoroutinefunction(b)
+            try:
+                while True:
+                    await asyncio.sleep(delay)
+                    try:
+                        if is_coro:
+                            partial = await b(space_id, tick)
+                        else:
+                            partial = b(space_id, tick)
+                    except TypeError:
+                        # Builder doesn't accept a tick arg — bail cleanly
+                        # rather than spin forever.
+                        break
+                    if partial:
+                        await broadcast_to_stage(space_id, {
+                            "type": "surfaceUpdate",
+                            "surfaceUpdate": {"components": partial},
+                        })
+                        await broadcast_to_stage(space_id, {
+                            "type": "beginRendering",
+                            "beginRendering": {"root": root_id},
+                        })
+                    tick += 1
+            except asyncio.CancelledError:
+                pass  # Clean exit when the next slide fires.
+
+        _ACTIVE_TICKS[space_id] = asyncio.create_task(run_loop())
+
+    return {
+        "status": "fired",
+        "playbook": playbook_name,
+        "slide": slide_id,
+        "components": len(components),
+        "ticks_active": space_id in _ACTIVE_TICKS,
+    }
+
+
+@app.get("/api/playbook/list/{playbook_name}")
+async def list_playbook_slides(playbook_name: str):
+    """List the slides in a playbook. Used by the future /presenter/{space}
+    URL to populate its button strip."""
+    from playbooks.manager import playbook_manager
+
+    slides = playbook_manager.list_slides(playbook_name)
+    if not slides:
+        raise HTTPException(status_code=404,
+                            detail=f"Playbook '{playbook_name}' not found or empty.")
+    return {
+        "playbook": playbook_name,
+        "slides": [
+            {"slide_id": s.slide_id, "label": s.label, "notes": s.notes,
+             "ticks": s.ticks, "hz": s.hz}
+            for s in slides
+        ],
+    }
+
+
+# SPA-fallback GET catch-all — explicitly 404s any unmatched api/* path,
+# otherwise serves the requested file from dist/ or falls back to index.html.
+# Placed near the end so api/* GET endpoints registered above (e.g. the
+# playbook list endpoint) win before this catch-all gets a chance.
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_static(path: str):
     if path.startswith("api/") or path in ("mcp",):
         raise HTTPException(status_code=404)
-    
-    # Secure against directory traversal attacks by resolving absolute paths
+    # Secure against directory traversal attacks by resolving absolute paths.
     base_dir = os.path.abspath("dist")
     target_path = os.path.abspath(os.path.join(base_dir, path))
     if not target_path.startswith(base_dir):
         raise HTTPException(status_code=400, detail="Invalid path")
-        
     if os.path.exists(target_path) and os.path.isfile(target_path):
         return FileResponse(target_path)
     return FileResponse(os.path.join(base_dir, "index.html"))
 
+
+# StaticFiles mount — placed LAST so it doesn't intercept the API routes
+# defined above (notably the playbook fire/list endpoints).
 if os.path.isdir("dist"): app.mount("/", StaticFiles(directory="dist", html=True), name="static")

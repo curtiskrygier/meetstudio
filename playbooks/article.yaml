@@ -1,0 +1,88 @@
+# Auto-generated from ARTICLE.md — 5 slides, 5 templates, end-to-end test.
+# Fire with:
+#   curl -X POST http://127.0.0.1:8085/api/playbook/fire/article/intro/default
+
+name: article
+
+slides:
+
+  # ─── 1. TITLE — opener ───────────────────────────────────────────────
+  - id: intro
+    template: title
+    badge:    { text: "BUILT IN A WEEKEND", type: danger, pulse: true }
+    title:    "GOOGLE MEET ARCHITECTURE AGENT"
+    subtitle: "If at first you don't succeed, build a better AI pipeline."
+    next_action:
+      text:  "What It Does"
+      fires: features
+
+  # ─── 2. HERO STAT — what was built ───────────────────────────────────
+  - id: features
+    template: hero_stat
+    badge: { text: "FEATURE COUNT", type: primary }
+    label: "Capabilities Shipped"
+    data:
+      COUNT:
+        source: literal
+        value: "12"
+        fallback: "—"
+    value: "{{ COUNT }}"
+    value_size: "200px"
+    delta: "from shelved prototype to working demo"
+    is_up: true
+    next_action:
+      text:  "Five Favourites"
+      fires: highlights
+
+  # ─── 3. LIST_5 — the standout features ───────────────────────────────
+  - id: highlights
+    template: list_5
+    badge: { text: "STANDOUT FEATURES", type: primary }
+    title: "WHAT IT DOES"
+    points:
+      - "Voice Concierge — Gemini Live hears every participant."
+      - "Architect Mode — spoken talk becomes a live D2 diagram on stage."
+      - "Workspace Agent — voice creates Docs, Sheets, and Drive lookups."
+      - "Live Transcript — real-time voice transcription, side panel + stage."
+      - "Themes & Layouts — Matrix, Blueprint, Neon, split / grid views."
+    next_action:
+      text:  "How It's Built"
+      fires: architecture
+
+  # ─── 4. SPLIT_WITH_ACTION — three-layer architecture + GitHub link ──
+  - id: architecture
+    template: split_with_action
+    left:
+      badge: { text: "THE STACK", type: primary }
+      title: "THREE GCP LAYERS"
+      body:  "Lit add-on in the Meet iframe streams 16kHz PCM audio over a
+              WebSocket to a FastAPI backend on Cloud Run. Backend forwards
+              audio to Gemini Live for transcription + voice; Architect Mode
+              spawns a second Gemini call that emits D2 markup, rendered to
+              SVG and broadcast to the main stage. A Vertex AI Reasoning
+              Engine handles Workspace operations as the signed-in user."
+    right:
+      actions:
+        - text:    "Read the Full Article"
+          variant: ghost
+          links:   "https://github.com/YOUR_REPO"
+        - text:    "View the Code"
+          variant: success
+          size:    lg
+          pulse:   true
+          fires:   close
+
+  # ─── 5. SIGNOFF — the proudest-of payoff ─────────────────────────────
+  - id: close
+    template: signoff
+    lines:
+      - { text: "VOICE.",     color: white }
+      - { text: "DIAGRAM.",   color: phosphor }
+      - { text: "MEETING.",   color: cyan }
+    brands:
+      left:  "GOOGLE MEET"
+      right: "GEMINI LIVE"
+    badge_text: "ARCHITECT MODE · LIVE D2 · ZERO POST-MEETING CLEANUP"
+    chef_line:  "THE ARCHITECTURE EMERGES AS YOU TALK."
+    chef_sub:   "no whiteboard. no cleanup. just the conversation."
+    tagline:    "1 weekend. 12 features. shipped."

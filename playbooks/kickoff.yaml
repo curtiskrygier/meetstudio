@@ -1,0 +1,100 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGED FILE — destination: playbooks/kickoff.yaml (NEW)
+#
+# ## TODO before apply
+#   - This is the end-to-end test playbook. After applying, fire it via:
+#       curl -X POST http://127.0.0.1:8085/api/playbook/fire/kickoff/intro/default
+#     Click each slide's button to advance through all five templates.
+#   - The 'links: https://docs.google.com/...' URL on the specs slide is a
+#     placeholder. Replace with a real doc you control.
+#   - Both data sources on q3_arr are 'literal' for the v0 test. Swap to
+#     bigquery once the bigquery resolver is wired in data_sources.py.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: kickoff
+slides:
+
+  # ─── 1. Title slate — Mode C opener ────────────────────────────────────
+  - id: intro
+    template: title
+    badge:    { text: "PROJECT KICKOFF", type: danger, pulse: true }
+    title:    "PROJECT ALTAIR"
+    subtitle: "Q3 ENGINEERING & DEPLOYMENT STRATEGY"
+    next_action:
+      text:  "Begin Briefing"
+      fires: q3_arr
+
+  # ─── 2. Hero stat — data binding flagship (literal v0 → bigquery v1) ──
+  - id: q3_arr
+    template: hero_stat
+    badge: { text: "Q3 FINANCIALS", type: primary }
+    label: "Annual Recurring Revenue"
+    data:
+      ARR:
+        source: literal
+        value: "$48.2M"
+        # Swap when bigquery wired up:
+        # source: bigquery
+        # query: "SELECT FORMAT('$%.1fM', SUM(revenue)/1e6) FROM q3_2025"
+        fallback: "$48.2M"
+      delta:
+        source: literal
+        value: "+18.4%"
+        fallback: "—"
+    value: "{{ ARR }}"
+    delta: "{{ delta }}"
+    is_up: true
+    next_action:
+      text:  "Next: Architecture"
+      fires: specs
+
+  # ─── 3. Asymmetrical split — narrative + actions ──────────────────────
+  - id: specs
+    template: split_with_action
+    left:
+      badge: { text: "CORE SYSTEM BRIEF", type: primary }
+      title: "TECHNICAL DESIGN"
+      body:  "Reviewing system primitives and operational boundaries. The
+              kitchen is composable — every dish is plated from the same set
+              of ingredients. Click the right-panel action to commit checks."
+    right:
+      actions:
+        - text:    "Open Raw Spec Sheet"
+          variant: ghost
+          size:    md
+          links:   "https://docs.google.com/document/d/example"
+        - text:    "Commit and Continue"
+          variant: success
+          size:    lg
+          pulse:   true
+          fires:   principles
+
+  # ─── 4. Five pillars — staggered points ───────────────────────────────
+  - id: principles
+    template: list_5
+    badge: { text: "GUIDING PRINCIPLES", type: primary }
+    title: "FIVE PILLARS"
+    points:
+      - "Invest in substrates, not compositions."
+      - "Every dish, composed on demand."
+      - "The chef is at the table."
+      - "Realtime data trumps last quarter's screenshot."
+      - "The catalogue is the menu; primitives are the ingredients."
+    next_action:
+      text:  "Wrap Up"
+      fires: close
+
+  # ─── 5. Sign-off — restaurant payoff ──────────────────────────────────
+  - id: close
+    template: signoff
+    lines:
+      - { text: "THE RESTAURANT.",   color: white }
+      - { text: "THE MENU.",         color: phosphor }
+      - { text: "THE INGREDIENTS.",  color: cyan }
+    brands:
+      left:  "GOOGLE MEET"
+      right: "A2UI"
+    badge_text: "FULLY EXTENSIBLE · INFINITELY COMPOSABLE"
+    chef_line:  "THE CHEF IS AT THE TABLE."
+    chef_sub:   "follow the rabbit."
+    tagline:    "infinite possibilities."
