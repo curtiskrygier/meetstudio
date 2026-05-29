@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGED FILE — destination: playbooks/market.yaml (NEW)
+#
+# Standalone playbook for verifying the new `rest` data source + the new
+# `market_ticker` template end-to-end. Fire with:
+#   curl -X POST http://127.0.0.1:8085/api/playbook/fire/market/intro/default
+#
+# ## TODO before apply
+#   - Yahoo's unofficial quote endpoint occasionally rate-limits. If you see
+#     all rows showing "—", that's the graceful-degrade path firing — wait a
+#     minute and re-fire, or swap the URL for a different REST source.
+#   - The `BTC-USD`, `ETH-USD`, `EURUSD=X` Yahoo symbol conventions need a
+#     dash/equals — keep them as-is or substitute equity symbols you prefer.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: market
+
+slides:
+
+  # ─── 1. Title slate — opener ─────────────────────────────────────────
+  - id: intro
+    template: title
+    badge:    { text: "REALTIME MARKET DEMO", type: danger, pulse: true }
+    title:    "LIVE MARKET SCAN"
+    subtitle: "Twelve symbols · Refreshing every two seconds"
+    next_action:
+      text:  "Show Me"
+      fires: pulse
+
+  # ─── 2. Live market ticker — flagship test of rest + market_ticker ──
+  #
+  # CoinGecko's public no-auth /coins/markets endpoint. Switched from Yahoo
+  # because Yahoo soft-blocks unofficial usage (returns empty quote lists).
+  # CoinGecko: generous free rate limits + crypto trades 24/7 so values
+  # always move on stage. To swap providers later: change url + map only;
+  # template stays untouched.
+  - id: pulse
+    template: market_ticker
+    badge:   { text: "REALTIME · CRYPTO MARKETS", type: danger, pulse: true }
+    # Display symbols — uppercase for stage. Template normalizes both sides
+    # to uppercase for matching, so CoinGecko's lowercase "btc"/"eth" responses
+    # resolve cleanly against this list.
+    symbols: [BTC, ETH, SOL, ADA, DOT, LINK, LTC, DOGE, AVAX, UNI, XLM, ATOM]
+    data:
+      quotes:
+        source: rest
+        # CoinGecko: 12 coins by their internal IDs. Returns root array;
+        # no json_path needed. `map:` projects CoinGecko's vocab onto the
+        # template's normalized {symbol, price, change} contract.
+        url: "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,cardano,polkadot,chainlink,litecoin,dogecoin,avalanche-2,uniswap,stellar,cosmos&order=market_cap_desc"
+        map:
+          symbol: symbol
+          price:  current_price
+          change: price_change_percentage_24h
+        refresh: 5s
+        fallback: []
+    next_action:
+      text:  "Wrap"
+      fires: close
+
+  # ─── 3. Sign-off ─────────────────────────────────────────────────────
+  - id: close
+    template: signoff
+    lines:
+      - { text: "REAL DATA.",  color: white }
+      - { text: "REAL TIME.",  color: phosphor }
+      - { text: "ON STAGE.",   color: cyan }
+    brands:
+      left:  "ANY API"
+      right: "YOUR DECK"
+    badge_text: "REST SOURCE · MAP-NORMALIZED · TICK-REFRESHED"
+    chef_line:  "THE KITCHEN POURS A LIVE GLASS."
+    chef_sub:   "every two seconds."
+    tagline:    "alive on stage."

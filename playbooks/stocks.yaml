@@ -1,0 +1,64 @@
+# Live stock market scan via Twelve Data (free 800 req/day, global coverage).
+#
+# Requires TWELVE_DATA_API_KEY in env (or .env). The ${...} syntax in the URL
+# pulls from os.environ at fetch time — secret never lives in YAML.
+#
+# Fire with:
+#   curl -X POST http://127.0.0.1:8085/api/playbook/fire/stocks/intro/default
+#
+# Twelve Data /quote returns dict-keyed-by-symbol on multi-symbol calls:
+#   { "AAPL": {symbol, close, percent_change, ...}, "MSFT": {...}, ... }
+# `values: true` flattens to list-of-records so `map:` projects cleanly.
+
+name: stocks
+
+slides:
+
+  - id: intro
+    template: title
+    badge:    { text: "REALTIME STOCKS", type: danger, pulse: true }
+    title:    "LIVE MARKET SCAN"
+    subtitle: "Twelve tickers · global · refreshing live"
+    next_action:
+      text:  "Show Me"
+      fires: pulse
+
+  - id: pulse
+    template: market_ticker
+    badge:   { text: "REALTIME · STOCK PULSE", type: danger, pulse: true }
+    # 12 large US + EU + AU symbols. Mix sectors so movement reads on stage.
+    symbols: [AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, META, NFLX, AMD, COIN, MC, ASML]
+    data:
+      quotes:
+        source: rest
+        # Twelve Data multi-symbol /quote endpoint.
+        # `{{symbols}}` → CSV from sibling symbols: key
+        # `${TWELVE_DATA_API_KEY}` → from os.environ
+        url: "https://api.twelvedata.com/quote?symbol={{symbols}}&apikey=${TWELVE_DATA_API_KEY}"
+        # Twelve Data returns a DICT keyed by symbol; values:true flattens it.
+        values: true
+        map:
+          symbol: symbol
+          price:  close             # numeric string — template float-coerces
+          change: percent_change    # numeric string — template float-coerces
+        # Free tier: 800 req/day. At 30s refresh × 12 symbols-as-one-call = 1
+        # req per 30s → 2880/day if running 24h, ~120 over a 1hr demo. Fine.
+        refresh: 30s
+        fallback: []
+    next_action:
+      text:  "Wrap"
+      fires: close
+
+  - id: close
+    template: signoff
+    lines:
+      - { text: "REAL TICKERS.",   color: white }
+      - { text: "REAL TIME.",      color: phosphor }
+      - { text: "ANY API.",        color: cyan }
+    brands:
+      left:  "TWELVE DATA"
+      right: "GOOGLE MEET"
+    badge_text: "REST SOURCE · ENV-VAR AUTH · MAP-NORMALIZED"
+    chef_line:  "THE KITCHEN POURS A LIVE PINT."
+    chef_sub:   "every thirty seconds."
+    tagline:    "ALIVE ON STAGE."

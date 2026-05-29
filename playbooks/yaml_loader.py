@@ -1,19 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# STAGED FILE — destination: playbooks/yaml_loader.py (NEW)
+# STAGED FILE — destination: playbooks/yaml_loader.py (REPLACES existing)
+#
+# Round 3 change (small but load-bearing):
+#   - The context dict passed to resolve_slide_data() now includes the full
+#     slide_cfg, so resolvers can read sibling YAML keys (notably for
+#     `{{symbols}}` URL interpolation against the slide's `symbols: [...]`).
 #
 # ## TODO before apply
-#   - Loader is async-only (builders return coroutines). Requires the
-#     main.py fire endpoint patch (see staging/main_py_async_builder_patch.md)
-#     to await them. Sync demo_poc.py builders still work via the patch's
-#     dual-path detection.
-#   - `register_yaml_playbooks_in_dir()` is called from __init__.py at
-#     module import. If you want lazy loading, move it to a startup hook.
-#   - YAML parse errors abort registration but don't crash the process —
-#     they log a warning. If you want stricter validation, raise instead.
+#   - Replacement file. The only delta vs the Round 2 version is in
+#     _make_builder() — context dict gains slide_cfg. Everything else is
+#     byte-identical.
 # ═══════════════════════════════════════════════════════════════════════════
-"""YAML playbook loader — orchestrator between YAML config + templates + data
-sources. Discovers `*.yaml` files in `playbooks/` and registers each as a
-playbook in the global `playbook_manager`."""
+"""YAML playbook loader — orchestrator between YAML config + templates +
+data sources. Discovers `*.yaml` files in `playbooks/` and registers each
+as a playbook in the global `playbook_manager`."""
 
 import os
 import logging
@@ -31,24 +31,35 @@ logger = logging.getLogger(__name__)
 def _make_builder(slide_cfg: dict, playbook_name: str) -> Callable:
     """Return an ASYNC builder that resolves data per refresh policy on each
     call, then dispatches to the chosen template. Closes over slide_cfg +
-    playbook_name so we don't have to thread them through the Slide tuple."""
+    playbook_name."""
     template_name = slide_cfg.get("template")
-    template_fn   = TEMPLATES.get(template_name)
-    slide_id      = slide_cfg.get("id", "unknown")
-    data_decls    = slide_cfg.get("data") or {}
+    template_fn = TEMPLATES.get(template_name)
+    slide_id = slide_cfg.get("id", "unknown")
+    data_decls = slide_cfg.get("data") or {}
 
     async def builder(space_id: str, tick: int = 0):
         if template_fn is None:
             return _error_slide(slide_id, f"Unknown template: '{template_name}'")
-        ctx = {"playbook_name": playbook_name, "space_id": space_id}
+        # Round 3: slide_cfg threaded into context so the REST resolver can
+        # interpolate {{key}} from sibling slide-config keys (e.g.
+        # `symbols: [...]` flattening into ?symbols=AAPL,TSLA,...).
+        ctx = {
+            "playbook_name": playbook_name,
+            "space_id":      space_id,
+            "slide_cfg":     slide_cfg,
+        }
         try:
             data = await resolve_slide_data(slide_id, data_decls, ctx, tick)
         except Exception as e:
             logger.error(f"[yaml_loader] data resolution failed for "
                          f"{playbook_name}/{slide_id}: {e}")
             data = {k: d.get("fallback", "—") for k, d in data_decls.items()}
-        # Hand resolved data + context to the template. Templates are sync.
-        full_cfg = {**slide_cfg, **ctx}
+        # Templates receive (slide_id, full_cfg, data). full_cfg merges the
+        # YAML slide dict with playbook_name + space_id so templates can
+        # construct fire endpoints + look up sibling keys.
+        full_cfg = {**slide_cfg,
+                    "playbook_name": playbook_name,
+                    "space_id": space_id}
         return template_fn(slide_id, full_cfg, data)
 
     return builder
@@ -63,7 +74,8 @@ def _error_slide(slide_id: str, message: str) -> list[dict]:
         {"id": "main", "component": {"gdm-container": {
             "direction": "column", "justify": "center", "align": "center",
             "grow": 1, "gap": "20px", "padding": "60px",
-            "children": {"explicitList": [f"err_badge_{slide_id}", f"err_msg_{slide_id}"]}}}},
+            "children": {"explicitList": [f"err_badge_{slide_id}",
+                                          f"err_msg_{slide_id}"]}}}},
         {"id": f"err_badge_{slide_id}", "component": {"gdm-badge": {
             "text": "SLIDE ERROR", "type": "danger", "pulse": True}}},
         {"id": f"err_msg_{slide_id}", "component": {"gdm-text": {

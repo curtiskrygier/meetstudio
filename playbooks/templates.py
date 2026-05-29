@@ -443,6 +443,179 @@ def signoff_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Template 6 — market_ticker (Round 3)
+# ────────────────────────────────────────────────────────────────────────────
+
+def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
+    """Two-column dense market scan with header (badge + clock) and one row
+    per symbol: SYM · price (flip) · change %. Reuses the proven 2x6 grid
+    from the primitives showcase Pass 2 — no `position: fixed` quirk.
+
+    Data contract (produced by the resolver's `map:` projection):
+        cfg['symbols']: ["AAPL", "TSLA", ...]               — display order
+        data['quotes']: [{symbol, price, change}, ...]      — resolved payload
+
+    `is_up` is derived from change's sign in the template (presentational).
+    Templates know NOTHING about the upstream API's vocabulary — that lives
+    in the YAML `map:` declaration.
+    """
+    badge    = cfg.get("badge") or {}
+    symbols  = cfg.get("symbols") or []
+    quotes   = data.get("quotes") or []
+    next_act = cfg.get("next_action") or {}
+    ctx      = {"playbook_name": cfg["playbook_name"], "space_id": cfg["space_id"]}
+    action   = _make_action(next_act, ctx)
+
+    # Map symbol → quote for O(1) lookup; preserve YAML symbol ordering.
+    # Case-insensitive — CoinGecko returns "btc", Yahoo returns "BTC", binance
+    # returns "BTCUSDT" — normalize both sides to uppercase for the lookup so
+    # the same template works across REST sources without YAML case fiddling.
+    by_symbol: dict = {}
+    for q in quotes:
+        if isinstance(q, dict) and q.get("symbol"):
+            by_symbol[str(q["symbol"]).upper()] = q
+    rows = [(s, by_symbol.get(str(s).upper(), {})) for s in symbols]
+
+    # Split into two columns; left reveals first, right after a small offset.
+    half      = (len(rows) + 1) // 2
+    left      = rows[:half]
+    right     = rows[half:]
+    left_ids  = [f"{slide_id}_l_{i}" for i in range(len(left))]
+    right_ids = [f"{slide_id}_r_{i}" for i in range(len(right))]
+
+    main_kids = [f"{slide_id}_hdr", f"{slide_id}_div", f"{slide_id}_body"]
+    if action:
+        main_kids.append(f"{slide_id}_btn")
+
+    out = [
+        C("root", "gdm-stage-grid", {"layout": "hero",
+                                     "children": {"explicitList": ["main"]}}),
+        C("main", "gdm-container", {
+            "direction": "column", "padding": "40px 52px", "gap": "12px",
+            "width": "100%", "height": "100%", "grow": 1,
+            "glass": True, "borderRadius": "18px",
+            "reveal": "scale-in", "revealDelay": 0.0,
+            "children": {"explicitList": main_kids},
+        }),
+        # Header: badge + clock (both atoms already in the catalogue)
+        C(f"{slide_id}_hdr", "gdm-container", {
+            "direction": "row", "align": "center", "gap": "16px",
+            "reveal": "fade-up", "revealDelay": 0.2,
+            "children": {"explicitList": [f"{slide_id}_badge",
+                                          f"{slide_id}_sp",
+                                          f"{slide_id}_clock"]},
+        }),
+        C(f"{slide_id}_badge", "gdm-badge", {
+            "text":  badge.get("text", "REALTIME · MARKETS"),
+            "type":  badge.get("type", "danger"),
+            "pulse": badge.get("pulse", True),
+        }),
+        C(f"{slide_id}_sp", "gdm-spacer", {}),
+        C(f"{slide_id}_clock", "gdm-clock", {
+            "showClock": True, "showDate": False,
+            "variant": "flip", "accentColor": PHOSPHOR,
+        }),
+        C(f"{slide_id}_div", "gdm-divider", {
+            "color": "rgba(0,255,136,0.22)",
+            "reveal": "fade-up", "revealDelay": 0.35,
+        }),
+        C(f"{slide_id}_body", "gdm-container", {
+            "direction": "row", "gap": "44px", "grow": 1, "width": "100%",
+            "align": "stretch",
+            "children": {"explicitList": [f"{slide_id}_col_l", f"{slide_id}_col_r"]},
+        }),
+        C(f"{slide_id}_col_l", "gdm-container", {
+            "direction": "column", "gap": "4px", "grow": 1,
+            "children": {"explicitList": left_ids},
+        }),
+        C(f"{slide_id}_col_r", "gdm-container", {
+            "direction": "column", "gap": "4px", "grow": 1,
+            "children": {"explicitList": right_ids},
+        }),
+    ]
+
+    def _maybe_float(v):
+        """Coerce numeric strings (e.g. Twelve Data's '-0.59000') to float.
+        Returns None for unparseable or non-numeric values."""
+        if isinstance(v, (int, float)):
+            return v
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                return None
+        return None
+
+    def emit_row(rid: str, sym: str, q: dict, base_delay: float) -> list[dict]:
+        # Defensive coercion — different REST APIs return numerics in
+        # different shapes: CoinGecko gives floats, Twelve Data gives
+        # strings ('234.40', '-0.59000'), Yahoo gives floats. Normalize
+        # at the template layer rather than polluting the resolver.
+        price_raw = _maybe_float(q.get("price"))
+        chg_raw   = _maybe_float(q.get("change"))
+        is_up     = isinstance(chg_raw, (int, float)) and chg_raw >= 0
+
+        # Price display formatting — tier by magnitude so FX (1.0854),
+        # equities ($237.42), and BTC/indices ($71,820) all read cleanly.
+        if price_raw is None:
+            price_disp = "—"
+        elif isinstance(price_raw, (int, float)):
+            if abs(price_raw) < 5:       price_disp = f"{price_raw:,.4f}"
+            elif abs(price_raw) > 10000: price_disp = f"${price_raw:,.0f}"
+            else:                        price_disp = f"${price_raw:,.2f}"
+        else:
+            price_disp = str(price_raw)
+
+        if chg_raw is None or not isinstance(chg_raw, (int, float)):
+            chg_disp = "—"
+        else:
+            arrow = "↑ +" if is_up else "↓ "
+            chg_disp = f"{arrow}{chg_raw:.2f}%"
+
+        return [
+            C(rid, "gdm-container", {
+                "direction": "row", "align": "center", "gap": "20px",
+                "grow": 1, "padding": "7px 6px",
+                "reveal": "slide-right", "revealDelay": base_delay,
+                "children": {"explicitList": [f"{rid}_sym", f"{rid}_price",
+                                              f"{rid}_sp", f"{rid}_chg"]},
+            }),
+            C(f"{rid}_sym",   "gdm-text", {
+                "content": sym, "size": "30px", "color": "white",
+                "font": "mono", "weight": "900", "letterSpacing": "0.04em",
+                "uppercase": True,
+            }),
+            C(f"{rid}_price", "gdm-text", {
+                "content": price_disp, "size": "30px", "color": "white",
+                "font": "mono", "weight": "800", "flip": True,
+            }),
+            C(f"{rid}_sp", "gdm-spacer", {}),
+            C(f"{rid}_chg",   "gdm-text", {
+                "content": chg_disp, "size": "26px",
+                "color": "#19d27a" if is_up else "#ff5d5d",
+                "font": "mono", "weight": "800", "flip": True,
+            }),
+        ]
+
+    # Left column reveals first (delay 0.5 → +0.10 each); right follows after
+    # a 0.55s offset so the eye reads it as left-then-right assembly.
+    for i, (sym, q) in enumerate(left):
+        out += emit_row(left_ids[i], sym, q, base_delay=0.5 + i * 0.10)
+    for i, (sym, q) in enumerate(right):
+        out += emit_row(right_ids[i], sym, q, base_delay=0.5 + 0.55 + i * 0.10)
+
+    if action:
+        out.append(C(f"{slide_id}_btn", "gdm-button", {
+            "text":    next_act.get("text", "Next"),
+            "variant": next_act.get("variant", "primary"),
+            "size":    next_act.get("size", "lg"),
+            "pulse":   next_act.get("pulse", True),
+            "action":  action,
+        }))
+    return out
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Registry — single source of truth for what templates exist.
 # Add a new template by writing the function above + one line here.
 # ────────────────────────────────────────────────────────────────────────────
@@ -453,4 +626,5 @@ TEMPLATES = {
     "split_with_action":  split_with_action_template,
     "list_5":             list_5_template,
     "signoff":            signoff_template,
+    "market_ticker":      market_ticker_template,
 }

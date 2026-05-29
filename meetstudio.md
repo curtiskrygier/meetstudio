@@ -1244,4 +1244,213 @@ Every piece exists in repo today:
 
 ---
 
-_End of handover. Pick up at §8 / §9 / §12 / §13 / §14 to continue._
+---
+
+## 15. Round 3 applied — REST data source + market_ticker template (live data substrate)
+
+_2026-05-29 — third apply of the day. Closes the gap between "data binding promised in YAML" and "live numbers shimmering on the stage." After this round, every YAML playbook can drop in a REST-fed slide refreshed at any cadence — partially realising the §14 killer-loop pitch._
+
+### 15.1 What landed
+
+```
+playbooks/
+├── data_sources.py    Round 3 — REWRITTEN: real _fetch_rest (was stubbed),
+│                                 shared httpx.AsyncClient hot-pool,
+│                                 _json_path/_apply_map/_interpolate_url
+│                                 helpers, multi-tenant cache key
+├── yaml_loader.py     Round 3 — small delta: slide_cfg threaded into ctx
+│                                 so REST resolver can interpolate {{key}}
+├── templates.py       Round 3 — added market_ticker_template (~160 lines).
+│                                 6 templates total now.
+└── market.yaml        Round 3 — NEW standalone test playbook (3 slides:
+                                 intro → live ticker → signoff)
+```
+
+### 15.2 Sparring decisions locked in code
+
+Architectural calls debated with another LLM (Gem) and committed. Details in `staging/README.md` Round 3 section:
+
+| Decision | Locked-in shape |
+|---|---|
+| JSONPath grammar | `.foo / .foo.bar / .foo[] / .foo[N] / .foo[].bar`. No filter predicates, wildcards, slices, or recursive descent — keep DSL escalation closed. |
+| httpx client | Module-level shared `_SHARED_CLIENT` (hot connection pool); per-request timeout via kwargs override. Eliminates ~300ms DNS+TLS jitter on 2s polling. |
+| Data normalization | `_apply_map(data, mapping)` does flat key-projection only. Computed expressions (`is_up: change >= 0`) explicitly out — derivation belongs in templates. |
+| URL templating | `{{key}}` from sibling slide_cfg keys; lists join CSV. Does NOT read from `data:` (other resolved values) — no source-to-source DAG in v0. |
+| Retry policy | None inline. Single failure → fallback → next tick fetches fresh. Tick loop IS the retry. Prevents thread-blocking cascades. |
+| Cache key | `(space_id, slide_id, data_key)` — multi-tenant isolation. Critical: prevents data leak across Meet rooms. |
+
+### 15.3 §14 pitch sentence — clause-by-clause state after Round 3
+
+| Pitch clause | State |
+|---|---|
+| *"Paste a Google Doc link"* | Future round (Drive readonly scope) |
+| *"Click Present"* | Future round (Mode C presenter URL) |
+| *"Live, voice-controllable"* | ✓ shipped earlier (Gemini Live + stage WS) |
+| ***"Real-time-data-aware"*** | ✓ **shipped 2026-05-29 (Round 3)** — every audience watching a slide with `refresh: Ns` sees values change live |
+| *"Composed by the agent"* | Future round (doc → YAML via Gemini structured generation) |
+| *"Plated from the catalogue"* | ✓ shipped earlier (6 templates now) |
+| *"Served at the table"* | ✓ shipped earlier (restaurant metaphor in sign-off) |
+
+**Four of seven clauses now have substrate behind them.** Remaining three (Drive auth, presenter URL, agent prompt) are the next strategic phase.
+
+### 15.4 Verification at apply time
+
+```
+71 components rendered for market/pulse  (12 rows × 5 atoms + 7 chrome + 3 header + 1 button)
+3 of 3 existing playbooks regression-clean (demo_poc, kickoff, article)
+4 of 4 playbooks discoverable via /api/playbook/list
+2s tick loop confirmed via ticks_active:true response and uvicorn logs
+```
+
+### 15.5 What's NOT in scope (sparred + closed, do not reopen without reason)
+
+- `yahoo_finance` source as a separate verb (the generic `rest` covers it)
+- `bigquery` source (still stubbed; future round)
+- Filter predicates / wildcards / slices in JSONPath
+- Computed expressions in `map:`
+- Cross-source dependencies (Source B reads Source A)
+- Retry-with-backoff inside `_fetch_rest`
+- Cross-room cache sharing for paid-API quota deduplication (planned for v1 — keyed by hash of `(url, json_path, map)`)
+- Stale-data visual indicator on fallback rows
+
+---
+
+---
+
+## 16. v0.8 MILESTONE — checkpoint before A2UI 0.9 migration
+
+_2026-05-29 evening. Committed and tagged as `v0.8-final`; branch
+`checkpoint/a2ui-0.8` preserves this exact state. Reachable any time via
+`git checkout checkpoint/a2ui-0.8` if the v0.9 migration regresses
+something._
+
+### 16.1 What's locked in at this milestone
+
+```
+SUBSTRATE LAYERS                                STATE
+─────────────────────────────────────────────────────────────
+catalogue (gdm-* components, atoms)             ✓ shipped
+A2UI engine wire protocol (v0.8 spec)           ✓ shipped
+playbook PoC (Round 1) — Python builders        ✓ shipped + applied
+YAML + 5 templates (Round 2) — substrate        ✓ shipped + applied
+REST source + market_ticker (Round 3) — live    ✓ shipped + applied
+4 playbooks registered:                         demo_poc, kickoff,
+                                                article, market (+
+                                                stocks queued behind
+                                                TWELVE_DATA_API_KEY)
+restaurant metaphor + chef-at-the-table         ✓ in production demos
+3 strategic memories anchoring scoping          ✓ saved
+keep-meetstudio-md-current behavioral rule      ✓ saved
+```
+
+Everything in §13, §14, §15 is intact at this checkpoint.
+
+### 16.2 Why the checkpoint matters now
+
+A2UI v0.9 dropped (https://a2ui.org/specification/v0.9-evolution-guide/).
+Wire-format breaking changes:
+- `surfaceUpdate` → `updateComponents`
+- `beginRendering` → `createSurface`
+- `dataModelUpdate` → `updateDataModel`
+- Component encoding flips from `{"component": {"gdm-text": {...props}}}` to
+  flat `{"component": "gdm-text", ...props}`
+- Data model encoding flips from typed array-of-pairs to plain JSON object
+
+The catalogue (gdm-* names) and the substrate above it (templates, YAML,
+playbook system, agent metaphors) are **unchanged by v0.9** — catalogs are
+explicitly "swappable" in the new spec. Only the wire envelope changes.
+
+Migration is mechanical (~5-7 focused hours) but until complete, NOTHING
+renders. A checkpoint at v0.8-final means we can branch off, migrate,
+test against all 5 playbooks, and merge only when stable. Worst case:
+abandon the migration branch entirely and `git checkout checkpoint/a2ui-0.8`
+to recover the last-known-good state.
+
+### 16.3 Weekend publication plan (locked 2026-05-29)
+
+Goal: publish a four-artefact release by Sunday night that positions this
+project as the first public reference implementation of A2UI 0.9 outside
+Google. First-mover window is open for maybe 1-2 weeks before someone else
+stakes it.
+
+```
+1. WIRE MIGRATION (Fri evening → Sat midday, ~6h)
+   - Branch off: feature/a2ui-0.9-migration
+   - Rename messages in engine.ts, main.py, main_stage.ts
+   - Flip component encoding in C() helper (templates inherit)
+   - Flip data model encoding
+   - Update agent system prompt to v0.9 message names
+   - Add ValidationFailed support
+   - Regression test against demo_poc, kickoff, article, market, stocks
+   - Merge to main / feature branch only when all 5 green
+
+2. PUBLIC GDM-* CATALOG (Sat afternoon, ~2h)
+   - Versioned JSON document at /catalog/gdm-v0.1.json in this repo
+   - Conformant to v0.9 swappable-catalog format
+   - Lists all gdm-* components + props + descriptions
+   - Stable URL = positioning play for other A2UI builders
+
+3. BLOG POST (Sat afternoon → Sat evening, ~3h)
+   - ~2000 words
+   - Title (working): "Substrate, not slides: building Google Meet Studio on A2UI 0.9"
+   - Threads: chef-at-the-table metaphor, substrate principle, working demo
+   - Embeds the demo gif (#4)
+   - References the public repo (next)
+   - "What's next" closes: doc-to-deck killer loop + presenter URL
+
+4. DEMO GIF / SHORT VIDEO (Sat morning, ~2h)
+   - Headless capture of kickoff.yaml or article.yaml via existing
+     capture_stage_screenshots.py
+   - 15-30s — title → hero stat → split → list → signoff
+   - mp4 + gif variants for embed everywhere
+
+5. PUBLIC REPO (Sun morning, ~2h)
+   - Clean fork of meet-live-concierge (sanitize .env, secrets,
+     unrelated files like search_ha_entities.py / test_t212_direct.py)
+   - README pitches the substrate principle + chef metaphor
+   - Includes the v0.9-shaped /catalog/gdm-v0.1.json
+   - Demo playbooks (kickoff, article) committed; market/stocks have
+     placeholder API keys
+   - MIT license
+```
+
+Items DEFERRED to subsequent posts (do NOT scope-creep into this weekend):
+- Drive auth + doc-to-deck loop closure (§14 strategic frame)
+- Mode C presenter URL build (Mode C v0 product UX)
+- Agent-authored YAML from doc (the operationalisation of prompt-first)
+- formatString migration (replacing custom _interpolate)
+- BigQuery / Polygon data source wiring
+- Comprehensive A2UI 0.8 → 0.9 migration guide for others (too ambitious;
+  just demonstrate ours)
+
+### 16.4 Recovery path if v0.9 migration fails
+
+```bash
+# At any point during the migration, instant recovery:
+git checkout checkpoint/a2ui-0.8
+
+# Or revert to this tag explicitly:
+git reset --hard v0.8-final
+```
+
+The `checkpoint/a2ui-0.8` branch exists exactly so the migration is reversible.
+If the weekend goes sideways, this version still works and is publishable
+as-is (it's just v0.8-aligned instead of v0.9-aligned).
+
+### 16.5 What gets carried forward unchanged into v0.9
+
+| Layer | v0.9 impact |
+|---|---|
+| All YAML playbooks (kickoff.yaml, article.yaml, market.yaml, stocks.yaml) | None — YAML is above the wire format |
+| All 6 templates (title, hero_stat, split_with_action, list_5, signoff, market_ticker) | None — templates emit through C() helper; helper does the migration |
+| The catalogue itself (gdm-* component implementations) | None — Lit components don't care about wire format |
+| Restaurant metaphor + chef-at-the-table + substrate principle | None — these are above the entire stack |
+| All memories (8 entries) | None — they describe intent, not protocol |
+
+The migration scope is narrowly the wire envelope. Everything above stays.
+
+---
+
+_End of handover. Pick up at §8 / §9 / §12 / §13 / §14 / §15 / §16 to continue._
+
+_Next move: branch `feature/a2ui-0.9-migration` off `checkpoint/a2ui-0.8`, do the wire-format migration, regression-test, publish._
