@@ -443,7 +443,7 @@ if (root) {
   root.addEventListener('zoom-change', (e: Event) => sendAction('zoom-change', (e as CustomEvent).detail));
   root.addEventListener('tab-select',  (e: Event) => sendAction('tab-select',  (e as CustomEvent).detail));
   root.addEventListener('poll-vote',   (e: Event) => sendAction('poll-vote',   (e as CustomEvent).detail));
-  root.addEventListener('gdm-button-click', (e: Event) => sendAction('gdm-button-click', (e as CustomEvent).detail));
+  root.addEventListener('a2ui-action', (e: Event) => sendAction('a2ui-action', (e as CustomEvent).detail));
 }
 
 interface ActionPatch {
@@ -467,7 +467,10 @@ function sendAction(type: string, detail: any) {
   if (!root) return;
   const patch = ACTION_PROP_MAP[type];
   if (!patch) return;
-  const el = root.querySelector(patch.element) as any;
+  let el = root.querySelector(patch.element) as any;
+  if (!el && patch.element === 'gdm-radar-view') {
+    el = root.querySelector('gdm-3d-airspace');
+  }
   if (!el) return;
 
   if (type === 'zoom-change') {

@@ -3,38 +3,44 @@ import { customElement, property } from 'lit/decorators.js';
 import './gdm_stage_icon';
 
 /**
- * gdm-button — unified action atom.
+ * gdm-button — interactive action button.
  *
- * Four action modes via the discriminated `action` prop:
- *   {type: 'link',  url, newTab?}            window.open the URL
- *   {type: 'fire',  endpoint, payload?}      POST JSON to a server endpoint
- *   {type: 'emit',  event, detail?}          dispatch a CustomEvent on the host
- *   {type: 'agent', actionId, payload?}      dispatch 'gdm-button-click' event
- *                                            (main_stage.ts forwards to the agent)
+ * Conforms to A2UI v0.9 Action schema: https://a2ui.org/concepts/actions/
  *
- * Back-compat shorthands (preserved from earlier API — existing usages keep working):
- *   actionId set without `action`            → behaves as 'agent' mode
- *   targetUrl set without `action`           → behaves as 'link' mode (newTab=true)
- *   label set (text empty)                   → label is the button copy
+ *   action: { event:        { name, context? } }        → agent-bound
+ *   action: { functionCall: { call, args? } }           → local-only
  *
- * Existing demos (demo_a2ui_composable_market.py, tests/test_a2ui_stage.py)
- * use {label, actionId, payload, icon, type, disabled} and continue to work
- * unchanged — actionId routes through the new 'agent' action mode and
- * dispatches the same 'gdm-button-click' CustomEvent main_stage.ts already
- * listens for.
+ * Recognised functionCall.call values (this renderer):
+ *   - "openUrl"        args: { url: string }            → window.open
+ *   - "navigateTab"    args: { tabId: string }          → 'a2ui-navigate-tab' event
+ *   - "fireEndpoint"   args: { endpoint: string, body? } → POST, no agent
+ *
+ * Agent events dispatch a 'a2ui-action' CustomEvent which main_stage.ts
+ * forwards via sendAction(). The agent receives { event.name, event.context }.
  */
-type ButtonAction =
-  | { type: 'link'; url: string; newTab?: boolean }
-  | { type: 'fire'; endpoint: string; payload?: unknown }
-  | { type: 'emit'; event: string; detail?: unknown }
-  | { type: 'agent'; actionId: string; payload?: unknown };
+type DataModelPath = { path: string };
+type ContextValue  = DataModelPath | string | number | boolean | null;
+
+type FunctionCallAction = {
+  functionCall: {
+    call: string;                              // e.g. "openUrl", "navigateTab", "fireEndpoint"
+    args?: Record<string, ContextValue>;       // call-specific arguments
+  };
+};
+
+type EventAction = {
+  event: {
+    name: string;                              // stable identifier the agent switches on
+    context?: Record<string, ContextValue>;    // hand-picked view of the data model
+  };
+};
+
+type Action = FunctionCallAction | EventAction;
 
 @customElement('gdm-button')
 export class GdmStageButton extends LitElement {
   // ── Existing API (preserved for back-compat) ──────────────────────────
   @property({ type: String })  label    = '';
-  @property({ type: String })  actionId = '';
-  @property({ type: String })  payload  = '';
   @property({ type: String })  icon     = '';
   @property({ type: String })  type     = 'primary'; // primary | secondary | danger | ghost | success
   @property({ type: Boolean }) disabled = false;
@@ -44,7 +50,7 @@ export class GdmStageButton extends LitElement {
   @property({ type: String })  size      = 'md';     // sm | md | lg | hero
   @property({ type: Boolean }) pulse     = false;
   @property({ type: Boolean }) loading   = false;
-  @property({ type: Object })  action: ButtonAction | null = null;
+  @property({ type: Object })  action: Action | null = null;
   @property({ type: String })  targetUrl = '';
 
   static styles = css`
@@ -172,19 +178,11 @@ export class GdmStageButton extends LitElement {
   `;
 
   /** Resolve which action mode this button is in given the props set. */
-  private _resolveAction(): ButtonAction | null {
+  private _resolveAction(): Action | null {
     if (this.action) return this.action;
-    // Existing convention: `actionId` set → dispatch gdm-button-click for agent.
-    if (this.actionId) {
-      let parsedPayload: unknown = this.payload;
-      try {
-        if (this.payload && (this.payload.startsWith('{') || this.payload.startsWith('['))) {
-          parsedPayload = JSON.parse(this.payload);
-        }
-      } catch (_) { /* keep as string */ }
-      return { type: 'agent', actionId: this.actionId, payload: parsedPayload };
+    if (this.targetUrl) {
+      return { functionCall: { call: 'openUrl', args: { url: this.targetUrl } } };
     }
-    if (this.targetUrl) return { type: 'link', url: this.targetUrl, newTab: true };
     return null;
   }
 
@@ -195,34 +193,54 @@ export class GdmStageButton extends LitElement {
     if (!action) return;
 
     try {
-      if (action.type === 'link') {
-        window.open(action.url, action.newTab !== false ? '_blank' : '_self');
-        return;
-      }
-      if (action.type === 'fire') {
-        this.loading = true;
-        await fetch(action.endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(action.payload ?? {}),
-        });
-        return;
-      }
-      if (action.type === 'emit') {
-        this.dispatchEvent(new CustomEvent(action.event, {
-          detail: action.detail, bubbles: true, composed: true,
+      if ('event' in action) {
+        // EventAction - dispatch custom 'a2ui-action' event
+        this.dispatchEvent(new CustomEvent('a2ui-action', {
+          detail: { event: action.event },
+          bubbles: true,
+          composed: true,
         }));
         return;
       }
-      if (action.type === 'agent') {
-        // Existing convention preserved — main_stage.ts catches this and
-        // forwards to the agent via sendAction(). Don't rename the event
-        // name; existing handlers depend on it.
-        this.dispatchEvent(new CustomEvent('gdm-button-click', {
-          detail: { actionId: action.actionId, payload: action.payload },
-          bubbles: true, composed: true,
-        }));
-        return;
+
+      if ('functionCall' in action) {
+        const { call, args } = action.functionCall;
+        if (call === 'openUrl') {
+          const url = args?.url;
+          if (typeof url === 'string') {
+            window.open(url, '_blank');
+          } else {
+            console.warn('[gdm-button] openUrl args.url is missing or not a string', args);
+          }
+          return;
+        }
+
+        if (call === 'navigateTab') {
+          const tabId = args?.tabId;
+          this.dispatchEvent(new CustomEvent('a2ui-navigate-tab', {
+            detail: { tabId },
+            bubbles: true,
+            composed: true,
+          }));
+          return;
+        }
+
+        if (call === 'fireEndpoint') {
+          const endpoint = args?.endpoint;
+          if (typeof endpoint === 'string') {
+            this.loading = true;
+            await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args?.body ?? {}),
+            });
+          } else {
+            console.warn('[gdm-button] fireEndpoint args.endpoint is missing or not a string', args);
+          }
+          return;
+        }
+
+        console.warn(`[gdm-button] unknown functionCall.call: "${call}"`);
       }
     } catch (err) {
       console.error('[gdm-button] action failed', err);
