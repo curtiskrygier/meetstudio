@@ -99,6 +99,7 @@ The `open_stage.sh` script (written during this conversation) is in the repo roo
   - Component encoding is FLAT, not nested. `{"id": "x", "component": "gdm-text", "size": "60px"}` not `{"id": "x", "component": {"gdm-text": {...}}}`. If you see the nested form anywhere new, that's a v0.8 leak.
   - C() helper has a collision guard — emitting a prop named `id` or `component` is silently dropped. If a slide doesn't render expected content, check whether the YAML accidentally uses those names.
   - Broadcast envelopes are LEAN: `{"updateComponents": {...}}` not `{"type": "updateComponents", "updateComponents": {...}}`. Engine dispatches via `Object.keys(msg)[0]`. Adding an outer `type` field will silently fail to match.
+- **Button action schema v0.9 (post-migration):** `gdm-button` `action` property no longer uses the pre-v0.9 dialect (`{type, actionId, url, endpoint, event}`). It now uses the canonical v0.9 Action schema: `{"event": {"name", "context"}}` or `{"functionCall": {"call", "args"}}`. The legacy `actionId` convention is retired.
 
 ---
 
@@ -1538,6 +1539,70 @@ The migration scope is narrowly the wire envelope. Everything above stays.
 
  ---
 
- _End of handover. Pick up at §8 / §9 / §12 / §13 / §14 / §15 / §16 / §17 to continue._
+ ## 18. v0.9 button action schema applied
+
+ _2026-05-30. The May 2026 v0.9 migration moved wire envelope + component encoding to spec, but `gdm-button.action` was left on the pre-v0.9 dialect (`{type, actionId, url, endpoint, event}`). This round migrates the button schema to true v0.9: `action.event.{name, context}` for agent-bound, `action.functionCall.{call, args}` for local-only. Hard cutover; no dual-mode shim._
+
+ ### 18.1 What changed
+
+ ```
+ File                                Change
+ ─────────────────────────────────────────────────────────────────────
+ internal/components/gdm_stage_button.ts
+                                     Action type union replaced.
+                                     _handleClick switches on event vs
+                                     functionCall. Legacy actionId
+                                     convention dropped.
+ main_stage.ts                       sendAction dispatch updated for
+                                     a2ui-action event shape.
+ playbooks/templates.py              _make_action() emits v0.9 shape.
+                                     fires:/links:/emits:/agent: YAML
+                                     keys continue to work but now compile
+                                     to v0.9 action shape.
+ app/config.py                       Agent system prompt updated:
+                                     action mode summary, outline hub
+                                     worked examples.
+ main.py                             DRAFT_FROM_DOC_PROMPT outline hub
+                                     YAML example updated.
+ catalog/gdm-v0.2.json               Fresh catalog at v0.2 marking the
+                                     button schema migration.
+ tests/test_a2ui_stage.py            All button fixtures reshaped.
+ ```
+
+ ### 18.2 Spec citation
+
+ A2UI v0.9 Action Architecture — https://a2ui.org/concepts/actions/
+ Two discriminators: `functionCall` (local) and `event` (agent-bound).
+ `event.context` is a hand-picked view of the data model that the renderer
+ resolves at click time and sends with the event.
+
+ ### 18.3 Wire shape
+
+ ```json
+ // Agent-bound:
+ {"id":"submit-btn","component":"gdm-button","text":"Submit",
+  "action":{"event":{"name":"submit_reservation",
+                     "context":{"time":{"path":"/reservationTime"}}}}}
+
+ // Local-only:
+ {"id":"help-btn","component":"gdm-button","text":"Help",
+  "action":{"functionCall":{"call":"openUrl","args":{"url":"https://..."}}}}
+ ```
+
+ ### 18.4 Why now
+
+ (1) The article's "swappable catalogue" claim was weakened by the dialect.
+ (2) `event.context` cleanly enables substrate-principle behaviour: bake the contract at render time, not at click time.
+ (3) `deterministic is our friend` — codifying the schema removes one more place where future LLMs will freelance the shape.
+
+ ### 18.5 Recovery path
+
+ ```bash
+ git checkout pre-v09-button-migration   # snapshot tag
+ ```
+
+ ---
+
+ _End of handover. Pick up at §8 / §9 / §12 / §13 / §14 / §15 / §16 / §17 / §18 to continue._
 
  _Next move: branch `feature/a2ui-0.9-migration` off `checkpoint/a2ui-0.8`, do the wire-format migration, regression-test, publish._
