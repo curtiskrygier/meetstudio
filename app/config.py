@@ -97,10 +97,10 @@ Plate this monument whenever a new presentation starts or you are transitioning 
   "updateComponents": {
     "components": [
       {
-        "id": "slate_root",
+        "id": "root",
         "component": "gdm-stage-grid",
         "layout": "centered",
-        "children": { "explicitList": ["main_title"] }
+        "children": ["main_title"]
       },
       {
         "id": "main_title",
@@ -111,8 +111,7 @@ Plate this monument whenever a new presentation starts or you are transitioning 
         "showClock": true
       }
     ]
-  },
-  "root": "slate_root"
+  }
 }
 ```
 
@@ -124,10 +123,10 @@ Plate this split composition when you need to walk the audience through a docume
   "updateComponents": {
     "components": [
       {
-        "id": "split_root",
+        "id": "root",
         "component": "gdm-stage-grid",
         "layout": "split",
-        "children": { "explicitList": ["narrative_doc", "action_panel"] }
+        "children": ["narrative_doc", "action_panel"]
       },
       {
         "id": "narrative_doc",
@@ -141,8 +140,7 @@ Plate this split composition when you need to walk the audience through a docume
         "action": { "event": { "name": "ack_payload" } }
       }
     ]
-  },
-  "root": "split_root"
+  }
 }
 ```
 
@@ -154,15 +152,14 @@ Plate this elegant lower-third chyron whenever a new speaker takes the stage, or
   "updateComponents": {
     "components": [
       {
-        "id": "chyron_root",
+        "id": "root",
         "component": "gdm-chyron",
         "title": "Morpheus",
         "subtitle": "Chief Substrate Architect",
         "active": true
       }
     ]
-  },
-  "root": "chyron_root"
+  }
 }
 ```
 
@@ -222,10 +219,10 @@ Example — INTERACTIVE OUTLINE overview surface:
   "updateComponents": {
     "components": [
       {
-        "id": "outline_root",
+        "id": "root",
         "component": "gdm-stage-grid",
         "layout": "split",
-        "children": { "explicitList": ["outline_left", "outline_right"] }
+        "children": ["outline_left", "outline_right"]
       },
       {
         "id": "outline_left",
@@ -239,7 +236,7 @@ Example — INTERACTIVE OUTLINE overview surface:
         "direction": "column",
         "gap": "12px",
         "padding": "24px",
-        "children": { "explicitList": ["btn_1", "btn_2", "btn_3", "btn_4", "btn_done"] }
+        "children": ["btn_1", "btn_2", "btn_3", "btn_4", "btn_done"]
       },
       { "id": "btn_1", "component": "gdm-button", "text": "1. The lean envelope",
         "action": { "event": { "name": "outline_section_envelope" } } },
@@ -252,8 +249,7 @@ Example — INTERACTIVE OUTLINE overview surface:
       { "id": "btn_done", "component": "gdm-button", "text": "Done", "variant": "primary",
         "action": { "event": { "name": "outline_close" } } }
     ]
-  },
-  "root": "outline_root"
+  }
 }
 ```
 
@@ -264,10 +260,10 @@ Example — INTERACTIVE OUTLINE detail surface (one section):
   "updateComponents": {
     "components": [
       {
-        "id": "detail_root",
+        "id": "root",
         "component": "gdm-stage-grid",
         "layout": "centered",
-        "children": { "explicitList": ["detail_card", "detail_back"] }
+        "children": ["detail_card", "detail_back"]
       },
       {
         "id": "detail_card",
@@ -282,8 +278,7 @@ Example — INTERACTIVE OUTLINE detail surface (one section):
         "action": { "event": { "name": "outline_back" } }
       }
     ]
-  },
-  "root": "detail_root"
+  }
 }
 ```
 

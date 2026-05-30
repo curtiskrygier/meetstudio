@@ -561,7 +561,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     }
                                 })
                                 await broadcast_to_stage(session_space[0], {
-                                    "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_root_grid"}
+                                    "createSurface": {"catalogId": "gdm-v0.2", "theme": {}}
                                 })
                         
                         elif data.get("type") == "diagram_mode":
@@ -824,11 +824,17 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                         response={"result": f"Validation failed: {', '.join(errors)}"}
                                     ))
                                 else:
-                                    await broadcast_to_stage(session_space[0], {"updateComponents": {"components": surface_update.get("components", [])}})
+                                    comps = surface_update.get("components", [])
+                                    # Ensure the root component has id "root" per A2UI v0.9 spec
+                                    if root_id and root_id != "root":
+                                        for comp in comps:
+                                            if comp.get("id") == root_id:
+                                                comp["id"] = "root"
+                                    await broadcast_to_stage(session_space[0], {"updateComponents": {"components": comps}})
                                     if data_model_update:
                                         await broadcast_to_stage(session_space[0], {"updateDataModel": data_model_update})
                                     if root_id:
-                                        await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id}})
+                                        await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}})
                                     if warnings:
                                         logger.warning(f"[tool] render_stage surface warnings: {'; '.join(warnings)}")
                                     logger.info(f"[tool] render_stage root={root_id} n={len(surface_update.get('components', []))}")
@@ -866,9 +872,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                 current_turn.update({"id": str(uuid_lib.uuid4()), "role": "user"})
                             transcript_msg = {"type": "transcript", "role": "user", "label": "You", "text": t_text, "turn_id": current_turn["id"], "is_final": is_final}
                             await websocket.send_text(json.dumps(transcript_msg))
-                            caption_surface = {"updateComponents": {"components": [{"id": "stage_captions", "component": "gdm-captions", "text": t_text, "speaker": "You", "active": True}]}}
+                            caption_surface = {"updateComponents": {"components": [{"id": "root", "component": "gdm-captions", "text": t_text, "speaker": "You", "active": True}]}}
                             await broadcast_to_stage(session_space[0], caption_surface)
-                            await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_captions"}})
+                            await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}})
                             if is_final: current_turn["role"] = None
 
                     if sc.model_turn:
@@ -882,9 +888,9 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                         current_turn.update({"id": str(uuid_lib.uuid4()), "role": "agent"})
                                     transcript_msg = {"type": "transcript", "role": "agent", "label": "Gemini Architect", "text": part.text, "turn_id": current_turn["id"], "is_final": False}
                                     await websocket.send_text(json.dumps(transcript_msg))
-                                    caption_surface = {"updateComponents": {"components": [{"id": "stage_captions", "component": "gdm-captions", "text": part.text, "speaker": "Gemini Architect", "active": True}]}}
+                                    caption_surface = {"updateComponents": {"components": [{"id": "root", "component": "gdm-captions", "text": part.text, "speaker": "Gemini Architect", "active": True}]}}
                                     await broadcast_to_stage(session_space[0], caption_surface)
-                                    await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_captions"}})
+                                    await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}})
                     
                     if sc.turn_complete: current_turn["role"] = None
         except Exception as e:
@@ -1107,6 +1113,9 @@ async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: 
                 await broadcast_to_stage(meeting_id, msg, exclude_ws=websocket)
             elif msg.get("type") == "a2ui_error":
                 logger.error(f"[a2ui_error] Frontend A2UI Error in meeting {meeting_id}:\n  Context: {msg.get('context')}\n  Error: {msg.get('error')}\n  Stack: {msg.get('stack')}")
+            elif "error" in msg:
+                err = msg["error"]
+                logger.warning(f"[a2ui-validationFailed] Inbound error from meeting {meeting_id}: {json.dumps(err)}")
             elif msg.get("type") == "a2ui_action":
                 action_name = msg.get("action")
                 detail = msg.get("detail", {})
@@ -1897,13 +1906,11 @@ def make_composable_standby_components(badge: str, title: str, description: str,
     
     # 1. Root Grid
     components.append({
-        "id": "stage_root_grid",
+        "id": "root",
         "component": {
             "gdm-stage-grid": {
                 "layout": "single",
-                "children": {
-                    "explicitList": ["welcome_outer_container"]
-                }
+                "children": ["welcome_outer_container"]
             }
         }
     })
@@ -1919,9 +1926,7 @@ def make_composable_standby_components(badge: str, title: str, description: str,
                 "width": "100%",
                 "height": "100%",
                 "background": "rgba(10, 15, 30, 0.45)", # Deep cinematic cyber backdrop
-                "children": {
-                    "explicitList": ["welcome_card"]
-                }
+                "children": ["welcome_card"]
             }
         }
     })
@@ -1953,9 +1958,7 @@ def make_composable_standby_components(badge: str, title: str, description: str,
                 "glass": True,
                 "borderRadius": "16px",
                 "border": "1px solid rgba(255, 255, 255, 0.12)",
-                "children": {
-                    "explicitList": card_children
-                }
+                "children": card_children
             }
         }
     })
@@ -1969,9 +1972,7 @@ def make_composable_standby_components(badge: str, title: str, description: str,
                 "justify": "space-between",
                 "align": "center",
                 "width": "100%",
-                "children": {
-                    "explicitList": ["welcome_icon", "welcome_badge"]
-                }
+                "children": ["welcome_icon", "welcome_badge"]
             }
         }
     })
@@ -1980,9 +1981,9 @@ def make_composable_standby_components(badge: str, title: str, description: str,
         "id": "welcome_icon",
         "component": {
             "gdm-icon": {
-                "name": "sonar",
-                "color": "cyan",
-                "size": "32px"
+                "icon": "concierge",
+                "size": "32px",
+                "color": "cyan"
             }
         }
     })
@@ -1991,22 +1992,20 @@ def make_composable_standby_components(badge: str, title: str, description: str,
         "id": "welcome_badge",
         "component": {
             "gdm-badge": {
-                "text": badge.upper(),
-                "type": "cyan",
-                "pulse": True
+                "text": badge,
+                "type": "cyan"
             }
         }
     })
     
-    # 5. Divider
+    # 5. Accent Divider
     components.append({
         "id": "welcome_divider",
         "component": {
             "gdm-divider": {
-                "vertical": False,
-                "color": "rgba(255, 255, 255, 0.15)",
-                "thickness": "1px",
-                "margin": "4px 0"
+                "type": "solid",
+                "weight": "2px",
+                "color": "rgba(0, 242, 255, 0.25)"
             }
         }
     })
@@ -2017,12 +2016,9 @@ def make_composable_standby_components(badge: str, title: str, description: str,
         "component": {
             "gdm-text": {
                 "content": title,
-                "size": "h2",
-                "color": "accent",
-                "pulse": True,
-                "uppercase": True,
-                "font": "sans",
-                "align": "center"
+                "size": "36px",
+                "weight": "bold",
+                "color": "light"
             }
         }
     })
@@ -2034,39 +2030,36 @@ def make_composable_standby_components(badge: str, title: str, description: str,
             "component": {
                 "gdm-text": {
                     "content": description,
-                    "size": "body",
-                    "color": "white",
-                    "align": "center"
+                    "size": "16px",
+                    "weight": "normal",
+                    "color": "mute"
                 }
             }
         })
         
-    # 8. Countdown Timer
+    # 8. Countdown Timer (Premium Smart Trend)
     if remaining_seconds > 0:
-        minutes = remaining_seconds // 60
-        seconds = remaining_seconds % 60
-        time_str = f"{minutes:02d}:{seconds:02d}"
         components.append({
             "id": "welcome_countdown",
             "component": {
-                "gdm-text": {
-                    "content": time_str,
-                    "size": "64px",
-                    "weight": "800",
-                    "color": "accent",
-                    "pulse": True,
-                    "font": "mono",
-                    "align": "center"
+                "gdm-trend-value": {
+                    "label": "TIME UNTIL AI DRIFT INCEPTION",
+                    "value": f"{remaining_seconds // 60:02d}:{remaining_seconds % 60:02d}",
+                    "size": "large",
+                    "glow": True,
+                    "trend": "neutral"
                 }
             }
         })
         components.append({
             "id": "welcome_countdown_line",
             "component": {
-                "gdm-divider": {
-                    "vertical": False,
-                    "color": "rgba(0, 242, 255, 0.4)",
-                    "thickness": "2px",
+                "gdm-sparkline": {
+                    "data": [float(x) for x in range(10, remaining_seconds + 10)[:15]],
+                    "width": "220px",
+                    "height": "32px",
+                    "color": "cyan",
+                    "fill": "rgba(0, 242, 255, 0.05)",
                     "margin": "0 auto"
                 }
             }
@@ -2095,9 +2088,7 @@ def make_composable_standby_components(badge: str, title: str, description: str,
                 "justify": "space-between",
                 "align": "center",
                 "width": "100%",
-                "children": {
-                    "explicitList": ["welcome_status_lbl", "welcome_clock"]
-                }
+                "children": ["welcome_status_lbl", "welcome_clock"]
             }
         }
     })
@@ -2141,7 +2132,7 @@ async def standby_countdown_task(space_id: str, badge: str, title: str, descript
                 }
             })
             await broadcast_to_stage(space_id, {
-                "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_root_grid"}
+                "createSurface": {"catalogId": "gdm-v0.2", "theme": {}}
             })
             if remaining == 0:
                 break
@@ -2261,21 +2252,28 @@ async def render_stage(space_id: str, request: Request):
     components = surface_update.get("components", [])
     root_id = body.get("root") or (components[0]["id"] if components else None)
 
-    import datetime
     if errors:
-        await broadcast_to_stage(space_id, {
-            "validationFailed": {
-                "errors": errors,
-                "surfaceId": root_id if 'root_id' in locals() else None,
-                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-            }
-        })
+        for err in errors:
+            await broadcast_to_stage(space_id, {
+                "error": {
+                    "code": "VALIDATION_FAILED",
+                    "surfaceId": root_id or "root",
+                    "path": "",
+                    "message": err,
+                }
+            })
         raise HTTPException(status_code=422, detail={"errors": errors})
 
     if warnings:
         logger.warning(f"[render-stage] surface warnings: {'; '.join(warnings)}")
     if not root_id:
         raise HTTPException(status_code=422, detail={"errors": ["No root component id"]})
+
+    # Ensure the root component has id "root" per A2UI v0.9 spec
+    if root_id and root_id != "root":
+        for comp in components:
+            if comp.get("id") == root_id:
+                comp["id"] = "root"
 
     # Broadcast in A2UI protocol order: updateComponents → (optional) updateDataModel → createSurface
     await broadcast_to_stage(space_id, {"updateComponents": {"components": components}})
@@ -2284,7 +2282,7 @@ async def render_stage(space_id: str, request: Request):
     if data_model_update:
         await broadcast_to_stage(space_id, {"updateDataModel": data_model_update})
 
-    await broadcast_to_stage(space_id, {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id}})
+    await broadcast_to_stage(space_id, {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}})
 
     logger.info(f"[render-stage] {space_id} root={root_id} components={len(components)}")
     resp = {"ok": True, "root": root_id, "components": len(components)}
@@ -2599,21 +2597,28 @@ async def fire_playbook_slide_internal(playbook_name: str, slide_id: str, space_
     root_id = components[0].get("id", "root")
 
     errors, warnings = validate_a2ui_surface_detailed({"components": components})
-    import datetime
     if errors:
-        await broadcast_to_stage(space_id, {
-            "validationFailed": {
-                "errors": errors,
-                "surfaceId": root_id if 'root_id' in locals() else None,
-                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-            }
-        })
+        for err in errors:
+            await broadcast_to_stage(space_id, {
+                "error": {
+                    "code": "VALIDATION_FAILED",
+                    "surfaceId": root_id or "root",
+                    "path": "",
+                    "message": err,
+                }
+            })
+
+    # Ensure the root component has id "root" per A2UI v0.9 spec
+    if root_id and root_id != "root":
+        for comp in components:
+            if comp.get("id") == root_id:
+                comp["id"] = "root"
 
     await broadcast_to_stage(space_id, {
         "updateComponents": {"components": components},
     })
     await broadcast_to_stage(space_id, {
-        "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id},
+        "createSurface": {"catalogId": "gdm-v0.2", "theme": {}},
     })
     logger.info(f"[playbook] fired {playbook_name}/{slide_id} -> {space_id} "
                 f"({len(components)} components, root={root_id})")
@@ -2646,7 +2651,7 @@ async def fire_playbook_slide_internal(playbook_name: str, slide_id: str, space_
                             "updateComponents": {"components": partial},
                         })
                         await broadcast_to_stage(space_id, {
-                            "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id},
+                            "createSurface": {"catalogId": "gdm-v0.2", "theme": {}},
                         })
                     tick += 1
             except asyncio.CancelledError:
