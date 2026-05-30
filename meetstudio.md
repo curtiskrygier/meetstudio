@@ -100,6 +100,8 @@ The `open_stage.sh` script (written during this conversation) is in the repo roo
   - C() helper has a collision guard — emitting a prop named `id` or `component` is silently dropped. If a slide doesn't render expected content, check whether the YAML accidentally uses those names.
   - Broadcast envelopes are LEAN: `{"updateComponents": {...}}` not `{"type": "updateComponents", "updateComponents": {...}}`. Engine dispatches via `Object.keys(msg)[0]`. Adding an outer `type` field will silently fail to match.
 - **Button action schema v0.9 (post-migration):** `gdm-button` `action` property no longer uses the pre-v0.9 dialect (`{type, actionId, url, endpoint, event}`). It now uses the canonical v0.9 Action schema: `{"event": {"name", "context"}}` or `{"functionCall": {"call", "args"}}`. The legacy `actionId` convention is retired.
+- **Root id rule (post-migration):** Every emitted surface must include exactly one component with `id: "root"`. Don't put `root:` on the `createSurface` envelope — that's v0.8.
+- **Children encoding (post-migration):** `children` is a flat array of ids — `children: ["a", "b"]` — NOT `children: {explicitList: [...]}`. The latter is v0.8.
 
 ---
 
@@ -1603,6 +1605,177 @@ The migration scope is narrowly the wire envelope. Everything above stays.
 
  ---
 
- _End of handover. Pick up at §8 / §9 / §12 / §13 / §14 / §15 / §16 / §17 / §18 to continue._
+## 19. Session 2026-05-30 — hub-shape prompt edits, deployed, audit, teaser assets
 
- _Next move: branch `feature/a2ui-0.9-migration` off `checkpoint/a2ui-0.8`, do the wire-format migration, regression-test, publish._
+_Conversation focused on (a) unlocking interactive outlines via prompt edits, (b) recording the teaser source clips, (c) auditing remaining v0.9 spec gaps. Cloud Run redeployed; one new Gemini plan staged._
+
+### 19.1 What changed in code (deployed)
+
+**`main.py::DRAFT_FROM_DOC_PROMPT`** — added SHAPE SELECTION preamble + OUTLINE HUB worked example. Two shapes named: LINEAR DECK (the old default) and OUTLINE HUB (new). Trigger rules: reference doc with 6+ sections, OR user asks for outline/hub/index/map/overview/interactive. Hub shape compiles to `split_with_action` overview + N detail slides + signoff close, with back-buttons on each detail.
+
+**`app/config.py::DEFAULT_PROMPT`** — added INTERACTIVE OUTLINE / HUB section to the live-agent prompt with the two-surface pattern (overview → detail → back) using `action.type:"agent"` callbacks (semantic actionIds like `outline_section_envelope`, `outline_back`, `outline_close`). Two worked JSON examples for both surfaces.
+
+**Cloud Run redeployed** to revision `meet-live-concierge-00014-ks4` on `project-a5de4241-45e9-484a-8c6`, us-central1. URL unchanged: `https://meet-live-concierge-602445641262.us-central1.run.app`.
+
+### 19.2 Bias test artefacts (in `articles/`)
+
+- `bias-test-before.yaml` — 4-slide linear-deck output (old prompt, baseline)
+- `bias-test-after.yaml` — 8-slide hub-outline output (new prompt, same `meetstudio.md` input)
+- `bias-test.md` — narrative side-by-side suitable for embedding in Article 2
+
+**The finding:** before the prompt edit, the live agent already produced reasonable hub-shaped output ("pretty cool" per user test) — the substrate had the capability. After the edit, the behaviour is **deterministic**, which user explicitly chose over emergent: *"deterministic is our friend."* See memory entry `deterministic-over-emergent.md`.
+
+### 19.3 Recordings produced
+
+- `articles/chef-at-the-table.{webm,mp4}` — 54.6s, 1920×1080. The primitives/restaurant-metaphor demo. Already-v0.9-compliant; no conversion needed.
+- `articles/market-ticker.{webm,mp4}` — 24.9s, 1920×1080. The molecule version of the dense market scan. Converted from v0.8 nested shape to v0.9 flat shape (added C() helper, flattened three component sites in `demo_a2ui_market_ticker.py`).
+- `articles/sidepanel-widget.{webm,mp4}` — 25.4s, 1920×1080. Mocked side-panel widget at zoomed-in resolution: cursor enters → types "Outline me the A2UI 0.9 spec" → clicks "📖 Draft & Fire Playbook" → status flips. Designed for post-prod stitch with a separate stage-rendering Clip 2 (not yet recorded).
+- `record_chef_demo.py` (now parameterised: `record_chef_demo.py <demo_script> <out_stem>`) — generic Playwright recorder used for all of the above
+- `record_sidepanel_widget.py` — dedicated recorder for the widget mock
+- `articles/_sidepanel_mock.html` — faithful HTML+CSS reproduction of the production widget at recording size
+
+### 19.4 v0.9 spec audit findings — gaps beyond the button schema
+
+| Gap | Detail | Status |
+|---|---|---|
+| G1 | `createSurface.root` still emitted (spec removed it — root component must literally be `id: "root"`) | Documented; in plan |
+| G2 | `children: {explicitList: [...]}` wrapper used everywhere (v0.9 expects flat array) | Documented; in plan |
+| G3 | Catalog version mismatch — `catalog/gdm-v0.1.json` + `gdm-v0.2.json` both on disk; main.py references v0.2 | Documented; in plan |
+| G4 | `validationFailed` shape doesn't match spec (`{error: {code, surfaceId, path, message}}`); direction is wrong (we broadcast server→stage, spec is client→server feedback loop) | Documented; in plan |
+| G5 | Engine still reads `literalString` / `literalNumber` / `literalBoolean` / `literalArray` v0.8 BoundValue wrappers | Documented; in plan |
+| (out of scope) | `formatString` runtime interpolation — we use compile-time `{{key}}` instead | Deferred — we don't use it |
+| (out of scope) | `sendDataModel` flag — we don't sync client state to agent | Deferred — we don't use it |
+
+### 19.5 Outstanding Gemini handoffs
+
+Two self-contained plans in `staging/`:
+
+- **`staging/v09-button-schema-migration.md`** — gdm-button.action → true v0.9 (event/functionCall). **REPORTED COMPLETE by Gemini before this session** (catalog v0.2 file exists, main.py references it). User confirmed verbally.
+- **`staging/v09-spec-completion-migration.md`** — covers G1–G5 above. **NEW**, ready to paste to Antigravity. Hard cutover; tag `pre-v09-spec-completion` is the safety net. Estimated 3-4 hours mechanical execution.
+
+The paste-ready Antigravity prompt for the spec-completion plan (per user request, kept in conversation history):
+
+```
+Project: meet-live-concierge at /home/curtis/gemini/addons/meetstudio.
+Task: Read and execute /home/curtis/gemini/addons/meetstudio/staging/v09-spec-completion-migration.md.
+Conventions: hard cutover, tag-checkpoint safety net, local verification only, don't redeploy Cloud Run, don't push/merge, don't implement formatString or sendDataModel.
+Expected output: the Final report shape block filled in with commit SHAs and verification results.
+Start with the pre-flight check; if anything fails, STOP and report.
+```
+
+### 19.6 Article + LinkedIn teaser state
+
+- **Article 1** ("How I got to A2UI") — published as draft on techmusings, Firestore doc `RjRJqpDrZgJGP03pWFsB`. Embeds the animated D2 architecture SVG + YouTube video. Daughter's correction applied ("Months of experimenting earned a weekend of seeing it properly").
+- **Article 2** ("Substrate, not slides") — drafted skeleton at `articles/substrate-not-slides.md`. Has catalogue table (45 components, 5 categories), TODO stubs for substrate principle, chef metaphor, doc-to-deck loop, v0.9 twist, close. Bias-test material in `bias-test.md` ready to embed.
+- **LinkedIn teaser** — drafted, refined through several rounds. Final shape leads with the meta-recursion ("A2UI rendering an outline of A2UI"), names protocol peers (MCP-UI, AG-UI, *let-the-LLM-drive-the-UI* wave), tags @Pierrick Voulet. Caveat: the original draft said "A2UI 0.9 dropped on the 29th" — GitHub data shows the v0.9 tag is from April 2026, and the 29th was a busy dev day (Vue renderer support, Flutter package rename, MIME-type breaking change) but not a formal release. User has updated to broader phrasing ("approaching v1 with 0.9 draft updates ongoing").
+
+### 19.7 New memory entries
+
+Added since last session:
+
+- `deterministic-over-emergent.md` (feedback) — *"deterministic is our friend"*; codify behaviours into prompt rules even when emergent reasoning gets there too
+- `a2ui-v0.9-button-schema.md` (project) — created by Gemini during button-schema migration; logged in MEMORY.md
+- `a2ui-v0.9-spec-completion.md` (project) — to be created by Gemini at end of next migration
+
+### 19.8 Open threads (where this session paused)
+
+1. **Run the spec-completion plan through Antigravity** — paste the prompt + handoff plan, Gemini executes. Then user redeploys + retests Meet add-on.
+2. **Record Clip 2** — stage rendering the hub-outline output for "Outline me the A2UI 0.9 spec" against the deployed Cloud Run. Post-prod stitch with Clip 1 (`sidepanel-widget.mp4`) for the teaser video.
+3. **Publish LinkedIn teaser** — once Clip 2 exists and post-prod is done.
+4. **Finish Article 2** — substrate-not-slides.md has TODOs to flesh out (chef metaphor section, doc-to-deck killer loop section, v0.9 twist section, closing).
+5. **G6/G7 deferred work** — wire client→server validationFailed consumption into the agent loop; document at some point.
+
+### 19.9 Recovery / pickup
+
+```bash
+# Inspect state
+git log --oneline -15
+ls catalog/                              # should have gdm-v0.1.json + gdm-v0.2.json
+ls articles/                             # bias-test artefacts + 3 recordings
+ls staging/v09-*.md                      # two migration plans
+
+# Restart local dev
+cd /home/curtis/gemini/addons/meetstudio
+source venv/bin/activate
+export GEMINI_PROJECT=project-a5de4241-45e9-484a-8c6
+export REGION=us-central1
+uvicorn main:app --port 8085 --reload &
+
+# Cloud Run is live — no action required unless redeploying:
+# gcloud run services describe meet-live-concierge --region=us-central1 \
+#   --project=project-a5de4241-45e9-484a-8c6 --format='value(status.url)'
+```
+
+ ---
+
+## 20. Session 2026-05-30 — A2UI v0.9 Spec Completion applied
+
+_Conversation focused on completing the A2UI v0.9 wire specification compatibility. This closed the remaining gaps after the button-schema migration: createSurface.root removal, flat children: [...] arrays, coherent catalog v0.2 usage, spec-compliant client/server validationFailed shapes, and legacy BoundValue dead-code cleanup. Hard cutover; no dual-mode shims._
+
+### 20.1 What changed
+
+File                                Change
+─────────────────────────────────────────────────────────────────────
+internal/a2ui/engine.ts             Removed `createSurface.root` payload lookup, substituting literal ID `"root"` rendering directly.
+                                    Refactored `children` compiling/traversing to accept flat arrays rather than `explicitList`.
+                                    Introduced engine-side validation event triggers with callback registration.
+                                    Stripped legacy v0.8 BoundValue wrappers (`literalString`, `literalNumber`, `literalBoolean`, `literalArray`).
+main_stage.ts                       Wired up WebSocket-sent `error` payloads from the client back to the server using the correct client-to-server schema.
+main.py                             Stripped `root` fields from every server-broadcasted `createSurface` packet.
+                                    Refactored component lists to assign render roots to the literal ID `"root"`.
+                                    Flattened all `children` component arrays on the wire.
+                                    Modified server validation broadcast to transmit separate spec-compliant, sequential `error` messages.
+                                    Added WebSocket receiver tracking `[a2ui-validationFailed]` warnings.
+app/a2ui_catalog.py                 Changed `children` validator target format from Pydantic `dict` (for `{explicitList: [...]}`) to flat Python `list`.
+catalog/gdm-v0.2.json               Regenerated full schema catalog using flat-array children definitions.
+app/config.py                       Upgraded all `SYSTEM_PROMPT` Examples (1, 2, 3, 4) and Detail Surface schemas to employ flat `children` arrays, direct `"root"` IDs, and omit `root` properties on createSurface.
+playbooks/templates.py              Updated list-5, split-with-action, market-ticker, and airspace templates to output flat child lists.
+demo_a2ui_*.py                      Refactored all 8 stage demo files to use flat children arrays and direct `"root"` layout root IDs.
+tests/test_a2ui_stage.py            Fixtures and assertions rewritten to inspect flat lists, dropping legacy dual checks.
+
+### 20.2 Spec citation
+
+- **Render root rule:** https://a2ui.org/specification/v0.9-evolution-guide/#surface-root-id
+  The top-level `root` parameter in `createSurface` is dropped. A surface render root must literally be named `"root"`.
+- **Flat Children:** https://a2ui.org/specification/v0.9-evolution-guide/#children-property-type
+  `childrenProperty` array flattening: `children` values must be flat arrays of IDs instead of the `{explicitList: [...]}` map structure.
+- **Validation shape (client-to-server):** https://a2ui.org/specification/v0.9-evolution-guide/#client-to-server-validation
+  Schema errors use the envelope `error` with a payload of `{code: "VALIDATION_FAILED", surfaceId: "...", path: "...", message: "..."}`.
+
+### 20.3 Wire shape
+
+```json
+// Create Surface Envelope (No root property):
+{"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}}
+
+// Component Definition with Flat Children:
+{"id": "root", "component": "gdm-stage-grid", "layout": "hero", "children": ["main"]}
+
+// validationFailed spec-compliant shape (Client -> Server):
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "surfaceId": "root",
+    "path": "/components/banner/component",
+    "message": "Component 'gdm-nonexistent' not in catalog"
+  }
+}
+```
+
+### 20.4 Why now
+
+1. **Pure compliance:** Gaps in children array flattening and `createSurface` structures left the app incompatible with alternative standard v0.9 clients.
+2. **Deterministic prompt execution:** Removing nested lists and extra envelopes makes it much simpler to construct bulletproof schema instructions and examples in `app/config.py`.
+3. **True Swappable Catalogue:** Aligning the catalog descriptor validation definitions with standard wire lists makes the client-side rendering engine truly generic and hot-swappable.
+
+### 20.5 Out of scope
+
+- **`formatString`:** Deferred as it is not actively used (compile-time jinja-style substitution is used instead).
+- **`sendDataModel`:** Out-of-scope; we do not synchronize deep client state graphs back to the agent currently.
+- **Client-to-Agent feedback consumption:** The engine compiles and transmits WebSocket validation errors to the server, and the server prints them, but feeding these back directly into the live agent reasoning loop is deferred to future work.
+
+### 20.6 Recovery path
+
+```bash
+git checkout pre-v09-spec-completion   # snapshot tag
+```
