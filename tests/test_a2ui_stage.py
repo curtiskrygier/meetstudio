@@ -89,7 +89,7 @@ def test_api_render_stage_success(mock_auth_key, mock_broadcast):
     assert mock_broadcast.call_count == 3
     mock_broadcast.assert_any_call("spaces/test", {"updateComponents": {"components": payload["surfaceUpdate"]["components"]}})
     mock_broadcast.assert_any_call("spaces/test", {"updateDataModel": payload["dataModelUpdate"]})
-    mock_broadcast.assert_any_call("spaces/test", {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "comp-1"}})
+    mock_broadcast.assert_any_call("spaces/test", {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "comp-1"}})
 
 def test_api_render_stage_validation_failure(mock_auth_key):
     headers = {"Authorization": f"Bearer {mock_auth_key}"}
@@ -512,9 +512,12 @@ def test_validate_gdm_composable_primitives_valid():
             {
                 "id": "child-button",
                 "component": "gdm-button",
-                "label": "Click Me",
-                "actionId": "btn_click_1",
-                "payload": '{"foo": "bar"}',
+                "text": "Click Me",
+                "action": {
+                    "event": {
+                        "name": "btn_click_1"
+                    }
+                },
                 "icon": "activity",
                 "type": "primary",
                 "disabled": False
