@@ -207,6 +207,17 @@ const engine = new A2UIEngine((components: A2UIComponent[]) => {
   }
 });
 
+engine.onValidationError = (err) => {
+  const ws = (window as any).__stageWS as WebSocket | undefined;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({ error: err }));
+    } catch (e) {
+      console.error('[stage-a2ui] Failed to send validation error to backend:', e);
+    }
+  }
+};
+
 // Initialize WebSocket after engine is ready
 setupWebSocket();
 
@@ -334,7 +345,7 @@ function renderA2UI(components: A2UIComponent[]) {
       const parentEl = elementMap.get(comp.id);
       if (!parentEl) continue;
 
-      const childrenList = comp.props?.children?.explicitList;
+      const childrenList = comp.props?.children;
       if (Array.isArray(childrenList)) {
         childrenList.forEach((childId: string, index: number) => {
           const childEl = elementMap.get(childId);

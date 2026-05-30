@@ -72,7 +72,7 @@ CATALOG: "dict[str, Comp]" = {
         props=[
             Prop("layout", "string", None, 'Arrangement of panel(s). Options: `"single"`, `"split"`, `"grid"`, `"grid-3"`, `"presentation"`.', pytype=str),
             Prop("focusedPanel", "string", None, "ID of the component to focus/maximize.", pytype=str),
-            Prop("children", doc=False, pytype=dict),
+            Prop("children", doc=False, pytype=list),
         ],
     ),
 
@@ -183,7 +183,7 @@ CATALOG: "dict[str, Comp]" = {
             Prop("revealDelay", "number", False, 'Seconds to delay the entrance — stagger across panels to choreograph a staged "set the stage" reveal.', pytype=float),
             Prop("columns", "number", False, 'CSS column-count for automatic multi-column text or child element flow.', pytype=int),
             Prop("columnGap", "string", False, 'CSS column-gap spacing (e.g., `"16px"`, defaults to gap or `"16px"`).', pytype=str),
-            Prop("children", doc=False, pytype=dict),
+            Prop("children", doc=False, pytype=list),
         ],
     ),
     "gdm-text": Comp(
@@ -360,7 +360,7 @@ CATALOG: "dict[str, Comp]" = {
             Prop("speed", "string", False, 'CSS animation duration (e.g. `"20s"`).', pytype=str),
             Prop("direction", "string", False, 'Scrolling direction vector (`"left"` or `"right"`).', pytype=str),
             Prop("active", "boolean", False, 'Toggles scrolling animation activity.', pytype=bool),
-            Prop("children", doc=False, pytype=dict),
+            Prop("children", doc=False, pytype=list),
         ],
     ),
 
