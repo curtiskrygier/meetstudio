@@ -409,7 +409,7 @@ async def main():
                             "gdm-stage-grid": {
                                 "layout": "split",
                                 "focusedPanel": 0,
-                                "children": {"explicitList": [nexus_panel_id, "p1_draft_panel"]}
+                                "children": [nexus_panel_id, "p1_draft_panel"]
                             }
                         }
                     },
@@ -559,7 +559,7 @@ async def main():
                             "gdm-stage-grid": {
                                 "layout": "split",
                                 "focusedPanel": 2,
-                                "children": {"explicitList": [nexus_p2_id, "p2_telemetry_dashboard"]}
+                                "children": [nexus_p2_id, "p2_telemetry_dashboard"]
                             }
                         }
                     },
@@ -686,7 +686,7 @@ async def main():
                         "component": {
                             "gdm-stage-grid": {
                                 "layout": "split",
-                                "children": {"explicitList": [nexus_p2_id, "p2_telemetry_dashboard"]}
+                                "children": [nexus_p2_id, "p2_telemetry_dashboard"]
                             }
                         }
                     },
@@ -811,7 +811,7 @@ async def main():
                             "component": {
                                "gdm-stage-grid": {
                                     "layout": "split",
-                                    "children": {"explicitList": [nexus_p2_id, "p2_telemetry_dashboard"]}
+                                    "children": [nexus_p2_id, "p2_telemetry_dashboard"]
                                 }
                             }
                         },
@@ -948,7 +948,7 @@ async def main():
                             "gdm-stage-grid": {
                                 "layout": "split",
                                 "focusedPanel": 2,
-                                "children": {"explicitList": ["p5_telemetry_dashboard", "p5_html_panel"]}
+                                "children": ["p5_telemetry_dashboard", "p5_html_panel"]
                             }
                         }
                     },
@@ -1037,7 +1037,7 @@ async def main():
                         "component": {
                             "gdm-stage-grid": {
                                 "layout": "single",
-                                "children": {"explicitList": ["closing_card_panel"]}
+                                "children": ["closing_card_panel"]
                             }
                         }
                     },

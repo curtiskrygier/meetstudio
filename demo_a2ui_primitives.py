@@ -46,11 +46,11 @@ def primitive_surface(prim_id: str, prim_el: str, prim_props: dict, lines: list,
     `step`/`total` drive the 'INGREDIENT N OF M' tasting-menu banner up top."""
     label_ids = [f"lbl_{i}" for i in range(len(lines))]
     surface = [
-        C("root", "gdm-stage-grid", {"layout": "hero", "children": {"explicitList": ["main"]}}),
+        C("root", "gdm-stage-grid", {"layout": "hero", "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center", "align": "center",
                                     "width": "100%", "height": "100%", "gap": "32px",
                                     "padding": "60px", "grow": 1,
-                                    "children": {"explicitList": ["banner", "showcase", "label_block"]}}),
+                                    "children": ["banner", "showcase", "label_block"]}),
         # Tasting-menu banner: tonight's restaurant metaphor framing —
         # "INGREDIENT N OF M · gdm-badge". Types in so the slate feels like
         # a course being written onto a chalkboard.
@@ -67,12 +67,12 @@ def primitive_surface(prim_id: str, prim_el: str, prim_props: dict, lines: list,
                                         "border": "1px dashed rgba(0,255,136,0.18)",
                                         "background": "rgba(0,255,136,0.03)",
                                         "reveal": "scale-in", "revealDelay": 0.25,
-                                        "children": {"explicitList": [prim_id]}}),
+                                        "children": [prim_id]}),
         C(prim_id, prim_el, prim_props),
         # Label block: API signature in phosphor mono, animated in.
         C("label_block", "gdm-container", {"direction": "column", "align": "center", "gap": "8px",
                                            "reveal": "fade-up", "revealDelay": 0.55,
-                                           "children": {"explicitList": label_ids}}),
+                                           "children": label_ids}),
     ]
     for i, ln in enumerate(lines):
         is_name = i == 0
@@ -125,11 +125,11 @@ PRIMITIVES = [
 # ────────────────────────────────────────────────────────────────────────────
 def title_surface():
     return [
-        C("root", "gdm-stage-grid", {"layout": "hero", "children": {"explicitList": ["main"]}}),
+        C("root", "gdm-stage-grid", {"layout": "hero", "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center", "align": "center",
                                     "width": "100%", "height": "100%", "grow": 1,
                                     "gap": "20px", "padding": "60px",
-                                    "children": {"explicitList": ["t_badge", "t_title", "t_sub"]}}),
+                                    "children": ["t_badge", "t_title", "t_sub"]}),
         # Restaurant metaphor: Meet = the room, Catalogue = the menu,
         # primitives/atoms/molecules = ingredients. Title slate establishes
         # the framing so pass 1's "INGREDIENT N OF M" lands.
@@ -173,7 +173,7 @@ def _ticker_row(i: int, sym: str, price: str, chg: str, up: bool, base_delay: fl
         C(rid, "gdm-container", {"direction": "row", "align": "center", "gap": "20px",
                                  "grow": 1, "padding": "7px 6px",
                                  "reveal": "slide-right", "revealDelay": base_delay,
-                                 "children": {"explicitList": [f"sym{i}", f"price{i}",
+                                 "children": [f"sym{i", f"price{i}",
                                                                f"sp{i}", f"chg{i}"]}}),
         C(f"sym{i}",   "gdm-text", {"content": sym, "size": "30px", "color": "white",
                                     "font": "mono", "weight": "900", "letterSpacing": "0.04em"}),
@@ -194,16 +194,16 @@ def assembled_surface():
     left_ids  = [f"trow{i}" for i in range(half)]
     right_ids = [f"trow{i}" for i in range(half, len(TICKER_ROWS))]
     out = [
-        C("root", "gdm-stage-grid", {"layout": "hero", "children": {"explicitList": ["main"]}}),
+        C("root", "gdm-stage-grid", {"layout": "hero", "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "padding": "40px 52px", "gap": "12px",
                                     "width": "100%", "height": "100%", "grow": 1,
                                     "glass": True, "borderRadius": "18px",
                                     "reveal": "scale-in", "revealDelay": 0.0,
-                                    "children": {"explicitList": ["hdr", "div", "body"]}}),
+                                    "children": ["hdr", "div", "body"]}),
         # Header: badge + clock — both primitives we just showed in pass 1.
         C("hdr", "gdm-container", {"direction": "row", "align": "center", "gap": "16px",
                                    "reveal": "fade-up", "revealDelay": 0.2,
-                                   "children": {"explicitList": ["hdr_badge", "hdr_sp", "hdr_clock"]}}),
+                                   "children": ["hdr_badge", "hdr_sp", "hdr_clock"]}),
         C("hdr_badge", "gdm-badge", {"text": "REALTIME · MARKET SCAN", "type": "danger", "pulse": True}),
         C("hdr_sp",    "gdm-spacer", {}),
         C("hdr_clock", "gdm-clock", {"showClock": True, "showDate": False, "variant": "flip",
@@ -213,11 +213,11 @@ def assembled_surface():
         # Body: two columns of ticker rows side by side.
         C("body", "gdm-container", {"direction": "row", "gap": "44px", "grow": 1, "width": "100%",
                                     "align": "stretch",
-                                    "children": {"explicitList": ["col_l", "col_r"]}}),
+                                    "children": ["col_l", "col_r"]}),
         C("col_l", "gdm-container", {"direction": "column", "gap": "4px", "grow": 1,
-                                     "children": {"explicitList": left_ids}}),
+                                     "children": left_ids}),
         C("col_r", "gdm-container", {"direction": "column", "gap": "4px", "grow": 1,
-                                     "children": {"explicitList": right_ids}}),
+                                     "children": right_ids}),
     ]
     # Left column rows reveal first (delay 0.5 → +0.10 each), right column
     # follows after a small offset so the eye reads left-then-right.
@@ -277,11 +277,11 @@ def transition_surface():
     and Pass 2 (ticker assembling). 'ORDER UP.' is the kitchen shout when a
     dish is ready to plate — exactly the beat we're scripting."""
     return [
-        C("root", "gdm-stage-grid", {"layout": "hero", "children": {"explicitList": ["main"]}}),
+        C("root", "gdm-stage-grid", {"layout": "hero", "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center", "align": "center",
                                     "width": "100%", "height": "100%", "grow": 1, "gap": "14px",
                                     "padding": "60px",
-                                    "children": {"explicitList": ["tr_title", "tr_sub"]}}),
+                                    "children": ["tr_title", "tr_sub"]}),
         C("tr_title", "gdm-text", {"content": "ORDER UP.", "size": "120px",
                                    "color": "white", "font": "mono", "weight": "900",
                                    "letterSpacing": "0.08em", "glitch": True}),
@@ -298,12 +298,12 @@ def signoff_surface():
     # makes the "this is what Meet add-ons can do" claim explicit, plus a
     # short tagline as the actual punchline.
     return [
-        C("root", "gdm-stage-grid", {"layout": "hero", "children": {"explicitList": ["main"]}}),
+        C("root", "gdm-stage-grid", {"layout": "hero", "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center", "align": "center",
                                     "width": "100%", "height": "100%", "grow": 1, "gap": "18px",
                                     "padding": "60px",
-                                    "children": {"explicitList": ["s1", "s2", "s3",
-                                                                  "ext_group"]}}),
+                                    "children": ["s1", "s2", "s3",
+                                                                  "ext_group"]}),
         C("s1", "gdm-text", {"content": "THE RESTAURANT.", "size": "60px", "color": "white",
                              "font": "mono", "weight": "900", "letterSpacing": "0.06em",
                              "glitch": True}),
@@ -320,11 +320,11 @@ def signoff_surface():
         C("ext_group", "gdm-container", {"direction": "column", "justify": "center", "align": "center",
                                          "gap": "14px", "margin": "44px 0 0 0",
                                          "reveal": "fade-up", "revealDelay": 0.9,
-                                         "children": {"explicitList": ["ext_brands", "ext_badge",
-                                                                       "ext_chef_group", "ext_tag"]}}),
+                                         "children": ["ext_brands", "ext_badge",
+                                                                       "ext_chef_group", "ext_tag"]}),
         C("ext_brands", "gdm-container", {"direction": "row", "align": "center", "justify": "center",
                                           "gap": "28px",
-                                          "children": {"explicitList": ["ext_meet", "ext_x", "ext_a2ui"]}}),
+                                          "children": ["ext_meet", "ext_x", "ext_a2ui"]}),
         C("ext_meet",   "gdm-text", {"content": "GOOGLE MEET", "size": "64px",
                                      "color": "white", "font": "sans", "weight": "900",
                                      "letterSpacing": "0.03em", "glitch": True}),
@@ -342,7 +342,7 @@ def signoff_surface():
         # cursor), with the iconic 'follow the rabbit' callback below.
         C("ext_chef_group", "gdm-container", {"direction": "column", "align": "center",
                                               "gap": "10px", "margin": "28px 0 0 0",
-                                              "children": {"explicitList": ["ext_chef", "ext_chef_sub"]}}),
+                                              "children": ["ext_chef", "ext_chef_sub"]}),
         C("ext_chef",   "gdm-text", {"content": "THE CHEF IS AT THE TABLE.",
                                      "size": "60px", "color": PHOSPHOR, "font": "mono",
                                      "weight": "900", "letterSpacing": "0.06em",

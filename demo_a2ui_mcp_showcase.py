@@ -161,14 +161,12 @@ def make_grid_components(nvda_p, nvda_c, msft_p, msft_c, goog_p, goog_c, cap_p, 
                 "gdm-stage-grid": {
                     "layout": layout,
                     "focusedPanel": focused_panel,
-                    "children": {
-                        "explicitList": [
+                    "children": [
                             "radar_view",
                             "telemetry_dashboard",
                             "world_view",
                             "youtube_feed"
                         ]
-                    }
                 }
             }
         },
@@ -288,9 +286,7 @@ async def main():
                         "component": {
                             "gdm-stage-grid": {
                                 "layout": "single",
-                                "children": {
-                                    "explicitList": ["feature_card", "presenter_chyron"]
-                                }
+                                "children": ["feature_card", "presenter_chyron"]
                             }
                         }
                     },
@@ -337,9 +333,7 @@ async def main():
                         "component": {
                             "gdm-stage-grid": {
                                 "layout": "split",
-                                "children": {
-                                    "explicitList": ["split_left", "split_right"]
-                                }
+                                "children": ["split_left", "split_right"]
                             }
                         }
                     },
@@ -475,7 +469,7 @@ async def main():
                             "gdm-stage-grid": {
                                 "layout": "single",
                                 "focusedPanel": 0,
-                                "children": {"explicitList": ["radar_view"]}
+                                "children": ["radar_view"]
                             }
                         }
                     },
@@ -591,7 +585,7 @@ async def main():
                 "component": {
                     "gdm-stage-grid": {
                         "layout": "single",
-                        "children": {"explicitList": ["reactions_bg", "reactions_chyron"]}
+                        "children": ["reactions_bg", "reactions_chyron"]
                     }
                 }
             },

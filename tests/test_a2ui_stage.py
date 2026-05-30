@@ -71,13 +71,13 @@ def test_api_render_stage_success(mock_auth_key, mock_broadcast):
         "surfaceUpdate": {
             "components": [
                 {
-                    "id": "comp-1",
+                    "id": "root",
                     "component": "gdm-stage-card",
                     "title": "Hello"
                 }
             ]
         },
-        "root": "comp-1",
+        "root": "root",
         "dataModelUpdate": {"some": "data"}
     }
     
@@ -89,7 +89,7 @@ def test_api_render_stage_success(mock_auth_key, mock_broadcast):
     assert mock_broadcast.call_count == 3
     mock_broadcast.assert_any_call("spaces/test", {"updateComponents": {"components": payload["surfaceUpdate"]["components"]}})
     mock_broadcast.assert_any_call("spaces/test", {"updateDataModel": payload["dataModelUpdate"]})
-    mock_broadcast.assert_any_call("spaces/test", {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "comp-1"}})
+    mock_broadcast.assert_any_call("spaces/test", {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}})
 
 def test_api_render_stage_validation_failure(mock_auth_key):
     headers = {"Authorization": f"Bearer {mock_auth_key}"}
@@ -461,7 +461,7 @@ def test_validate_gdm_composable_primitives_valid():
                 "grow": 1.0,
                 "shrink": 0.0,
                 "margin": "10px",
-                "children": {"explicitList": ["child-text", "child-badge"]}
+                "children": ["child-text", "child-badge"]
             },
             {
                 "id": "child-text",
@@ -563,7 +563,7 @@ def test_validate_gdm_composable_primitives_valid():
                 "speed": "15s",
                 "direction": "left",
                 "active": True,
-                "children": {"explicitList": ["child-trend"]}
+                "children": ["child-trend"]
             }
         ]
     }

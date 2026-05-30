@@ -641,7 +641,7 @@ async def main():
             await render_stage_api(client, space, [
                 C("grid_layout", "gdm-stage-grid", {
                     "layout": "split",
-                    "children": {"explicitList": ["radar_view", "html_panel"]},
+                    "children": ["radar_view", "html_panel"],
                 }),
                 C("radar_view", "gdm-3d-airspace", {
                     "flights": flights,
@@ -690,7 +690,7 @@ async def main():
             await render_stage_api(client, space, [
                 C("grid_layout", "gdm-stage-grid", {
                     "layout": "split",
-                    "children": {"explicitList": ["radar_view", "html_panel"]},
+                    "children": ["radar_view", "html_panel"],
                 }),
                 C("radar_view", "gdm-3d-airspace", {
                     "flights": flights,
@@ -734,7 +734,7 @@ async def main():
         await render_stage_api(client, space, [
             C("grid_layout", "gdm-stage-grid", {
                 "layout": "split",
-                "children": {"explicitList": ["radar_view", "html_panel"]},
+                "children": ["radar_view", "html_panel"],
             }),
             C("radar_view", "gdm-3d-airspace", {
                 "flights": get_fallback_flights(2),
@@ -776,7 +776,7 @@ async def main():
         await render_stage_api(client, space, [
             C("grid_layout", "gdm-stage-grid", {
                 "layout": "split",
-                "children": {"explicitList": ["radar_view", "html_panel"]},
+                "children": ["radar_view", "html_panel"],
             }),
             C("radar_view", "gdm-3d-airspace", {
                 "flights": get_fallback_flights(3),
@@ -818,7 +818,7 @@ async def main():
             await render_stage_api(client, space, [
                 C("grid_layout", "gdm-stage-grid", {
                     "layout": "split",
-                    "children": {"explicitList": ["radar_view", "html_panel"]},
+                    "children": ["radar_view", "html_panel"],
                 }),
                 C("radar_view", "gdm-3d-airspace", {
                     "flights": get_fallback_flights(3),

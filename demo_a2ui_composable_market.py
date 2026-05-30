@@ -161,9 +161,7 @@ def generate_welcome_stage(seconds_remaining: int) -> list[dict]:
         # 1. Root Grid
         make_component("stage_root_grid", "gdm-stage-grid", {
             "layout": "hero",
-            "children": {
-                "explicitList": ["welcome_outer_container"]
-            }
+            "children": ["welcome_outer_container"]
         }),
         # 2. Outer Full-Stage Container (centers the card)
         make_component("welcome_outer_container", "gdm-container", {
@@ -173,9 +171,7 @@ def generate_welcome_stage(seconds_remaining: int) -> list[dict]:
             "width": "100%",
             "height": "100%",
             "background": "rgba(10, 15, 30, 0.35)",
-            "children": {
-                "explicitList": ["welcome_card"]
-            }
+            "children": ["welcome_card"]
         }),
         # 3. Glassmorphic Welcome Card
         make_component("welcome_card", "gdm-container", {
@@ -187,8 +183,7 @@ def generate_welcome_stage(seconds_remaining: int) -> list[dict]:
             "width": "550px",
             "glass": True,
             "borderRadius": "24px",
-            "children": {
-                "explicitList": [
+            "children": [
                     "welcome_header_row",
                     "welcome_divider1",
                     "welcome_title",
@@ -196,7 +191,6 @@ def generate_welcome_stage(seconds_remaining: int) -> list[dict]:
                     "welcome_progress",
                     "welcome_status_row"
                 ]
-            }
         }),
         # 4. Header Row (Icon + Badge)
         make_component("welcome_header_row", "gdm-container", {
@@ -204,9 +198,7 @@ def generate_welcome_stage(seconds_remaining: int) -> list[dict]:
             "justify": "space-between",
             "align": "center",
             "width": "100%",
-            "children": {
-                "explicitList": ["welcome_icon", "welcome_badge"]
-            }
+            "children": ["welcome_icon", "welcome_badge"]
         }),
         make_component("welcome_icon", "gdm-icon", {
             "name": "radar",
@@ -254,9 +246,7 @@ def generate_welcome_stage(seconds_remaining: int) -> list[dict]:
             "justify": "space-between",
             "align": "center",
             "width": "100%",
-            "children": {
-                "explicitList": ["welcome_status_lbl", "welcome_clock"]
-            }
+            "children": ["welcome_status_lbl", "welcome_clock"]
         }),
         make_component("welcome_status_lbl", "gdm-text", {
             "content": f"📡 Handshaking feed servers... (T-minus {seconds_remaining}s)",
@@ -288,9 +278,7 @@ def generate_composed_market_board(tick: int) -> list[dict]:
     # 1. Root Grid
     components.append(make_component("stage_root_grid", "gdm-stage-grid", {
         "layout": "hero",
-        "children": {
-            "explicitList": ["main_board_container"]
-        }
+        "children": ["main_board_container"]
     }))
     
     # 2. Main Board Wrapper (Fully screen-filling)
@@ -301,8 +289,7 @@ def generate_composed_market_board(tick: int) -> list[dict]:
         "width": "100%",
         "height": "100%",
         "glass": True,
-        "children": {
-            "explicitList": [
+        "children": [
                 "header_container",
                 "top_divider",
                 "deck_row_container",
@@ -310,7 +297,6 @@ def generate_composed_market_board(tick: int) -> list[dict]:
                 "scroller_track",
                 "footer_button_container"
             ]
-        }
     }))
     
     # 3. Header Container
@@ -319,26 +305,20 @@ def generate_composed_market_board(tick: int) -> list[dict]:
         "justify": "space-between",
         "align": "center",
         "width": "100%",
-        "children": {
-            "explicitList": ["header_text_container", "header_clock"]
-        }
+        "children": ["header_text_container", "header_clock"]
     }))
     
     components.append(make_component("header_text_container", "gdm-container", {
         "direction": "column",
         "gap": "4px",
-        "children": {
-            "explicitList": ["header_badge_row", "header_title", "header_sub"]
-        }
+        "children": ["header_badge_row", "header_title", "header_sub"]
     }))
     
     components.append(make_component("header_badge_row", "gdm-container", {
         "direction": "row",
         "align": "center",
         "gap": "8px",
-        "children": {
-            "explicitList": ["header_badge"]
-        }
+        "children": ["header_badge"]
     }))
     
     components.append(make_component("header_badge", "gdm-badge", {
@@ -382,9 +362,7 @@ def generate_composed_market_board(tick: int) -> list[dict]:
         "width": "100%",
         "align": "stretch",
         "grow": 1,
-        "children": {
-            "explicitList": column_ids
-        }
+        "children": column_ids
     }))
     
     # Build each of the 6 columns
@@ -398,9 +376,7 @@ def generate_composed_market_board(tick: int) -> list[dict]:
             "gap": "6px",
             "width": "16%",
             "grow": 1,
-            "children": {
-                "explicitList": col_children
-            }
+            "children": col_children
         }))
         
         components.append(make_component(f"title_{col_id}", "gdm-text", {
@@ -442,18 +418,14 @@ def generate_composed_market_board(tick: int) -> list[dict]:
         "speed": "16s",
         "direction": "left",
         "active": True,
-        "children": {
-            "explicitList": ["scroller_track_container"]
-        }
+        "children": ["scroller_track_container"]
     }))
     
     components.append(make_component("scroller_track_container", "gdm-container", {
         "direction": "row",
         "gap": "20px",
         "align": "center",
-        "children": {
-            "explicitList": scroller_children
-        }
+        "children": scroller_children
     }))
     
     components.append(make_component("ones_to_watch_badge", "gdm-badge", {
@@ -491,9 +463,7 @@ def generate_composed_market_board(tick: int) -> list[dict]:
         "gap": "14px",
         "justify": "center",
         "width": "100%",
-        "children": {
-            "explicitList": ["btn_refresh", "btn_sound", "btn_halt"]
-        }
+        "children": ["btn_refresh", "btn_sound", "btn_halt"]
     }))
     
     components.append(make_component("btn_refresh", "gdm-button", {

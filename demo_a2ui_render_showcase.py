@@ -230,9 +230,7 @@ async def run_showcase():
                             "gdm-stage-grid": {
                                 "layout": "split",
                                 "focusedPanel": 0,
-                                "children": {
-                                    "explicitList": ["telemetry_dashboard", "mermaid_panel"]
-                                }
+                                "children": ["telemetry_dashboard", "mermaid_panel"]
                             }
                         }
                     },
@@ -277,9 +275,7 @@ async def run_showcase():
                         "component": {
                             "gdm-stage-grid": {
                                 "layout": "split",
-                                "children": {
-                                    "explicitList": ["telemetry_dashboard", "mermaid_panel"]
-                                }
+                                "children": ["telemetry_dashboard", "mermaid_panel"]
                             }
                         }
                     },
@@ -336,9 +332,7 @@ async def run_showcase():
                             "gdm-stage-grid": {
                                 "layout": "split",
                                 "focusedPanel": 0,
-                                "children": {
-                                    "explicitList": ["telemetry_dashboard", "html_panel"]
-                                }
+                                "children": ["telemetry_dashboard", "html_panel"]
                             }
                         }
                     },
@@ -383,9 +377,7 @@ async def run_showcase():
                         "component": {
                             "gdm-stage-grid": {
                                 "layout": "split",
-                                "children": {
-                                    "explicitList": ["telemetry_dashboard", "html_panel"]
-                                }
+                                "children": ["telemetry_dashboard", "html_panel"]
                             }
                         }
                     },
