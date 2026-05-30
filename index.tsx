@@ -222,7 +222,7 @@ export class GdmArchitectAgent extends LitElement {
         components: [
           ...this.getBaseStageComponents(),
           {
-            id: 'grid_layout',
+            id: 'root',
             component: {
               'gdm-stage-grid': {
                 layout: layout,
@@ -234,7 +234,7 @@ export class GdmArchitectAgent extends LitElement {
       }
     };
     this.wsService?.sendJson(payload);
-    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
   }
 
   private clearMainStage() {
@@ -265,11 +265,11 @@ export class GdmArchitectAgent extends LitElement {
         components: [
           ...this.getBaseStageComponents(),
           {
-            id: 'grid_layout',
+            id: 'root',
             component: {
               'gdm-stage-grid': {
                 layout: 'single',
-                children: { explicitList: [id] }
+                children: [id]
               }
             }
           },
@@ -280,7 +280,7 @@ export class GdmArchitectAgent extends LitElement {
 
     if (this.wsService?.readyState === WebSocket.OPEN) {
       this.wsService?.sendJson(payload);
-      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
     }
   }
 
@@ -296,7 +296,7 @@ export class GdmArchitectAgent extends LitElement {
         components: [
           ...this.getBaseStageComponents(),
           {
-            id: 'grid_layout',
+            id: 'root',
             component: {
               'gdm-stage-grid': {
                 layout: this.activeLayout
@@ -318,7 +318,7 @@ export class GdmArchitectAgent extends LitElement {
 
     if (this.wsService?.readyState === WebSocket.OPEN) {
       this.wsService?.sendJson(payload);
-      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
     }
   }
 
@@ -409,7 +409,7 @@ export class GdmArchitectAgent extends LitElement {
         surfaceUpdate: {
           components: [
             {
-              id: 'grid_layout',
+              id: 'root',
               component: {
                 'gdm-stage-grid': { layout: this.activeLayout }
               }
@@ -427,7 +427,7 @@ export class GdmArchitectAgent extends LitElement {
         }
       };
       this.wsService?.sendJson(payload);
-      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
     } else {
       // In A2UI, to "clear" a panel, we can either delete its surface or update the grid children
       this.wsService?.sendJson({
@@ -439,7 +439,7 @@ export class GdmArchitectAgent extends LitElement {
           }]
         }
       });
-      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
     }
   }
 
@@ -512,7 +512,7 @@ export class GdmArchitectAgent extends LitElement {
       }
     };
     this.wsService?.sendJson(payload);
-    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
   }
 
   private toggleTicker() {
@@ -532,7 +532,7 @@ export class GdmArchitectAgent extends LitElement {
       }
     };
     this.wsService?.sendJson(payload);
-    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
   }
 
   private sendSimulatedComment() {
@@ -559,7 +559,7 @@ export class GdmArchitectAgent extends LitElement {
 
     if (this.wsService?.readyState === WebSocket.OPEN) {
       this.wsService?.sendJson(payload);
-      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
     }
 
     this.simulatedText = ''; // Clear text input after broadcast
@@ -650,7 +650,7 @@ export class GdmArchitectAgent extends LitElement {
 
               if (this.wsService?.readyState === WebSocket.OPEN) {
                 this.wsService?.sendJson(payload);
-                this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+                this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
               }
             } else {
               console.log('[concierge] Ignored regular chat message (no /mainstage prefix or demo preset matches):', text);
@@ -686,13 +686,11 @@ export class GdmArchitectAgent extends LitElement {
 
     // 1. Root Grid
     components.push({
-      id: 'stage_root_grid',
+      id: 'root',
       component: {
         'gdm-stage-grid': {
           layout: 'single',
-          children: {
-            explicitList: ['welcome_outer_container']
-          }
+          children: ['welcome_outer_container']
         }
       }
     });
@@ -708,9 +706,7 @@ export class GdmArchitectAgent extends LitElement {
           width: '100%',
           height: '100%',
           background: 'rgba(10, 15, 30, 0.45)',
-          children: {
-            explicitList: ['welcome_card']
-          }
+          children: ['welcome_card']
         }
       }
     });
@@ -744,9 +740,7 @@ export class GdmArchitectAgent extends LitElement {
           glass: true,
           borderRadius: '16px',
           border: '1px solid rgba(255, 255, 255, 0.12)',
-          children: {
-            explicitList: cardChildren
-          }
+          children: cardChildren
         }
       }
     });
@@ -760,9 +754,7 @@ export class GdmArchitectAgent extends LitElement {
           justify: 'space-between',
           align: 'center',
           width: '100%',
-          children: {
-            explicitList: ['welcome_icon', 'welcome_badge']
-          }
+          children: ['welcome_icon', 'welcome_badge']
         }
       }
     });
@@ -888,9 +880,7 @@ export class GdmArchitectAgent extends LitElement {
           justify: 'space-between',
           align: 'center',
           width: '100%',
-          children: {
-            explicitList: ['welcome_status_lbl', 'welcome_clock']
-          }
+          children: ['welcome_status_lbl', 'welcome_clock']
         }
       }
     });
@@ -925,7 +915,7 @@ export class GdmArchitectAgent extends LitElement {
       }
     };
     this.wsService?.sendJson(payload);
-    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'stage_root_grid' } });
+    this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
   }
 
   private toggleStandby() {
@@ -956,7 +946,7 @@ export class GdmArchitectAgent extends LitElement {
           components: [
             ...this.getBaseStageComponents(),
             {
-              id: 'grid_layout',
+              id: 'root',
               component: {
                 'gdm-stage-grid': {
                   layout: this.activeLayout,
@@ -968,7 +958,7 @@ export class GdmArchitectAgent extends LitElement {
         }
       };
       this.wsService?.sendJson(restorePayload);
-      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+      this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
     }
   }
 
@@ -1512,8 +1502,8 @@ export class GdmArchitectAgent extends LitElement {
           surfaceUpdate: {
             components: [
               {
-                id: 'grid_layout',
-                component: { 'gdm-stage-grid': { layout: 'single', children: { explicitList: ['doc_panel'] } } }
+                id: 'root',
+                component: { 'gdm-stage-grid': { layout: 'single', children: ['doc_panel'] } }
               },
               {
                 id: 'doc_panel',
@@ -1530,7 +1520,7 @@ export class GdmArchitectAgent extends LitElement {
         };
         if (this.wsService?.readyState === WebSocket.OPEN) {
           this.wsService?.sendJson(payload);
-          this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+          this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
         }
       }
     } else {

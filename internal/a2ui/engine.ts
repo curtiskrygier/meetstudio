@@ -24,6 +24,18 @@ export class A2UIEngine {
   // renderer can preserve local interactive state on buffered components.
   private _lastUpdatedIds = new Set<string>();
   private onRender: A2UIRenderCallback;
+  public onValidationError?: (error: { code: string; surfaceId: string; path: string; message: string }) => void;
+
+  private triggerValidationError(surfaceId: string, path: string, message: string) {
+    if (this.onValidationError) {
+      this.onValidationError({
+        code: 'VALIDATION_FAILED',
+        surfaceId,
+        path,
+        message,
+      });
+    }
+  }
 
   constructor(onRender: A2UIRenderCallback) {
     this.onRender = onRender;
@@ -41,9 +53,21 @@ export class A2UIEngine {
     switch (msgType) {
       case 'updateComponents': {
         const payload = msg.updateComponents;
+        if (!payload) {
+          this.triggerValidationError('root', '/updateComponents', 'Missing updateComponents payload');
+          return true;
+        }
         if (payload?.components) {
           this._lastUpdatedIds = new Set<string>();
           for (const comp of payload.components) {
+            if (!comp || typeof comp !== 'object') {
+              this.triggerValidationError('root', '/updateComponents/components', 'Component is not an object');
+              continue;
+            }
+            if (!comp.id) {
+              this.triggerValidationError('root', '/updateComponents/components', 'Component missing id');
+              continue;
+            }
             this.componentBuffer.set(comp.id, comp);
             this._lastUpdatedIds.add(comp.id);
           }
@@ -53,14 +77,16 @@ export class A2UIEngine {
 
       case 'updateDataModel': {
         const dmu = msg.updateDataModel;
-        if (dmu) {
-          const baseMap = this.parseDataModelContents(dmu.contents);
-          if (dmu.path) {
-            this.updateDataModelPath(dmu.path, baseMap);
-          } else {
-            for (const [k, v] of Object.entries(baseMap)) {
-              this.dataModelStore.set(k, v);
-            }
+        if (!dmu) {
+          this.triggerValidationError('root', '/updateDataModel', 'Missing updateDataModel payload');
+          return true;
+        }
+        const baseMap = this.parseDataModelContents(dmu.contents);
+        if (dmu.path) {
+          this.updateDataModelPath(dmu.path, baseMap);
+        } else {
+          for (const [k, v] of Object.entries(baseMap)) {
+            this.dataModelStore.set(k, v);
           }
         }
         return true;
@@ -68,14 +94,15 @@ export class A2UIEngine {
 
       case 'createSurface': {
         const payload = msg.createSurface;
-        if (payload) {
-          if (payload.catalogId) {
-            console.warn(`[A2UI Engine] createSurface catalogId: ${payload.catalogId}`);
-          }
-          if (payload.root) {
-            this.onRender(this.compile(payload.root));
-          }
+        if (!payload) {
+          this.triggerValidationError('root', '/createSurface', 'Missing createSurface payload');
+          return true;
         }
+        if (payload.catalogId) {
+          console.warn(`[A2UI Engine] createSurface catalogId: ${payload.catalogId}`);
+        }
+        // v0.9 spec: lookup component named "root" directly as render root
+        this.onRender(this.compile('root'));
         return true;
       }
 
@@ -85,8 +112,8 @@ export class A2UIEngine {
         return true;
       }
 
-      case 'validationFailed': {
-        console.warn('[a2ui] validation failed:', msg.validationFailed);
+      case 'error': {
+        console.warn('[a2ui] validation failed:', msg.error);
         return true;
       }
     }
@@ -101,23 +128,6 @@ export class A2UIEngine {
 
   private resolveBoundValue(val: any): any {
     if (!val || typeof val !== 'object') return val;
-
-    if ('literalString' in val) {
-      if ('path' in val && val.path) this.updateDataModelPath(val.path, val.literalString);
-      return val.literalString;
-    }
-    if ('literalBoolean' in val) {
-      if ('path' in val && val.path) this.updateDataModelPath(val.path, val.literalBoolean);
-      return val.literalBoolean;
-    }
-    if ('literalNumber' in val) {
-      if ('path' in val && val.path) this.updateDataModelPath(val.path, val.literalNumber);
-      return val.literalNumber;
-    }
-    if ('literalArray' in val) {
-      if ('path' in val && val.path) this.updateDataModelPath(val.path, val.literalArray);
-      return val.literalArray;
-    }
 
     if ('path' in val && val.path) return this.getDataModelPath(val.path);
     return val;
@@ -174,7 +184,14 @@ export class A2UIEngine {
       visited.add(id);
 
       const item = this.componentBuffer.get(id);
-      if (!item || typeof item.component !== 'string') return;
+      if (!item) {
+        this.triggerValidationError(rootId, `/components/${id}`, `Component with id "${id}" not found in buffer`);
+        return;
+      }
+      if (typeof item.component !== 'string') {
+        this.triggerValidationError(rootId, `/components/${id}/component`, `Component with id "${id}" has non-string component name`);
+        return;
+      }
 
       const elementName = item.component;
       const { id: _, component: __, ...rawProps } = item;
@@ -196,8 +213,8 @@ export class A2UIEngine {
         _fresh: this._lastUpdatedIds.has(item.id),
       });
 
-      if (rawProps.children?.explicitList) {
-        for (const childId of rawProps.children.explicitList) traverse(childId);
+      if (Array.isArray(rawProps.children)) {
+        for (const childId of rawProps.children) traverse(childId);
       } else if (rawProps.child) {
         traverse(rawProps.child);
       }
