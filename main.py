@@ -2721,8 +2721,9 @@ SHAPE SELECTION (decide FIRST, before picking templates):
      Always ends with `signoff`.
 
   B. OUTLINE HUB — one overview slide with N action buttons, each firing
-     its own detail slide. Detail slides end with a back-button firing
-     the overview. Use when ANY of these triggers fires:
+     its own detail slide. Detail slides support BOTH random-access (from
+     the overview) AND linear stepping (Previous/Next between sections).
+     Use when ANY of these triggers fires:
        - the doc is a multi-section REFERENCE (handover, RFC, strategy
          doc, project plan, technical spec, manual, FAQ) where readers
          will jump to sections, not read top-to-bottom;
@@ -2731,9 +2732,21 @@ SHAPE SELECTION (decide FIRST, before picking templates):
          overview / table-of-contents / "let me jump to" / "interactive".
      Output: 1 overview slide + one detail slide per major section + a
      `signoff` close slide. The overview uses `split_with_action` with N
-     `right.actions`, one per section, each `fires:` its detail. Each
-     detail slide ends with `next_action: { text: "Back", fires: <overview_id> }`.
-     The overview's final action is `{ text: "Done", fires: <close_id> }`.
+     `right.actions`, one per section, each `fires:` its detail. The
+     overview's final action is `{ text: "Done", fires: <close_id> }`.
+
+     NAVIGATION ON DETAIL SLIDES — each detail slide has EXACTLY TWO actions:
+       - `{ text: "← Previous", variant: "outline", fires: <prev_id> }`
+       - `{ text: "Next →",      variant: "outline", fires: <next_id> }`
+
+     The PREV/NEXT chain follows the section order in the overview, with
+     two wraparound rules:
+       - On the FIRST detail slide, "← Previous" fires the OVERVIEW slide
+         (so the user can return to the hub from the start of the chain).
+       - On the LAST detail slide, "Next →" fires the CLOSE slide (signoff).
+
+     Order matters: the first action in `right.actions` MUST be "← Previous"
+     and the second MUST be "Next →" — readers expect Back-left, Forward-right.
 
   Default to LINEAR DECK unless one of the OUTLINE HUB triggers fires.
 
@@ -2834,7 +2847,8 @@ GOOD YAML EXAMPLE — OUTLINE HUB:
         body: "FastAPI WebSocket spine. Gemini Live transcription. A2UI v0.9 wire format. Lit catalogue components on the main stage."
       right:
         actions:
-          - { text: "← Back to outline", variant: "outline", fires: overview }
+          - { text: "← Previous", variant: "outline", fires: overview }
+          - { text: "Next →",     variant: "outline", fires: section_substrate }
 
     - id: section_substrate
       template: split_with_action
@@ -2844,7 +2858,8 @@ GOOD YAML EXAMPLE — OUTLINE HUB:
         body: "Atoms, molecules, and a wire grammar. The agent reasons in this vocabulary."
       right:
         actions:
-          - { text: "← Back to outline", variant: "outline", fires: overview }
+          - { text: "← Previous", variant: "outline", fires: section_arch }
+          - { text: "Next →",     variant: "outline", fires: section_doc2deck }
 
     - id: section_doc2deck
       template: split_with_action
@@ -2854,7 +2869,8 @@ GOOD YAML EXAMPLE — OUTLINE HUB:
         body: "The agent reads markdown, emits YAML, registers it, fires the first slide. Under thirty seconds."
       right:
         actions:
-          - { text: "← Back to outline", variant: "outline", fires: overview }
+          - { text: "← Previous", variant: "outline", fires: section_substrate }
+          - { text: "Next →",     variant: "outline", fires: section_v09 }
 
     - id: section_v09
       template: split_with_action
@@ -2864,7 +2880,8 @@ GOOD YAML EXAMPLE — OUTLINE HUB:
         body: "Hard-cutover from v0.8. Branch + checkpoint as the safety net. All playbooks regression-clean."
       right:
         actions:
-          - { text: "← Back to outline", variant: "outline", fires: overview }
+          - { text: "← Previous", variant: "outline", fires: section_doc2deck }
+          - { text: "Next →",     variant: "outline", fires: close }
 
     - id: close
       template: signoff
@@ -2881,7 +2898,9 @@ RULES:
 - For LINEAR DECK: 3-6 slides; chain forward via `fires:`; end with `signoff`.
 - For OUTLINE HUB: 1 overview + one detail per major section + `signoff` close.
   Don't apply the 3-6 cap — the whole point is reader-jumpable breadth.
-  Details end with `Back`; overview has a `Done` action firing close.
+  Each detail has EXACTLY two actions in order: "← Previous" then "Next →".
+  First detail's "← Previous" fires the overview; last detail's "Next →"
+  fires the close slide. Overview has a `Done` action firing close.
 - Use the doc's actual headlines and key phrases as title/subtitle/body text.
 - Match each section to its closest template — don't shoehorn.
 - Pick badge.type from: primary, danger, success, info, warning.

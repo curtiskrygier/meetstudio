@@ -200,17 +200,23 @@ INTERACTIVE OUTLINE / HUB — how to plate it.
 
   3. When you receive an `outline_section_*` callback, render that section's
      DETAIL surface — a clean composition (gdm-stage-card, gdm-notepad,
-     gdm-html-panel, whatever fits) summarising that section. Add ONE
-     gdm-button at the bottom with `action.event.name` set to `outline_back`,
-     text "← Back to outline".
+     gdm-html-panel, whatever fits) summarising that section. Add EXACTLY TWO
+     gdm-buttons at the bottom for navigation:
+       - `← Previous` — `action.event.name` = `outline_prev_<this_section_id>`
+       - `Next →`     — `action.event.name` = `outline_next_<this_section_id>`
+     Order matters: Previous on the LEFT, Next on the RIGHT.
 
-  4. When you receive `outline_back`, re-render the OVERVIEW surface verbatim
-     (same actions). When you receive `outline_close`, render
-     a brief signoff surface and stop.
+  4. When you receive an `outline_prev_*` or `outline_next_*` callback, look up
+     the originating section in the order list and render the corresponding
+     neighbour's detail surface. Wraparound rules:
+       - On the FIRST section, `outline_prev_<id>` re-renders the OVERVIEW.
+       - On the LAST section, `outline_next_<id>` renders the SIGNOFF surface.
 
-  5. REMEMBER the section→action.event.name mapping across calls. The user will click
-     buttons in arbitrary order; you must route each callback to the right
-     detail content.
+  5. When you receive `outline_close`, render a brief signoff surface and stop.
+
+  6. REMEMBER both the section→detail mapping AND the section order list across
+     calls. The user can click hub buttons in arbitrary order (random access),
+     OR step linearly via Previous/Next. Same agent, both shapes.
 
 Example — INTERACTIVE OUTLINE overview surface:
 
@@ -253,7 +259,7 @@ Example — INTERACTIVE OUTLINE overview surface:
 }
 ```
 
-Example — INTERACTIVE OUTLINE detail surface (one section):
+Example — INTERACTIVE OUTLINE detail surface (one section, with Prev/Next):
 
 ```json
 {
@@ -263,7 +269,7 @@ Example — INTERACTIVE OUTLINE detail surface (one section):
         "id": "root",
         "component": "gdm-stage-grid",
         "layout": "centered",
-        "children": ["detail_card", "detail_back"]
+        "children": ["detail_card", "detail_nav"]
       },
       {
         "id": "detail_card",
@@ -272,15 +278,35 @@ Example — INTERACTIVE OUTLINE detail surface (one section):
         "text": "v0.9 drops the redundant outer `type:` discriminator. Messages are now `{updateComponents: {...}}` rather than `{type: 'updateComponents', updateComponents: {...}}`. The engine dispatches via Object.keys(msg)[0]."
       },
       {
-        "id": "detail_back",
+        "id": "detail_nav",
+        "component": "gdm-container",
+        "direction": "row",
+        "gap": "12px",
+        "justify": "space-between",
+        "children": ["detail_prev", "detail_next"]
+      },
+      {
+        "id": "detail_prev",
         "component": "gdm-button",
-        "text": "← Back to outline",
-        "action": { "event": { "name": "outline_back" } }
+        "text": "← Previous",
+        "variant": "outline",
+        "action": { "event": { "name": "outline_prev_envelope" } }
+      },
+      {
+        "id": "detail_next",
+        "component": "gdm-button",
+        "text": "Next →",
+        "variant": "outline",
+        "action": { "event": { "name": "outline_next_envelope" } }
       }
     ]
   }
 }
 ```
+
+On the FIRST detail slide, `outline_prev_<first_section>` re-renders the
+OVERVIEW. On the LAST detail slide, `outline_next_<last_section>` renders
+the SIGNOFF / close surface. All other slides chain neighbours.
 
 Default to LINEAR FLOW unless one of the INTERACTIVE OUTLINE triggers fires.
 """
