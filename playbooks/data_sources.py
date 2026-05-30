@@ -54,6 +54,23 @@ import yaml
 # when len() exceeds 5000.
 # ────────────────────────────────────────────────────────────────────────────
 _DATA_CACHE: dict[tuple[str, str, str], tuple[Any, float]] = {}
+_CACHE_TTL_SECONDS = 600.0   # hard ceiling — entries older than 10 min evicted regardless
+_CACHE_MAX_ENTRIES = 5000
+
+
+def evict_stale_cache() -> None:
+    """Drop entries older than _CACHE_TTL_SECONDS; cull oldest 25% when over limit."""
+    import time
+    now = time.time()
+    expired = [k for k, (_, ts) in _DATA_CACHE.items() if now - ts > _CACHE_TTL_SECONDS]
+    for k in expired:
+        _DATA_CACHE.pop(k, None)
+    if len(_DATA_CACHE) > _CACHE_MAX_ENTRIES:
+        oldest = sorted(_DATA_CACHE.items(), key=lambda kv: kv[1][1])
+        for k, _ in oldest[: len(oldest) // 4]:
+            _DATA_CACHE.pop(k, None)
+    if expired:
+        logger.info(f"[data_cache] evicted {len(expired)} stale entries; {len(_DATA_CACHE)} remaining")
 
 
 # ────────────────────────────────────────────────────────────────────────────

@@ -37,7 +37,7 @@ for _vd in _venv_dirs:
 
 # --- Configuration & Environment Setup ---
 API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
-KEY = os.environ.get("STAGE_API_KEY", "meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA")
+KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 FAST_MODE = os.environ.get("FAST_MODE", "false").lower() not in ("0", "false", "no")
 
 HA_URL = "http://192.168.1.194:8123/api"

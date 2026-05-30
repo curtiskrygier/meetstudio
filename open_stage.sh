@@ -4,12 +4,12 @@
 #
 # Env overrides:
 #   CONCIERGE_API_URL  default http://127.0.0.1:8085
-#   STAGE_API_KEY      default matches render_showreel.py
+#   STAGE_API_KEY      required — no default; export it before running
 set -euo pipefail
 
 SPACE="${1:-default}"
 API="${CONCIERGE_API_URL:-http://127.0.0.1:8085}"
-KEY="${STAGE_API_KEY:-meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA}"
+KEY="${STAGE_API_KEY:?STAGE_API_KEY is required — export it before running open_stage.sh}"
 
 # Mint ticket; pull stage_url out of the JSON.
 RESP=$(curl -fsS -H "Authorization: Bearer $KEY" "$API/api/stage-ticket/$SPACE")

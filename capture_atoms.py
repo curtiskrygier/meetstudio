@@ -11,7 +11,7 @@ import httpx
 from playwright.async_api import async_playwright
 
 API_URL = os.environ.get("CONCIERGE_API_URL", "http://127.0.0.1:8085")
-KEY = os.environ.get("STAGE_API_KEY", "meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA")
+KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 SPACE = os.environ.get("CAPTURE_SPACE", "spaces/local-preview")
 OUT = "/tmp/cap"
 

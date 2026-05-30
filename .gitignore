@@ -54,3 +54,26 @@ venv/
 deployed_backup.zip
 deployed_latest_backup.zip
 today_mess_backup/
+
+# Tool/IDE config not part of the project
+.agents/
+
+# Handover and diagnosis docs (session artefacts)
+HANDOVER-*.md
+DEPLOYMENT_DIAGNOSIS.md
+
+# Scratch / temp files
+agy
+scratch/
+_drive_market_playbook.py
+mermaid_svg_dump.txt
+credits.md
+
+# Screenshot artefacts
+screenshot_p*.png
+
+# HA and T212 test files (wrong repo)
+search_ha_entities.py
+test_ha_mcp.py
+test_ha_rest.py
+test_t212_direct.py

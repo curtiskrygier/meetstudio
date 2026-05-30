@@ -1,17 +1,17 @@
 # Pinned to versions verified against the deployed container.
 # To update pins: docker run --rm <image> pip freeze | grep -E "fastapi|uvicorn|httpx|google|markdown|bleach|pydantic|multipart"
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
 httpx==0.28.1
 google-genai==1.74.0
 google-auth==2.50.0
 google-api-python-client==2.194.0
 markdown==3.4.1
-bleach>=6.1.0
+bleach==6.3.0
 pydantic==2.13.3
-python-multipart>=0.0.9
-python-dotenv
-pandas
-numpy
-yfinance
-pyyaml>=6.0
+python-multipart==0.0.29
+python-dotenv==1.2.2
+pandas==3.0.3
+numpy==2.4.6
+yfinance==1.4.1
+pyyaml==6.0.3

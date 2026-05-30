@@ -14,7 +14,7 @@ import asyncio
 # --- Environment Configurations ---
 API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
 MCP_URL = f"{API_URL}/mcp"
-KEY = os.environ.get("STAGE_API_KEY", "meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA")
+KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 
 # --- ANSI Terminal Colors ---
 CLR_PRIMARY = "\033[38;5;51m"   # Neon Cyan

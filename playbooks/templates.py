@@ -79,9 +79,10 @@ def _make_action(action_cfg: dict | None, ctx: dict) -> dict | None:
     if not action_cfg:
         return None
     if "fires" in action_cfg:
-        # Server-side fire of another playbook slide → POST endpoint,
-        # then agent does NOT need to be informed. functionCall it.
-        endpoint = f"/api/playbook/fire/{ctx['playbook_name']}/{action_cfg['fires']}/{ctx['space_id']}"
+        slide_ref = str(action_cfg["fires"])
+        if not re.match(r'^[a-zA-Z0-9_-]+$', slide_ref):
+            raise ValueError(f"Invalid 'fires' slide id {slide_ref!r} — only [a-zA-Z0-9_-] allowed")
+        endpoint = f"/api/playbook/fire/{ctx['playbook_name']}/{slide_ref}/{ctx['space_id']}"
         return {"functionCall": {"call": "fireEndpoint", "args": {"endpoint": endpoint}}}
     if "links" in action_cfg:
         return {"functionCall": {"call": "openUrl", "args": {"url": action_cfg["links"]}}}

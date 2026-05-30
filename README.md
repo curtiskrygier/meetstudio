@@ -1,6 +1,68 @@
-# Meet Live Concierge
+# Google Meet Studio
 
-A Google Meet Web Add-on that embeds a real-time AI voice assistant (powered by Gemini Live) into your meeting's side panel. The assistant listens to all meeting participants, responds by voice, and can optionally see the active speaker's video feed.
+A Google Meet add-on that renders an agent-driven live stage in the meeting. The agent (Gemini Live) listens, composes UI surfaces via the [A2UI v0.9](https://a2ui.org) protocol, and pushes them to a fullscreen main stage built from composable Lit web components.
+
+**A2UI v0.9 reference implementation** — the public catalogue spec lives at [`catalog/gdm-v0.2.json`](catalog/gdm-v0.2.json).
+
+---
+
+## A2UI Stage — running demos and playbooks
+
+```bash
+# 1. Start the backend
+export GEMINI_PROJECT=your-gcp-project-id
+export STAGE_API_KEY=your-secret-key
+uvicorn main:app --port 8085 --reload
+
+# 2. Open the stage listener in a browser
+./open_stage.sh              # mints a ticket, opens main_stage.html
+
+# 3. Run a demo script
+python render_showreel.py     # 6-act showreel
+python demo_a2ui_primitives.py
+
+# 4. Fire a YAML playbook slide
+curl -X POST http://localhost:8085/api/playbook/fire/kickoff/intro/default \
+  -H "Authorization: Bearer $STAGE_API_KEY"
+```
+
+After `npm run build`, always hard-refresh the stage tab (Ctrl+Shift+R) — Vite uses hash-based filenames.
+
+### Authoring playbooks
+
+Playbooks live in `playbooks/*.yaml`. Each slide maps to a template:
+
+```yaml
+- id: intro
+  template: title
+  headline: "Q3 Board Update"
+  subheadline: "Revenue · Pipeline · Outlook"
+  next_action: { text: "Begin", fires: revenue }
+
+- id: revenue
+  template: hero_stat
+  label: "Annual Recurring Revenue"
+  data:
+    ARR: { source: literal, value: "$48.2M" }
+  value: "{{ ARR }}"
+  is_up: true
+  next_action: { text: "Next", fires: outro }
+```
+
+Available templates: `title`, `hero_stat`, `split_with_action`, `list_5`, `signoff`, `market_ticker`
+Data sources: `literal`, `rest` (live HTTP/JSON) — `bigquery` planned.
+
+### Dev gotchas
+
+- **`GEMINI_PROJECT` is required** even for showreel-only runs that don't touch Gemini Live
+- **Catch-all routes must stay last** in `main.py` — see `§2.4` in `meetstudio.md`
+- **`gdm-container` needs `grow: 1`** when slotted into a `gdm-stage-grid` cell that should fill height
+
+---
+
+## Meet Live Concierge (voice assistant)
+
+A real-time AI voice assistant embedded in the meeting side panel. The assistant listens to all meeting participants, responds by voice, and can optionally see the active speaker's video feed.
 
 ## How it works
 

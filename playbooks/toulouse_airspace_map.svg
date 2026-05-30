@@ -1,0 +1,118 @@
+<svg viewBox="0 0 700 350" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Cyberpunk Glowing drop shadows -->
+    <filter id="cyan-glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="green-glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="gold-glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Deep Command Space Background -->
+  <rect width="100%" height="100%" fill="#040812" rx="16" />
+  
+  <!-- Sleek Tactical Background Coordinate Grid -->
+  <g stroke="rgba(0, 242, 255, 0.04)" stroke-width="0.5">
+    <line x1="50" y1="0" x2="50" y2="350" />
+    <line x1="100" y1="0" x2="100" y2="350" />
+    <line x1="150" y1="0" x2="150" y2="350" />
+    <line x1="200" y1="0" x2="200" y2="350" />
+    <line x1="250" y1="0" x2="250" y2="350" />
+    <line x1="300" y1="0" x2="300" y2="350" />
+    <line x1="350" y1="0" x2="350" y2="350" />
+    <line x1="400" y1="0" x2="400" y2="350" />
+    <line x1="450" y1="0" x2="450" y2="350" />
+    <line x1="500" y1="0" x2="500" y2="350" />
+    <line x1="550" y1="0" x2="550" y2="350" />
+    <line x1="600" y1="0" x2="600" y2="350" />
+    <line x1="650" y1="0" x2="650" y2="350" />
+    
+    <line x1="0" y1="50" x2="700" y2="50" />
+    <line x1="0" y1="100" x2="700" y2="100" />
+    <line x1="0" y1="150" x2="700" y2="150" />
+    <line x1="0" y1="200" x2="700" y2="200" />
+    <line x1="0" y1="250" x2="700" y2="250" />
+    <line x1="0" y1="300" x2="700" y2="300" />
+  </g>
+
+  <!-- Outer Bounding Circle representing 40NM TMA Boundary -->
+  <circle cx="350" cy="175" r="160" fill="none" stroke="rgba(0, 242, 255, 0.08)" stroke-width="1" />
+  <circle cx="350" cy="175" r="110" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-dasharray="4 4" stroke-width="0.5" />
+  <circle cx="350" cy="175" r="60" fill="none" stroke="rgba(0, 242, 255, 0.05)" stroke-width="0.5" />
+
+  <!-- Airway Corridor Connectors (Glowing Lines) -->
+  <g fill="none" stroke-width="1.5" opacity="0.8">
+    <!-- Agen STAR arrival path -->
+    <path d="M 200 70 L 350 175" stroke="#00f2ff" filter="url(#cyan-glow)" />
+    <!-- Laura STAR arrival path -->
+    <path d="M 500 70 L 350 175" stroke="#ffd60a" filter="url(#gold-glow)" />
+    <!-- Toulouse Approach ILS runway intercept cone -->
+    <path d="M 350 175 L 350 260" stroke="#00ff88" stroke-dasharray="2 2" stroke-width="2" filter="url(#green-glow)" />
+  </g>
+
+  <!-- Runway 32L/R approach sequence graphical dashes -->
+  <rect x="345" y="260" width="4" height="20" fill="#ffffff" rx="1" />
+  <rect x="351" y="260" width="4" height="20" fill="#ffffff" rx="1" />
+  <text x="350" y="295" fill="rgba(255,255,255,0.4)" font-size="7" font-family="monospace" text-anchor="middle">RUNWAY 32L/R</text>
+
+  <!-- Airway Fix Holding Point Nodes -->
+  <!-- AGN Node -->
+  <g class="node">
+    <circle cx="200" cy="70" r="14" fill="#0c1d2e" stroke="#00f2ff" stroke-width="2" />
+    <circle cx="200" cy="70" r="4" fill="#00f2ff" />
+    <text x="200" y="100" fill="#00f2ff" font-size="11" font-weight="700" font-family="monospace" text-anchor="middle">AGN</text>
+    <text x="200" y="110" fill="rgba(255,255,255,0.5)" font-size="7" font-family="monospace" text-anchor="middle">AGEN HOLDING FIX</text>
+  </g>
+
+  <!-- TOU VOR Node -->
+  <g class="node">
+    <polygon points="350,161 364,175 350,189 336,175" fill="#0a2a1a" stroke="#00ff88" stroke-width="2" />
+    <circle cx="350" cy="175" r="4" fill="#00ff88" />
+    <text x="350" y="150" fill="#00ff88" font-size="11" font-weight="700" font-family="monospace" text-anchor="middle">TOU</text>
+    <text x="350" y="140" fill="rgba(255,255,255,0.5)" font-size="7" font-family="monospace" text-anchor="middle">TOULOUSE VOR</text>
+  </g>
+
+  <!-- LAU Node -->
+  <g class="node">
+    <circle cx="500" cy="70" r="14" fill="#2d220a" stroke="#ffd60a" stroke-width="2" />
+    <circle cx="500" cy="70" r="4" fill="#ffd60a" />
+    <text x="500" y="100" fill="#ffd60a" font-size="11" font-weight="700" font-family="monospace" text-anchor="middle">LAU</text>
+    <text x="500" y="110" fill="rgba(255,255,255,0.5)" font-size="7" font-family="monospace" text-anchor="middle">LAURA HOLDING FIX</text>
+  </g>
+
+  <!-- Title Indicator Block -->
+  <text x="30" y="40" fill="#00f2ff" font-size="14" font-weight="800" font-family="monospace" letter-spacing="1">LFBO AIRSPACE TERMINAL MAP</text>
+  <text x="30" y="55" fill="rgba(255,255,255,0.5)" font-size="8" font-family="monospace">TOULOUSE TERMINAL MANEUVERING AREA (TMA) OVERVIEW</text>
+
+  <!-- Status Info Cards -->
+  <g stroke="rgba(0, 242, 255, 0.2)" fill="rgba(12, 16, 32, 0.65)" stroke-width="1">
+    <rect x="30" y="260" width="130" height="60" rx="6" />
+    <rect x="540" y="260" width="130" height="60" rx="6" />
+  </g>
+  
+  <g font-family="monospace">
+    <text x="40" y="278" fill="rgba(255,255,255,0.4)" font-size="7" font-weight="bold">ACTIVE RUNWAYS</text>
+    <text x="40" y="292" fill="#ffffff" font-size="11" font-weight="bold">32L / 32R</text>
+    <text x="40" y="306" fill="#00ff88" font-size="8">ILS CAT III APPROACH</text>
+
+    <text x="550" y="278" fill="rgba(255,255,255,0.4)" font-size="7" font-weight="bold">BARO PRESSURE</text>
+    <text x="550" y="292" fill="#ffffff" font-size="11" font-weight="bold">QNH {{weather.pressure}}</text>
+    <text x="550" y="306" fill="#ffd60a" font-size="8">ALT ALIGN: COMPLIANT</text>
+  </g>
+</svg>

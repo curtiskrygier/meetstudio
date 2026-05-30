@@ -314,7 +314,10 @@ Default to LINEAR FLOW unless one of the INTERACTIVE OUTLINE triggers fires.
 SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT", DEFAULT_PROMPT)
 
 if not PROJECT_ID:
-    raise RuntimeError("GEMINI_PROJECT environment variable is required")
+    raise RuntimeError(
+        "GEMINI_PROJECT environment variable is required. "
+        "Set it before starting: export GEMINI_PROJECT=your-gcp-project-id"
+    )
 
 gemini_client = genai.Client(vertexai=True, project=PROJECT_ID, location=REGION)
 

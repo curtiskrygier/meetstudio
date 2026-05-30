@@ -1,0 +1,129 @@
+name: "Toulouse Airspace"
+slides:
+  # Slide 1: Calibration Standby Slate
+  - id: calibration
+    label: "📡 Sweep Calibration"
+    template: airspace_command_deck
+    show_slate: true
+    slate_title: "📡 TLS Sector 32L/R Sweep Calibration"
+    slate_description: "Booting transponder tracking matrix and aligning primary S-Band receivers..."
+    slate_seconds: 5
+    slate_fullscreen: true
+    slate_active: true
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "2s"
+      weather:
+        source: noaa_metar
+        refresh: "on_fire"
+
+  # Slide 2: Supervisor Control Deck
+  - id: supervisor_deck
+    label: "📡 Sector Control Deck"
+    template: airspace_command_deck
+    panel_type: "supervisor"
+    panel_title: "📡 Tactical Supervisor HUD"
+    zoom: 5.5
+    cameraPitch: 35.0
+    cameraYaw: 45.0
+    showGlideSlope: true
+    showTerrain: true
+    cinematicOrbit: true
+    autoTrack: false
+    ticker_text: "📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: {{weather.wind}} • TEMP: {{weather.temp}} • QNH: {{weather.pressure}} • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE • RAW METAR: {{weather.raw}} •"
+    ticker_speed: 50
+    chyron_title: "LFBO TMA APPROACH CONTROL"
+    chyron_subtitle: "Active Approach Vectors Runway 32L/R"
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "2s"
+      weather:
+        source: noaa_metar
+        refresh: "on_fire"
+
+  # Slide 3: Locked Target Profiler (AFR6129)
+  - id: locked_target
+    label: "🎯 Target Lock AFR6129"
+    template: airspace_command_deck
+    panel_type: "target"
+    panel_title: "🎯 Active Target Profiler"
+    lockedCallsign: "AFR6129"
+    zoom: 4.0
+    cameraPitch: 25.0
+    cameraYaw: 135.0
+    showGlideSlope: true
+    showTerrain: true
+    cinematicOrbit: true
+    autoTrack: true
+    ticker_text: "📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: {{weather.wind}} • TEMP: {{weather.temp}} • QNH: {{weather.pressure}} • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE • RAW METAR: {{weather.raw}} •"
+    ticker_speed: 50
+    chyron_title: "TARGET ACQUIRED: AFR6129"
+    chyron_subtitle: "Tracking Descent Profile and Instrument Glide Slope Runway 32L"
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "2s"
+      weather:
+        source: noaa_metar
+        refresh: "on_fire"
+
+  # Slide 4: Airway Corridor Map Overlay
+  - id: corridor_map
+    label: "🗺️ Airway Map Overlay"
+    template: airspace_command_deck
+    panel_type: "supervisor"
+    panel_title: "📡 Supervisor Live Console"
+    zoom: 5.5
+    cameraPitch: 35.0
+    cameraYaw: 45.0
+    showGlideSlope: true
+    showTerrain: true
+    cinematicOrbit: false
+    autoTrack: false
+    ticker_text: "📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: {{weather.wind}} • TEMP: {{weather.temp}} • QNH: {{weather.pressure}} • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE • RAW METAR: {{weather.raw}} •"
+    ticker_speed: 50
+    chyron_title: "LFBO TMA AIRWAY NETWORKS"
+    chyron_subtitle: "Standard Terminal Arrival Paths & Intercept Vectors Map"
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "2s"
+      weather:
+        source: noaa_metar
+        refresh: "on_fire"
+      airspace_svg:
+        source: text_file
+        path: "toulouse_airspace_map.svg"
+
+  # Slide 5: Conflict Resolution Poll
+  - id: separation_poll
+    label: "🗳️ Separation Poll"
+    template: airspace_command_deck
+    panel_type: "supervisor"
+    panel_title: "📡 Supervisor Live Console"
+    zoom: 5.5
+    cameraPitch: 35.0
+    cameraYaw: 45.0
+    showGlideSlope: true
+    showTerrain: true
+    cinematicOrbit: true
+    autoTrack: false
+    ticker_text: "📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: {{weather.wind}} • TEMP: {{weather.temp}} • QNH: {{weather.pressure}} • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE • RAW METAR: {{weather.raw}} •"
+    ticker_speed: 50
+    chyron_title: "TMA CONFLICT RESOLUTION"
+    chyron_subtitle: "Select separation maneuvers and runway vector allocation"
+    poll_question: "TMA Direction: Resolve separation conflict? 🗳️"
+    poll_options:
+      - "Establish parallel simultaneous visual arrivals Runway 32L/R"
+      - "Vector RYR109B to enter holding pattern at TOU VOR"
+      - "Instruct EZY4218 to reduce speed to minimum 180kt"
+    poll_values: [12, 8, 4]
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "2s"
+      weather:
+        source: noaa_metar
+        refresh: "on_fire"

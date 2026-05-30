@@ -293,7 +293,15 @@ function renderA2UI(components: A2UIComponent[]) {
         }
         el = document.createElement(comp.element) as HTMLElement;
         el.setAttribute('data-a2ui-id', comp.id);
-        el.id = comp.id; // Also set standard DOM ID for convenience
+        el.id = comp.id;
+        // Visible error tile for unknown gdm-* components — beats silent blank slot
+        if (comp.element.startsWith('gdm-') && !customElements.get(comp.element)) {
+          console.warn(`[stage-a2ui] Unknown component: ${comp.element} (id: ${comp.id})`);
+          (el as HTMLElement).style.cssText =
+            'border:1px dashed #ff5d5d;color:#ff5d5d;font:11px/1.4 monospace;' +
+            'padding:6px 8px;border-radius:4px;background:rgba(255,93,93,0.08);display:inline-block';
+          el.textContent = `⚠ unknown: ${comp.element}`;
+        }
       }
 
       // Update properties/attributes on the element — but ONLY for components

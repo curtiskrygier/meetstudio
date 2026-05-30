@@ -45,8 +45,9 @@ def check_producer_auth(request: Request):
     Returns 503 if the key is not configured server-side (misconfigured deploy).
     Returns 401 if the key is wrong (bad caller).
     """
-    # Bypass authentication for local requests (e.g., local demo scripts)
-    if request.client and request.client.host in ("127.0.0.1", "localhost"):
+    # Bypass auth for localhost — only when NOT running on Cloud Run
+    # (K_SERVICE is set by Cloud Run; if present, bypass is always skipped)
+    if not os.environ.get("K_SERVICE") and request.client and request.client.host in ("127.0.0.1", "localhost"):
         return
 
     if not _STAGE_API_KEY:

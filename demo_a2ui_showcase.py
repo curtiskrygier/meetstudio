@@ -107,7 +107,7 @@ except Exception as e:
     print(f"⚠️ Could not load 212Trading backend market services: {e}", file=sys.stderr)
 
 API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
-KEY = os.environ.get("STAGE_API_KEY", "meet-live_STAGE_SECURE_v1_zG9fN8qL7vP2mX6tY9wK4jC5bS8xQ7hZ3uW0rA")
+KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 FAST_MODE = os.environ.get("FAST_MODE", "true").lower() not in ("0", "false", "no")
 IMAGEN_MODEL = os.environ.get("IMAGEN_MODEL", "imagen-3.0-generate-002")
 

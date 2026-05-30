@@ -97,14 +97,16 @@ notepad_locks = {}  # meeting_id -> {"owner": owner_id, "expires_at": float}
 
 @asynccontextmanager
 async def lifespan(app):
-    # Cleanup task for expired tickets
+    # Cleanup task for expired tickets and stale data cache
     async def cleanup_tickets():
         while True:
-            await asyncio.sleep(300) # every 5 mins
+            await asyncio.sleep(300)  # every 5 mins
             now = datetime.now(timezone.utc)
             expired = [t for t, (tok, exp) in auth_tickets.items() if exp < now]
             for t in expired: auth_tickets.pop(t, None)
             if expired: logger.info(f"[auth] Purged {len(expired)} expired tickets")
+            from playbooks.data_sources import evict_stale_cache
+            evict_stale_cache()
     
     task = asyncio.create_task(cleanup_tickets())
     yield
@@ -201,16 +203,22 @@ async def broadcast_to_stage(meeting_id: str, message: dict, exclude_ws: WebSock
     for ws in list(stage_listeners[meeting_id]):
         if ws == exclude_ws:
             continue
-        try: await ws.send_text(payload)
-        except Exception: pass
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            stage_listeners[meeting_id].discard(ws)
+    if not stage_listeners.get(meeting_id):
+        stage_listeners.pop(meeting_id, None)
 
     if msg_type == "transcript" or (isinstance(message, dict) and message.get("type") == "transcript"):
         for emoji in detect_emojis(message.get("text", "") if isinstance(message, dict) else ""):
             await asyncio.sleep(0.4)
             emoji_payload = json.dumps({"type": "emoji_reaction", "emoji": emoji})
             for ws in list(stage_listeners.get(meeting_id, [])):
-                try: await ws.send_text(emoji_payload)
-                except Exception: pass
+                try:
+                    await ws.send_text(emoji_payload)
+                except Exception:
+                    stage_listeners.get(meeting_id, set()).discard(ws)
 
 async def call_workspace_agent(query: str, user_id: str = "", user_token: str = "") -> str:
     if not user_id: return "Workspace agent: no user identity available."
@@ -538,7 +546,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             token = data.get("access_token", "")
                             workspace_user[0] = email
                             session_token[0] = token
-                            if data.get("meeting_id"): session_space[0] = data.get("meeting_id")
+                            # meeting_id is bound at connection time from the URL; client cannot reassign
                             
                             # Update global session data with identity for API access
                             if session_space[0] in active_sessions:
@@ -1231,8 +1239,9 @@ async def ui_prompt(payload: dict = Body(...), token: str = Depends(token_requir
         args = {}
         if "{" in raw_text:
             try:
-                args = json.loads(raw_text[raw_text.find("{"):raw_text.rfind("}")+1])
-            except: pass
+                args, _ = json.JSONDecoder().raw_decode(raw_text, raw_text.index("{"))
+            except (json.JSONDecodeError, ValueError):
+                pass
         
         if args:
             ui_state = session_data["ui_state"]
@@ -2668,22 +2677,101 @@ async def fire_playbook_slide_internal(playbook_name: str, slide_id: str, space_
     }
 
 
+@app.get("/api/gchat/fire-redirect/{playbook_name}/{slide_id}/{space_id:path}")
+async def gchat_fire_redirect(playbook_name: str, slide_id: str, space_id: str):
+    """
+    Sleek, GET-based endpoint for Google Chat incoming webhook links.
+    Triggers the slide and displays a gorgeous feedback card, closing itself.
+    """
+    from fastapi.responses import HTMLResponse
+    try:
+        await fire_playbook_slide_internal(playbook_name, slide_id, space_id)
+    except Exception as e:
+        return HTMLResponse(content=f"""
+        <html>
+            <head>
+                <title>Meet Studio — Error</title>
+                <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+                <style>
+                    body {{ font-family: 'Outfit', sans-serif; background: #11121c; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
+                    .card {{ background: rgba(239, 68, 68, 0.1); border-radius: 16px; padding: 40px; border: 1px solid rgba(239, 68, 68, 0.3); text-align: center; max-width: 400px; }}
+                    h1 {{ color: #ef4444; }}
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h1>⚠️ Error Firing Slide</h1>
+                    <p>{str(e)}</p>
+                </div>
+            </body>
+        </html>
+        """)
+
+    return HTMLResponse(content=f"""
+    <html>
+        <head>
+            <title>Meet Studio — Action Sent</title>
+            <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+            <style>
+                body {{
+                    font-family: 'Outfit', sans-serif;
+                    background: #11121c;
+                    color: #fff;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    text-align: center;
+                }}
+                .card {{
+                    background: rgba(255, 255, 255, 0.04);
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    max-width: 400px;
+                }}
+                h1 {{ color: #00f2ff; margin-top: 0; font-size: 24px; }}
+                p {{ color: #8a8d9a; font-size: 16px; margin: 10px 0 20px 0; }}
+                .btn {{
+                    background: #00c4ff;
+                    color: #11121c;
+                    padding: 10px 24px;
+                    border-radius: 8px;
+                    text-decoration: none;
+                    font-weight: 600;
+                    display: inline-block;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>🚀 Slide Sent to Stage!</h1>
+                <p>Triggered slide <b>{slide_id}</b> for playbook <b>{playbook_name}</b> live on the meeting stage.</p>
+                <p style="font-size: 13px; color: #5a5d6a;">This window will close automatically.</p>
+                <a href="javascript:window.close()" class="btn">Close Window</a>
+            </div>
+            <script>
+                setTimeout(function() {{ window.close(); }}, 2000);
+            </script>
+        </body>
+    </html>
+    """)
+
+
 @app.post("/api/playbook/fire/{playbook_name}/{slide_id}/{space_id:path}")
 async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
                               request: Request):
-    """Resolve a playbook slide, cancel any in-flight tick loop on this space,
-    broadcast the new surface to the audience stage (full A2UI protocol order:
-    surfaceUpdate → beginRendering), then optionally start a fresh tick loop.
-
-    NOTE on auth: unauthed for localhost PoC. See TODO at top of staged file
-    for the deployment auth options."""
+    check_producer_auth(request)
     return await fire_playbook_slide_internal(playbook_name, slide_id, space_id)
 
 
 @app.get("/api/playbook/list/{playbook_name}")
-async def list_playbook_slides(playbook_name: str):
+async def list_playbook_slides(playbook_name: str, request: Request):
     """List the slides in a playbook. Used by the future /presenter/{space}
     URL to populate its button strip."""
+    check_producer_auth(request)
     from playbooks.manager import playbook_manager
 
     slides = playbook_manager.list_slides(playbook_name)
@@ -3286,6 +3374,246 @@ async def draft_playbook_from_doc(
         "doc_url": doc_url if 'doc_url' in locals() else body.get("doc_url"),
         "fire_url": f"/api/playbook/fire/{pb_name}/{parsed['slides'][0]['id']}/{space_id}",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Google Chat Workspace Add-on Webhook (Mode C Integration)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def build_playbook_selection_card(playbooks: list[str], update_in_place: bool = False):
+    """
+    Builds a Google Chat Card v2 offering selection of all available playbooks.
+    """
+    buttons = []
+    for pb in playbooks:
+        buttons.append({
+            "text": pb.replace("_", " ").title(),
+            "onClick": {
+                "action": {
+                    "actionMethodName": "select_playbook",
+                    "parameters": [
+                        {"key": "playbook_name", "value": pb},
+                        {"key": "space_id", "value": "default"}
+                    ]
+                }
+            }
+        })
+
+    card = {
+        "header": {
+            "title": "Meet Studio",
+            "subtitle": "Select a Presentation Playbook",
+            "imageUrl": "https://fonts.gstatic.com/s/i/productlogos/meet_2020q4/v1/web-96.png",
+            "imageType": "CIRCLE"
+        },
+        "sections": [
+            {
+                "header": "Available Playbooks",
+                "widgets": [
+                    {
+                        "textParagraph": {
+                            "text": "Select a playbook below to load its interactive slide controller. Each button click will trigger high-fidelity layouts live on the meeting stage."
+                        }
+                    },
+                    {
+                        "buttonList": {
+                            "buttons": buttons
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+
+    resp_type = "UPDATE_MESSAGE" if update_in_place else "NEW_MESSAGE"
+    return {
+        "actionResponse": {"type": resp_type},
+        "cardsV2": [
+            {
+                "cardId": "playbook_selector_card",
+                "card": card
+            }
+        ]
+    }
+
+
+def build_playbook_card_response(playbook_name: str, active_slide_id: str = None, space_id: str = "default", update_in_place: bool = False):
+    """
+    Builds a Google Chat Card v2 slide controller card for the selected playbook.
+    """
+    from playbooks.manager import playbook_manager
+    slides = playbook_manager.list_slides(playbook_name)
+
+    # Identify active slide
+    active_slide = None
+    if active_slide_id:
+        active_slide = playbook_manager.get_slide(playbook_name, active_slide_id)
+    elif slides:
+        # Default to first slide
+        active_slide = slides[0]
+        active_slide_id = active_slide.slide_id
+
+    # Create section buttons
+    slide_widgets = []
+    for s in slides:
+        is_active = s.slide_id == active_slide_id
+        label_text = f"▶ {s.label}" if not is_active else f"● {s.label} (Active)"
+
+        button = {
+            "text": label_text,
+            "onClick": {
+                "action": {
+                    "actionMethodName": "fire_slide",
+                    "parameters": [
+                        {"key": "playbook_name", "value": playbook_name},
+                        {"key": "slide_id", "value": s.slide_id},
+                        {"key": "space_id", "value": space_id}
+                    ]
+                }
+            }
+        }
+
+        if is_active:
+            button["type"] = "FILLED"
+            button["color"] = {
+                "red": 0.0,
+                "green": 0.85,
+                "blue": 1.0,
+                "alpha": 1.0
+            }
+
+        slide_widgets.append({
+            "buttonList": {
+                "buttons": [button]
+            }
+        })
+
+    active_label = active_slide.label if active_slide else "None"
+    active_notes = active_slide.notes if (active_slide and active_slide.notes) else "No notes for this slide."
+
+    sections = [
+        {
+            "header": "Slides Controller",
+            "widgets": slide_widgets
+        },
+        {
+            "header": "Presenter Copilot Notes",
+            "widgets": [
+                {
+                    "textParagraph": {
+                        "text": f"<b>Active:</b> {active_label}<br/><br/><i>{active_notes}</i>"
+                    }
+                }
+            ]
+        },
+        {
+            "widgets": [
+                {
+                    "buttonList": {
+                        "buttons": [
+                            {
+                                "text": "↩ Change Playbook",
+                                "onClick": {
+                                    "action": {
+                                        "actionMethodName": "select_playbook_menu"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    card = {
+        "header": {
+            "title": f"Meet Studio — {playbook_name.replace('_', ' ').title()}",
+            "subtitle": f"Active: {active_label}",
+            "imageUrl": "https://fonts.gstatic.com/s/i/productlogos/meet_2020q4/v1/web-96.png",
+            "imageType": "CIRCLE"
+        },
+        "sections": sections
+    }
+
+    # If update_in_place is True, update the card in place. Otherwise, create a new card.
+    resp_type = "UPDATE_MESSAGE" if update_in_place else "NEW_MESSAGE"
+
+    return {
+        "actionResponse": {"type": resp_type},
+        "cardsV2": [
+            {
+                "cardId": "playbook_controller_card",
+                "card": card
+            }
+        ]
+    }
+
+
+@app.post("/api/gchat/webhook")
+async def gchat_webhook(request: Request):
+    """
+    Google Chat App webhook endpoint.
+    Handles user interaction events (CARD_CLICKED, MESSAGE, ADDED_TO_SPACE)
+    and updates cards in-place while driving the Meet main stage via A2UI.
+    """
+    from playbooks.manager import playbook_manager
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    event_type = body.get("type")
+
+    # 1. ADDED_TO_SPACE or MESSAGE event
+    if event_type in ("ADDED_TO_SPACE", "MESSAGE"):
+        text = ""
+        if event_type == "MESSAGE":
+            text = body.get("message", {}).get("text", "").strip()
+
+        playbook_name = ""
+        available_playbooks = playbook_manager.list_playbooks()
+
+        for pb in available_playbooks:
+            if pb.lower() in text.lower():
+                playbook_name = pb
+                break
+
+        if playbook_name:
+            return build_playbook_card_response(playbook_name, active_slide_id=None, space_id="default", update_in_place=False)
+        else:
+            return build_playbook_selection_card(available_playbooks, update_in_place=False)
+
+    # 2. CARD_CLICKED event (button click)
+    elif event_type == "CARD_CLICKED":
+        action = body.get("action", {})
+        method_name = action.get("actionMethodName")
+        parameters = {p["key"]: p["value"] for p in action.get("parameters", []) if "key" in p and "value" in p}
+
+        playbook_name = parameters.get("playbook_name")
+        slide_id = parameters.get("slide_id")
+        space_id = parameters.get("space_id", "default")
+
+        if method_name == "select_playbook":
+            return build_playbook_card_response(playbook_name, active_slide_id=None, space_id=space_id, update_in_place=True)
+
+        elif method_name == "select_playbook_menu":
+            available_playbooks = playbook_manager.list_playbooks()
+            return build_playbook_selection_card(available_playbooks, update_in_place=True)
+
+        elif method_name == "fire_slide":
+            # Fire the slide onto the Google Meet main stage live via A2UI
+            if playbook_name and slide_id:
+                try:
+                    await fire_playbook_slide_internal(playbook_name, slide_id, space_id)
+                except Exception as e:
+                    logger.error(f"[gchat_webhook] Failed to fire slide {playbook_name}/{slide_id}: {e}")
+
+            # Return updated Google Chat Card highlighting this active slide in-place
+            return build_playbook_card_response(playbook_name, active_slide_id=slide_id, space_id=space_id, update_in_place=True)
+
+    return {"actionResponse": {"type": "OK"}}
 
 
 # SPA-fallback GET catch-all — explicitly 404s any unmatched api/* path,

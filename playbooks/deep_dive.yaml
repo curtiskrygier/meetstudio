@@ -1,0 +1,84 @@
+# Doc-to-deck demo — converting a2ui_capabilities_deep_dive.md (live doc on disk)
+# into a 5-slide playbook using only the existing template substrate.
+# Authored in ~3 minutes; zero Python.
+#
+#   curl -X POST http://127.0.0.1:8085/api/playbook/fire/deep_dive/intro/default
+
+name: deep_dive
+
+slides:
+
+  # ─── 1. Title — opener ──────────────────────────────────────────────
+  - id: intro
+    template: title
+    badge:    { text: "ARCHITECTURAL AUDIT", type: danger, pulse: true }
+    title:    "A2UI · DEEP DIVE"
+    subtitle: "server-driven UI on the Meet main stage"
+    next_action:
+      text:  "Spec Alignment"
+      fires: alignment
+
+  # ─── 2. List — 4 alignment points (out of 5 slots) ──────────────────
+  - id: alignment
+    template: list_5
+    badge: { text: "A2UI v0.8 ALIGNMENT", type: primary }
+    title: "WHAT WE BUILT"
+    points:
+      - "Structure streaming — flat component lists, no nested trees."
+      - "State diffs — small data updates, not full surface rerenders."
+      - "Render handshake — buffer until session activated, no FOUC."
+      - "Bound values + userAction — interactive widgets via path bindings."
+    next_action:
+      text:  "Coverage Score"
+      fires: coverage
+
+  # ─── 3. Hero stat — capability coverage (with literal data binding) ─
+  - id: coverage
+    template: hero_stat
+    badge: { text: "CAPABILITY COVERAGE", type: primary }
+    label: "Features shipped (of 11 tracked)"
+    data:
+      ratio:
+        source: literal
+        value:  "9"
+    value: "{{ ratio }}"
+    delta: "+2 since last audit"
+    is_up: true
+    next_action:
+      text:  "What's Next"
+      fires: next_up
+
+  # ─── 4. Split — current vs potential, with read-more link ───────────
+  - id: next_up
+    template: split_with_action
+    left:
+      badge: { text: "HIGH-VALUE UPGRADES", type: primary }
+      title: "WHAT TO BUILD NEXT"
+      body:  "Host vs participant role-based interface. Live co-writing pad
+              over a synced WebSocket. Real-time GCP container telemetry on
+              the neon-cyan SVG dashboard — replacing the mock generator."
+    right:
+      actions:
+        - text:    "Open Full Article"
+          variant: ghost
+          links:   "file:///home/curtis/gemini/a2ui_capabilities_deep_dive.md"
+        - text:    "Sign Off"
+          variant: success
+          size:    lg
+          pulse:   true
+          fires:   close
+
+  # ─── 5. Sign-off — the v0.8→v0.9 twist ──────────────────────────────
+  - id: close
+    template: signoff
+    lines:
+      - { text: "WRITTEN FOR v0.8.",  color: white }
+      - { text: "RENDERED ON v0.9.",  color: phosphor }
+      - { text: "SUBSTRATE HELD.",    color: cyan }
+    brands:
+      left:  "A2UI v0.9"
+      right: "MEETSTUDIO"
+    badge_text: "DOC → YAML → STAGE · ZERO PYTHON · MINUTES"
+    chef_line:  "ONE ARTICLE BECAME ONE DECK."
+    chef_sub:   "the kitchen didn't care."
+    tagline:    "every article is now a deck."

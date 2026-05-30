@@ -562,6 +562,27 @@ export class GdmArchitectAgent extends LitElement {
       this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'root' } });
     }
 
+    // Also send the comment to the actual Google Chat space if we are authenticated
+    const targetSpace = this.chatSpaceId ? this.chatSpaceId : (this.meetingId ? (this.meetingId.startsWith('spaces/') ? this.meetingId : `spaces/${this.meetingId}`) : '');
+    if (this.accessToken && targetSpace) {
+      console.log('[concierge] Access token and target space resolved. Posting comment to real Google Chat space...');
+      this.authenticatedFetch(`https://chat.googleapis.com/v1/${targetSpace}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text })
+      }).then(resp => {
+        if (resp.ok) {
+          console.log('[concierge] Successfully posted comment to real Google Chat space');
+        } else {
+          console.warn('[concierge] Failed to post comment to real Google Chat space:', resp.status);
+        }
+      }).catch(err => {
+        console.error('[concierge] Error posting comment to Google Chat space:', err);
+      });
+    }
+
     this.simulatedText = ''; // Clear text input after broadcast
   }
 
