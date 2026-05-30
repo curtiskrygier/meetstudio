@@ -47,6 +47,7 @@ def _make_builder(slide_cfg: dict, playbook_name: str) -> Callable:
             "playbook_name": playbook_name,
             "space_id":      space_id,
             "slide_cfg":     slide_cfg,
+            "tick":          tick,
         }
         try:
             data = await resolve_slide_data(slide_id, data_decls, ctx, tick)
@@ -59,7 +60,8 @@ def _make_builder(slide_cfg: dict, playbook_name: str) -> Callable:
         # construct fire endpoints + look up sibling keys.
         full_cfg = {**slide_cfg,
                     "playbook_name": playbook_name,
-                    "space_id": space_id}
+                    "space_id": space_id,
+                    "tick": tick}
         return template_fn(slide_id, full_cfg, data)
 
     return builder
@@ -101,11 +103,13 @@ def load_yaml_playbook(filepath: str) -> str | None:
         logger.warning(f"[yaml_loader] {filepath} did not parse to a dict — skipping")
         return None
 
-    name = config.get("name")
+    import re
+    raw_name = config.get("name")
     slides_cfg = config.get("slides")
-    if not name or not isinstance(slides_cfg, list):
+    if not raw_name or not isinstance(slides_cfg, list):
         logger.warning(f"[yaml_loader] {filepath} missing 'name' or 'slides' list — skipping")
         return None
+    name = re.sub(r"[^a-z0-9_]", "_", raw_name.lower())[:40] or "drafted"
 
     slides_built: list[Slide] = []
     for cfg in slides_cfg:

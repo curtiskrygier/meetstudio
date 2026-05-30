@@ -75,30 +75,20 @@ def _color(name_or_hex: str | None, default: str = "white") -> str:
 
 
 def _make_action(action_cfg: dict | None, ctx: dict) -> dict | None:
-    """Map YAML action shorthands to a full gdm-button `action` prop.
-
-        { fires: slide_id }     → fire mode, endpoint computed
-        { links: url }          → link mode
-        { emits: event_name }   → emit mode
-        { agent: action_id }    → agent mode (legacy back-compat)
-
-    Returns None if no recognisable shorthand present."""
+    """Build a v0.9 action dict from a YAML action/next_action declaration."""
     if not action_cfg:
         return None
     if "fires" in action_cfg:
-        return {
-            "type": "fire",
-            "endpoint": f"/api/playbook/fire/{ctx['playbook_name']}/{action_cfg['fires']}/{ctx['space_id']}",
-        }
+        # Server-side fire of another playbook slide → POST endpoint,
+        # then agent does NOT need to be informed. functionCall it.
+        endpoint = f"/api/playbook/fire/{ctx['playbook_name']}/{action_cfg['fires']}/{ctx['space_id']}"
+        return {"functionCall": {"call": "fireEndpoint", "args": {"endpoint": endpoint}}}
     if "links" in action_cfg:
-        return {"type": "link", "url": action_cfg["links"],
-                "newTab": action_cfg.get("newTab", True)}
+        return {"functionCall": {"call": "openUrl", "args": {"url": action_cfg["links"]}}}
     if "emits" in action_cfg:
-        return {"type": "emit", "event": action_cfg["emits"],
-                "detail": action_cfg.get("detail")}
+        return {"event": {"name": action_cfg["emits"]}}
     if "agent" in action_cfg:
-        return {"type": "agent", "actionId": action_cfg["agent"],
-                "payload": action_cfg.get("payload")}
+        return {"event": {"name": action_cfg["agent"]}}
     return None
 
 
@@ -450,17 +440,8 @@ def signoff_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
 # ────────────────────────────────────────────────────────────────────────────
 
 def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
-    """Two-column dense market scan with header (badge + clock) and one row
-    per symbol: SYM · price (flip) · change %. Reuses the proven 2x6 grid
-    from the primitives showcase Pass 2 — no `position: fixed` quirk.
-
-    Data contract (produced by the resolver's `map:` projection):
-        cfg['symbols']: ["AAPL", "TSLA", ...]               — display order
-        data['quotes']: [{symbol, price, change}, ...]      — resolved payload
-
-    `is_up` is derived from change's sign in the template (presentational).
-    Templates know NOTHING about the upstream API's vocabulary — that lives
-    in the YAML `map:` declaration.
+    """Dense multi-column market scan using the high-performance and premium
+    gdm-trend-value component with native browser CSS column flow layouts.
     """
     badge    = cfg.get("badge") or {}
     symbols  = cfg.get("symbols") or []
@@ -469,22 +450,15 @@ def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
     ctx      = {"playbook_name": cfg["playbook_name"], "space_id": cfg["space_id"]}
     action   = _make_action(next_act, ctx)
 
-    # Map symbol → quote for O(1) lookup; preserve YAML symbol ordering.
-    # Case-insensitive — CoinGecko returns "btc", Yahoo returns "BTC", binance
-    # returns "BTCUSDT" — normalize both sides to uppercase for the lookup so
-    # the same template works across REST sources without YAML case fiddling.
+    # Map symbol → quote for O(1) lookup
     by_symbol: dict = {}
     for q in quotes:
         if isinstance(q, dict) and q.get("symbol"):
             by_symbol[str(q["symbol"]).upper()] = q
     rows = [(s, by_symbol.get(str(s).upper(), {})) for s in symbols]
 
-    # Split into two columns; left reveals first, right after a small offset.
-    half      = (len(rows) + 1) // 2
-    left      = rows[:half]
-    right     = rows[half:]
-    left_ids  = [f"{slide_id}_l_{i}" for i in range(len(left))]
-    right_ids = [f"{slide_id}_r_{i}" for i in range(len(right))]
+    num_cols = 4 if len(rows) > 16 else 2
+    row_ids = [f"{slide_id}_row_{i}" for i in range(len(rows))]
 
     main_kids = [f"{slide_id}_hdr", f"{slide_id}_div", f"{slide_id}_body"]
     if action:
@@ -494,19 +468,18 @@ def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
         C("root", "gdm-stage-grid", {"layout": "hero",
                                      "children": {"explicitList": ["main"]}}),
         C("main", "gdm-container", {
-            "direction": "column", "padding": "40px 52px", "gap": "12px",
+            "direction": "column", "padding": "24px 32px", "gap": "10px",
             "width": "100%", "height": "100%", "grow": 1,
             "glass": True, "borderRadius": "18px",
             "reveal": "scale-in", "revealDelay": 0.0,
             "children": {"explicitList": main_kids},
         }),
-        # Header: badge + clock (both atoms already in the catalogue)
         C(f"{slide_id}_hdr", "gdm-container", {
             "direction": "row", "align": "center", "gap": "16px",
             "reveal": "fade-up", "revealDelay": 0.2,
             "children": {"explicitList": [f"{slide_id}_badge",
-                                          f"{slide_id}_sp",
-                                          f"{slide_id}_clock"]},
+                                           f"{slide_id}_sp",
+                                           f"{slide_id}_clock"]},
         }),
         C(f"{slide_id}_badge", "gdm-badge", {
             "text":  badge.get("text", "REALTIME · MARKETS"),
@@ -522,24 +495,18 @@ def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
             "color": "rgba(0,255,136,0.22)",
             "reveal": "fade-up", "revealDelay": 0.35,
         }),
+        # --- Native CSS Columns flow container! ---
         C(f"{slide_id}_body", "gdm-container", {
-            "direction": "row", "gap": "44px", "grow": 1, "width": "100%",
-            "align": "stretch",
-            "children": {"explicitList": [f"{slide_id}_col_l", f"{slide_id}_col_r"]},
-        }),
-        C(f"{slide_id}_col_l", "gdm-container", {
-            "direction": "column", "gap": "4px", "grow": 1,
-            "children": {"explicitList": left_ids},
-        }),
-        C(f"{slide_id}_col_r", "gdm-container", {
-            "direction": "column", "gap": "4px", "grow": 1,
-            "children": {"explicitList": right_ids},
+            "columns": num_cols,
+            "columnGap": "16px",
+            "gap": "5px",
+            "grow": 1,
+            "width": "100%",
+            "children": {"explicitList": row_ids},
         }),
     ]
 
     def _maybe_float(v):
-        """Coerce numeric strings (e.g. Twelve Data's '-0.59000') to float.
-        Returns None for unparseable or non-numeric values."""
         if isinstance(v, (int, float)):
             return v
         if isinstance(v, str):
@@ -550,62 +517,29 @@ def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
         return None
 
     def emit_row(rid: str, sym: str, q: dict, base_delay: float) -> list[dict]:
-        # Defensive coercion — different REST APIs return numerics in
-        # different shapes: CoinGecko gives floats, Twelve Data gives
-        # strings ('234.40', '-0.59000'), Yahoo gives floats. Normalize
-        # at the template layer rather than polluting the resolver.
         price_raw = _maybe_float(q.get("price"))
         chg_raw   = _maybe_float(q.get("change"))
         is_up     = isinstance(chg_raw, (int, float)) and chg_raw >= 0
 
-        # Price display formatting — tier by magnitude so FX (1.0854),
-        # equities ($237.42), and BTC/indices ($71,820) all read cleanly.
-        if price_raw is None:
-            price_disp = "—"
-        elif isinstance(price_raw, (int, float)):
-            if abs(price_raw) < 5:       price_disp = f"{price_raw:,.4f}"
-            elif abs(price_raw) > 10000: price_disp = f"${price_raw:,.0f}"
-            else:                        price_disp = f"${price_raw:,.2f}"
-        else:
-            price_disp = str(price_raw)
-
-        if chg_raw is None or not isinstance(chg_raw, (int, float)):
-            chg_disp = "—"
-        else:
-            arrow = "↑ +" if is_up else "↓ "
-            chg_disp = f"{arrow}{chg_raw:.2f}%"
+        price_val = price_raw if price_raw is not None else 0.0
+        chg_val = chg_raw if chg_raw is not None else 0.0
 
         return [
-            C(rid, "gdm-container", {
-                "direction": "row", "align": "center", "gap": "20px",
-                "grow": 1, "padding": "7px 6px",
+            C(rid, "gdm-trend-value", {
+                "symbol": sym,
+                "price": price_val,
+                "change": chg_val,
+                "isUp": is_up,
+                "precision": 4 if abs(price_val) < 5 else 2,
                 "reveal": "slide-right", "revealDelay": base_delay,
-                "children": {"explicitList": [f"{rid}_sym", f"{rid}_price",
-                                              f"{rid}_sp", f"{rid}_chg"]},
-            }),
-            C(f"{rid}_sym",   "gdm-text", {
-                "content": sym, "size": "30px", "color": "white",
-                "font": "mono", "weight": "900", "letterSpacing": "0.04em",
-                "uppercase": True,
-            }),
-            C(f"{rid}_price", "gdm-text", {
-                "content": price_disp, "size": "30px", "color": "white",
-                "font": "mono", "weight": "800", "flip": True,
-            }),
-            C(f"{rid}_sp", "gdm-spacer", {}),
-            C(f"{rid}_chg",   "gdm-text", {
-                "content": chg_disp, "size": "26px",
-                "color": "#19d27a" if is_up else "#ff5d5d",
-                "font": "mono", "weight": "800", "flip": True,
-            }),
+            })
         ]
 
-    # Left column reveals first (delay 0.5 → +0.10 each); right follows after
-    # a 0.55s offset so the eye reads it as left-then-right assembly.
-    for i, (sym, q) in enumerate(left):
-        out += emit_row(left_ids[i], sym, q, base_delay=0.5 + i * 0.10)
-    for i, (sym, q) in enumerate(right):
-        out += emit_row(right_ids[i], sym, q, base_delay=0.5 + 0.55 + i * 0.10)
+    # Emit all rows as flat children inside the CSS columns body container
+    for i, (sym, q) in enumerate(rows):
+        col_idx = i // ((len(rows) + num_cols - 1) // num_cols)
+        row_idx_in_col = i % ((len(rows) + num_cols - 1) // num_cols)
+        out += emit_row(row_ids[i], sym, q, base_delay=0.4 + col_idx * 0.12 + row_idx_in_col * 0.02)
 
     if action:
         out.append(C(f"{slide_id}_btn", "gdm-button", {
@@ -615,6 +549,310 @@ def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
             "pulse":   next_act.get("pulse", True),
             "action":  action,
         }))
+    return out
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Template 7 — airspace_command_deck
+# ────────────────────────────────────────────────────────────────────────────
+
+def _make_supervisor_console_html(flights: list[dict], weather: dict) -> str:
+    """Generates the live ATC Sector Supervisor Console HTML panel content."""
+    rows_markup = ""
+    for f in flights:
+        vrate = f.get("vrate", 0)
+        vr_symbol = "▼" if vrate < -250 else ("▲" if vrate > 250 else "—")
+        if vrate < -250:
+            color_class = "text-up"
+        elif vrate > 250:
+            color_class = "text-warning"
+        else:
+            color_class = "text-cyan"
+            
+        alt_m = f.get("altitude", 0)
+        fl = f"{int(alt_m * 3.28084 / 100):03d}"
+        
+        if alt_m < 500:
+            status_pill = '<span class="status-pill landed">Landed</span>'
+        elif alt_m < 1000:
+            status_pill = '<span class="status-pill approach">Final Approach</span>'
+        elif alt_m < 2500:
+            status_pill = '<span class="status-pill approach">Approach Fix</span>'
+        else:
+            status_pill = '<span class="status-pill established">Established</span>'
+            
+        rows_markup += f"""
+        <tr>
+            <td class="font-bold">{f.get('company', '')}</td>
+            <td class="{color_class} font-bold font-mono">{f.get('callsign', '')}</td>
+            <td class="font-mono">{f.get('aircraft', '')}</td>
+            <td class="font-mono font-bold">{f.get('origin', '')} ➔ {f.get('destination', '')}</td>
+            <td class="font-mono text-mute">{f.get('dep_time', '')}</td>
+            <td class="font-mono text-warning">{f.get('eta', '')}</td>
+            <td class="font-mono text-warning font-bold">{f.get('eta_relative', '')}</td>
+            <td class="font-mono">FL{fl} <span class="text-mute text-xs">({alt_m}m)</span></td>
+            <td class="{color_class} font-mono">{vr_symbol} {abs(vrate)} fpm</td>
+            <td>{status_pill}</td>
+            <td class="font-mono text-mute">{f.get('squawk', '')}</td>
+        </tr>
+        """
+        
+    return f"""
+    <link rel="stylesheet" href="/stage_components.css">
+    <div class="hud-container">
+        <div class="hud-header">
+            <div class="hud-title">
+                <div class="pulse-dot"></div>
+                📡 TLS-SECTOR SUPERVISOR CONSOLE
+            </div>
+            <div class="hud-subtitle-badge">LFBO-APP</div>
+        </div>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-label">Active Runway Corridor</div>
+                <div class="metric-value text-up">ILS Runway 32L/R</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Active Wind & METAR</div>
+                <div class="metric-value font-mono">{weather.get('wind', '—')} ({weather.get('temp', '—')})</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Sector Capacity</div>
+                <div class="metric-value text-cyan">{len(flights)}/12 ACFT</div>
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Airline</th>
+                        <th>Flight No</th>
+                        <th>Aircraft</th>
+                        <th>Route</th>
+                        <th>Departure</th>
+                        <th>ETA (UTC)</th>
+                        <th>Countdown</th>
+                        <th>Altitude</th>
+                        <th>V-Rate</th>
+                        <th>Sector Status</th>
+                        <th>Squawk</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_markup}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+
+def _make_target_profile_html(flight: dict, tick: int) -> str:
+    """Generates the glowing Target Operations Profile HUD for a locked aircraft."""
+    alt_m = flight.get("altitude", 0)
+    altitude_ft = int(alt_m * 3.28084)
+    fl = f"{int(altitude_ft / 100):03d}"
+    vrate = flight.get("vrate", 0)
+    speed = flight.get("speed", 0)
+    
+    pct_speed = int(max(0, min(100, (speed - 135) / (340 - 135) * 100)))
+    glide_deviation = "ON COURSE" if alt_m > 100 else "DECELERATION ROLL"
+    
+    return f"""
+    <link rel="stylesheet" href="/stage_components.css">
+    <div class="hud-container green-theme">
+        <div class="hud-header green-theme">
+            <div class="hud-title green-theme">
+                <div class="pulse-dot"></div>
+                🎯 ACTIVE TARGET OPERATIONS PROFILE
+            </div>
+            <div class="hud-subtitle-badge green-theme">VECTORS LOCK ON</div>
+        </div>
+        
+        <div class="flex-between align-start margin-bottom-md">
+            <div>
+                <div class="target-callsign">{flight.get('callsign', '')}</div>
+                <div class="font-bold font-mono text-up text-uppercase text-xs">
+                    {flight.get('company', '')} • {flight.get('origin', '')} ➔ {flight.get('destination', '')}
+                </div>
+            </div>
+            <div class="text-right">
+                <div class="font-bold text-uppercase text-mute text-xs">Squawk</div>
+                <div class="font-bold font-mono text-cyan text-lg glow-cyan">{flight.get('squawk', '')}</div>
+            </div>
+        </div>
+        
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-label">Primary Altitude</div>
+                <div class="metric-value">{alt_m}m <span class="text-mute text-xs">/ FL{fl}</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Airspeed Reference</div>
+                <div class="metric-value text-up">{speed} kt</div>
+                <progress value="{pct_speed}" max="100"></progress>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Vertical Descent Speed</div>
+                <div class="metric-value text-up">{vrate} fpm</div>
+            </div>
+        </div>
+        
+        <div class="metric-grid grid-2 margin-bottom-md">
+            <div class="metric-card">
+                <div class="metric-label">Aircraft Type</div>
+                <div class="metric-value font-mono">{flight.get('aircraft', '')}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Touchdown ETA</div>
+                <div class="metric-value text-warning">{flight.get('eta_relative', '')} <span class="text-mute text-xs">({flight.get('eta', '')})</span></div>
+            </div>
+        </div>
+        
+        <div class="glidepath-visual">
+            <div class="font-bold text-uppercase text-mute text-xs text-letterspace margin-bottom-sm">3-Degree Instrument Landing Corridor</div>
+            <div class="font-bold text-cyan text-letterspace margin-bottom-sm">{glide_deviation}</div>
+            <div class="glideslope-line">
+                <div class="glide-notch"></div>
+                <div class="glide-notch"></div>
+                <div class="glide-diamond"></div>
+                <div class="glide-notch"></div>
+                <div class="glide-notch"></div>
+            </div>
+            <div class="font-mono text-mute text-xs margin-top-sm">ILS GS-32L FREQ: 110.10 MHz • DME LOCK: 1.8 NM</div>
+        </div>
+    </div>
+    """
+
+
+def airspace_command_deck_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
+    """Toulouse-Blagnac Airspace Command Deck Template.
+    Renders:
+      - gdm-stage-grid (layout: "presentation", default)
+        hosting:
+          - gdm-3d-airspace (left panel)
+          - gdm-html-panel (right panel, displaying supervisor HUD)
+      - gdm-ticker (bottom ticker, optional)
+      - gdm-chyron (chyron header, optional)
+      - gdm-diagram-view (overlay, optional)
+      - gdm-poll-overlay (interactive poll, optional)
+    """
+    flights = data.get("flights") or []
+    weather = data.get("weather") or {
+        "wind": "310° @ 12kt",
+        "temp": "16°C",
+        "pressure": "1015 hPa",
+        "clouds": "Few clouds 3000ft",
+        "raw": "LFBO 262100Z 31012KT 9999 FEW030 16/11 Q1015"
+    }
+
+    tick = cfg.get("tick", 0)
+    locked_callsign = cfg.get("lockedCallsign", "")
+    layout_type = cfg.get("grid_layout", "split")
+
+    radar_id = f"{slide_id}_radar_view"
+    html_id = f"{slide_id}_html_panel"
+
+    # 1. Base Grid and Panels
+    out = [
+        C("root", "gdm-stage-grid", {
+            "layout": layout_type,
+            "children": {"explicitList": [radar_id, html_id]},
+        })
+    ]
+
+    # Configure 3D Airspace component properties
+    radar_props = {
+        "flights": flights,
+        "lockedCallsign": locked_callsign,
+        "showGlideSlope": cfg.get("showGlideSlope", True),
+        "showTerrain": cfg.get("showTerrain", True),
+        "cinematicOrbit": cfg.get("cinematicOrbit", True),
+        "autoTrack": cfg.get("autoTrack", False),
+    }
+
+    # Only set camera properties on tick 0 to let browser drag/pinch gesture interact.
+    if tick == 0:
+        camera = cfg.get("camera", {})
+        radar_props["zoom"] = camera.get("zoom", cfg.get("zoom", 5.5))
+        radar_props["cameraPitch"] = camera.get("cameraPitch", cfg.get("cameraPitch", 35.0))
+        radar_props["cameraYaw"] = camera.get("cameraYaw", cfg.get("cameraYaw", 45.0))
+
+    out.append(C(radar_id, "gdm-3d-airspace", radar_props))
+
+    # Generate proper retro-cyber HUD for HTML panel
+    panel_type = cfg.get("panel_type", "supervisor")
+    if panel_type == "target" and locked_callsign:
+        locked_flight = None
+        for f in flights:
+            if f.get("callsign") == locked_callsign:
+                locked_flight = f
+                break
+        if locked_flight:
+            html_content = _make_target_profile_html(locked_flight, tick)
+        else:
+            html_content = _make_supervisor_console_html(flights, weather)
+    else:
+        html_content = _make_supervisor_console_html(flights, weather)
+
+    out.append(C(html_id, "gdm-html-panel", {
+        "html": html_content,
+        "title": cfg.get("panel_title", "📡 Supervisor Live Console"),
+        "version": tick + 1,
+    }))
+
+    # 2. Add Standby Slate if inactive
+    if cfg.get("show_slate"):
+        out.append(C(f"{slide_id}_slate", "gdm-standby-slate", {
+            "title": cfg.get("slate_title", ""),
+            "description": cfg.get("slate_description", ""),
+            "seconds": cfg.get("slate_seconds", 5),
+            "fullscreen": cfg.get("slate_fullscreen", False),
+            "active": cfg.get("slate_active", True),
+        }))
+
+    # 3. Bottom Ticker Overlay
+    ticker_text = cfg.get("ticker_text")
+    if ticker_text:
+        ticker_text = _interpolate(ticker_text, data)
+        out.append(C(f"{slide_id}_ticker", "gdm-ticker", {
+            "text": ticker_text,
+            "scrollSpeed": cfg.get("ticker_speed", 50),
+            "active": True,
+            "accentColor": _color(cfg.get("ticker_accent", "phosphor")),
+        }))
+
+    # 4. Top Chyron Overlay
+    chyron_title = cfg.get("chyron_title")
+    if chyron_title:
+        out.append(C(f"{slide_id}_chyron", "gdm-chyron", {
+            "title": _interpolate(chyron_title, data),
+            "subtitle": _interpolate(cfg.get("chyron_subtitle", ""), data),
+            "active": True,
+            "accentColor": _color(cfg.get("chyron_accent", "phosphor")),
+        }))
+
+    # 5. Airway Network SVG Map Overlay
+    diagram_svg = data.get("airspace_svg") or cfg.get("diagram_svg")
+    if diagram_svg:
+        svg_content = _interpolate(diagram_svg, data)
+        out.append(C(f"{slide_id}_diagram", "gdm-diagram-view", {
+            "svg": svg_content,
+            "diagId": cfg.get("diagram_id", "network_overlay"),
+            "overlay": True,
+        }))
+
+    # 6. Interactive Poll Overlay
+    poll_question = cfg.get("poll_question")
+    if poll_question:
+        poll_values = data.get("poll_values") or cfg.get("poll_values") or [0, 0, 0]
+        out.append(C(f"{slide_id}_poll", "gdm-poll-overlay", {
+            "question": poll_question,
+            "options": cfg.get("poll_options", []),
+            "values": poll_values,
+            "active": True,
+        }))
+
     return out
 
 
@@ -630,4 +868,5 @@ TEMPLATES = {
     "list_5":             list_5_template,
     "signoff":            signoff_template,
     "market_ticker":      market_ticker_template,
+    "airspace_command_deck": airspace_command_deck_template,
 }

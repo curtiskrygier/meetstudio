@@ -297,6 +297,254 @@ async def _fetch_yahoo(decl: dict, context: dict) -> Any:
     raise NotImplementedError("yahoo_finance source not yet wired — use rest")
 
 
+async def _fetch_stooq(decl: dict, context: dict) -> Any:
+    """Fetch real-time stock/index/commodity quotes from Stooq's CSV API.
+
+    Calculates change as percentage: (Close - Open) / Open * 100.
+    Returns normalized objects: { 'symbol': symbol, 'price': price, 'change': change }
+    """
+    cfg = context.get("slide_cfg") or {}
+    symbols_list = cfg.get("symbols", [])
+    if not symbols_list:
+        symbols_list = decl.get("symbols", [])
+
+    if not symbols_list:
+        return []
+
+    # Join with '+' as required by Stooq multi-symbol query
+    symbols_str = "+".join(symbols_list)
+    url = f"https://stooq.com/q/l/?s={symbols_str}&f=sd2t2ohlc&h&e=csv"
+
+    timeout = float(decl.get("timeout", 5.0))
+    client = _get_rest_client()
+
+    r = await client.get(url, timeout=timeout)
+    r.raise_for_status()
+
+    text = r.text
+    lines = text.strip().split("\n")
+    if len(lines) < 2:
+        return []
+
+    header = [col.strip().lower() for col in lines[0].split(",")]
+    # Expected: ['symbol', 'date', 'time', 'open', 'high', 'low', 'close']
+
+    results = []
+    for line in lines[1:]:
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != len(header):
+            continue
+        row = dict(zip(header, parts))
+
+        try:
+            symbol = row.get("symbol", "").upper()
+            open_str = row.get("open", "")
+            close_str = row.get("close", "")
+            
+            if open_str == "N/D" or close_str == "N/D" or not open_str or not close_str:
+                results.append({
+                    "symbol": symbol,
+                    "price": None,
+                    "change": None
+                })
+                continue
+
+            open_val = float(open_str)
+            close_val = float(close_str)
+
+            price = close_val
+            if open_val != 0:
+                change = ((close_val - open_val) / open_val) * 100.0
+            else:
+                change = 0.0
+
+            results.append({
+                "symbol": symbol,
+                "price": price,
+                "change": change
+            })
+        except ValueError:
+            results.append({
+                "symbol": row.get("symbol", "").upper(),
+                "price": None,
+                "change": None
+            })
+
+    return results
+
+
+async def _fetch_noaa_metar(decl: dict, context: dict) -> dict:
+    """Fetches real METAR for a weather station (defaults to LFBO) and parses it."""
+    station = decl.get("station", "LFBO")
+    url = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{station}.TXT"
+    fallback = {
+        "wind": "310° @ 12kt",
+        "temp": "16°C",
+        "pressure": "1015 hPa",
+        "clouds": "Few clouds 3000ft",
+        "raw": f"{station} 262100Z 31012KT 9999 FEW030 16/11 Q1015"
+    }
+    client = _get_rest_client()
+    try:
+        resp = await client.get(url, timeout=3.0)
+        if resp.status_code == 200:
+            lines = resp.text.strip().splitlines()
+            if len(lines) >= 2:
+                metar_raw = lines[1].strip()
+                # Simple parsing of wind (e.g. 32015KT, VRB05KT, 32015G25KT)
+                wind_match = re.search(r'\b(\d{3}|VRB)(\d{2})(G\d{2})?KT\b', metar_raw)
+                wind_str = "310° @ 12kt"
+                if wind_match:
+                    dir_val = wind_match.group(1)
+                    speed_val = wind_match.group(2)
+                    gust_val = wind_match.group(3)
+                    dir_deg = f"{dir_val}°" if dir_val != "VRB" else "Variable"
+                    wind_str = f"{dir_deg} @ {speed_val}kt"
+                    if gust_val:
+                        wind_str += f" (Gusts {gust_val[1:]}kt)"
+                
+                # Parse temperature (e.g. 15/10, M02/M05)
+                temp_match = re.search(r'\b(M?\d{2})\/(M?\d{2})\b', metar_raw)
+                temp_str = "16°C"
+                if temp_match:
+                    t = temp_match.group(1)
+                    t_val = int(t.replace('M', '-')) if t.startswith('M') else int(t)
+                    temp_str = f"{t_val}°C"
+                
+                # Parse pressure (e.g. Q1015)
+                qnh_match = re.search(r'\bQ(\d{4})\b', metar_raw)
+                qnh_str = "1015 hPa"
+                if qnh_match:
+                    qnh_str = f"{qnh_match.group(1)} hPa"
+                
+                # Parse clouds (e.g. FEW030, SCT045, BKN035, OVC010)
+                cloud_match = re.search(r'\b(FEW|SCT|BKN|OVC|CAVOK|NSC)(\d{3})?\b', metar_raw)
+                cloud_str = "Clear skies"
+                if cloud_match:
+                    typ = cloud_match.group(1)
+                    alt = cloud_match.group(2)
+                    if typ == "CAVOK":
+                        cloud_str = "Clear (CAVOK)"
+                    elif typ == "NSC":
+                        cloud_str = "No significant clouds"
+                    else:
+                        alt_ft = int(alt) * 100 if alt else 3000
+                        names = {"FEW": "Few", "SCT": "Scattered", "BKN": "Broken", "OVC": "Overcast"}
+                        cloud_str = f"{names.get(typ, typ)} clouds @ {alt_ft}ft"
+                
+                return {
+                    "wind": wind_str,
+                    "temp": temp_str,
+                    "pressure": qnh_str,
+                    "clouds": cloud_str,
+                    "raw": metar_raw
+                }
+    except Exception:
+        pass
+    return fallback
+
+
+async def _fetch_simulated_airspace(decl: dict, context: dict) -> list[dict]:
+    """Generates progress-stepped approach sequences targeting LFBO Runway 32L/R."""
+    tick = context.get("tick", 0)
+    sim_tick = tick % 8
+
+    flights = [
+        {
+            "callsign": "AFR6129",
+            "company": "Air France",
+            "aircraft": "Airbus A321",
+            "altitude": max(150, 1150 - sim_tick * 100),
+            "speed": max(135, 260 - sim_tick * 12),
+            "vrate": -1100,
+            "origin": "ORY",
+            "destination": "TLS",
+            "dep_time": "19:40",
+            "squawk": "1242"
+        },
+        {
+            "callsign": "BAW373",
+            "company": "British Airways",
+            "aircraft": "Airbus A320",
+            "altitude": max(300, 2400 - sim_tick * 150),
+            "speed": max(145, 300 - sim_tick * 15),
+            "vrate": -1400,
+            "origin": "LHR",
+            "destination": "TLS",
+            "dep_time": "18:15",
+            "squawk": "2104"
+        },
+        {
+            "callsign": "EZY4218",
+            "company": "EasyJet",
+            "aircraft": "Airbus A319",
+            "altitude": max(600, 3800 - sim_tick * 200),
+            "speed": max(155, 340 - sim_tick * 18),
+            "vrate": -1700,
+            "origin": "LGW",
+            "destination": "TLS",
+            "dep_time": "18:45",
+            "squawk": "4215"
+        },
+        {
+            "callsign": "RYR109B",
+            "company": "Ryanair",
+            "aircraft": "Boeing 737",
+            "altitude": max(1200, 4900 - sim_tick * 250),
+            "speed": max(165, 380 - sim_tick * 20),
+            "vrate": -900,
+            "origin": "STN",
+            "destination": "TLS",
+            "dep_time": "18:30",
+            "squawk": "7302"
+        },
+        {
+            "callsign": "DLH11A",
+            "company": "Lufthansa",
+            "aircraft": "Airbus A321",
+            "altitude": max(2100, 5800 - sim_tick * 300),
+            "speed": max(180, 410 - sim_tick * 22),
+            "vrate": -1200,
+            "origin": "FRA",
+            "destination": "TLS",
+            "dep_time": "19:25",
+            "squawk": "1104"
+        }
+    ]
+
+    for f in flights:
+        alt_m = f["altitude"]
+        vrate_fpm = abs(f["vrate"])
+        alt_ft = alt_m * 3.28084
+        if vrate_fpm > 0:
+            minutes_to_touchdown = alt_ft / vrate_fpm
+        else:
+            minutes_to_touchdown = 5.0
+            
+        seconds_to_touchdown = int(minutes_to_touchdown * 60)
+        
+        base_seconds = 20 * 3600 + 50 * 60
+        target_seconds = base_seconds + seconds_to_touchdown
+        
+        eta_hr = (target_seconds // 3600) % 24
+        eta_min = (target_seconds // 60) % 60
+        eta_sec = target_seconds % 60
+        
+        f["eta"] = f"{eta_hr:02d}:{eta_min:02d}:{eta_sec:02d}"
+        f["eta_relative"] = f"{seconds_to_touchdown // 60}m {seconds_to_touchdown % 60:02d}s"
+
+    flights.sort(key=lambda f: f["altitude"])
+    return flights
+
+
+async def _fetch_text_file(decl: dict, context: dict) -> str:
+    """Read a raw text/SVG file relative to the playbooks/ directory."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, decl["path"])
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Public API — used by yaml_loader, never imported by templates.
 # ────────────────────────────────────────────────────────────────────────────
@@ -309,8 +557,12 @@ async def resolve(decl: dict, context: dict) -> Any:
         if src == "literal":       return await _fetch_literal(decl, context)
         if src == "yaml":          return await _fetch_yaml(decl, context)
         if src == "rest":          return await _fetch_rest(decl, context)
+        if src == "stooq":         return await _fetch_stooq(decl, context)
         if src == "bigquery":      return await _fetch_bigquery(decl, context)
         if src == "yahoo_finance": return await _fetch_yahoo(decl, context)
+        if src == "noaa_metar":    return await _fetch_noaa_metar(decl, context)
+        if src == "simulated_airspace": return await _fetch_simulated_airspace(decl, context)
+        if src == "text_file":     return await _fetch_text_file(decl, context)
         raise ValueError(f"unknown source: {src!r}")
     except Exception:
         # Always fall back gracefully — demo > correctness for one tick.
