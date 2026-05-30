@@ -497,25 +497,37 @@ def generate_composed_market_board(tick: int) -> list[dict]:
     }))
     
     components.append(make_component("btn_refresh", "gdm-button", {
-        "label": "Sync Feeds",
-        "actionId": "sync_feeds",
-        "payload": '{"forced": true}',
+        "text": "Sync Feeds",
+        "action": {
+            "event": {
+                "name": "sync_feeds",
+                "context": {"forced": True}
+            }
+        },
         "icon": "activity",
         "type": "primary"
     }))
     
     components.append(make_component("btn_sound", "gdm-button", {
-        "label": "Ping Radar",
-        "actionId": "radar_ping",
-        "payload": '{"frequency": "high"}',
+        "text": "Ping Radar",
+        "action": {
+            "event": {
+                "name": "radar_ping",
+                "context": {"frequency": "high"}
+            }
+        },
         "icon": "sonar",
         "type": "secondary"
     }))
     
     components.append(make_component("btn_halt", "gdm-button", {
-        "label": "Halt Board",
-        "actionId": "emergency_halt",
-        "payload": '{"reason": "manual_trigger"}',
+        "text": "Halt Board",
+        "action": {
+            "event": {
+                "name": "emergency_halt",
+                "context": {"reason": "manual_trigger"}
+            }
+        },
         "icon": "alert",
         "type": "danger"
     }))

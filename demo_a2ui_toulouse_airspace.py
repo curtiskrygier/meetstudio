@@ -150,6 +150,15 @@ async def render_stage_api(client: httpx.AsyncClient, space_id: str, components:
 async def clear_stage_api(client: httpx.AsyncClient, space_id: str):
     await post_endpoint(client, f"/api/render-stage-clear/{space_id}", {})
 
+
+def C(cid: str, el: str, props: dict) -> dict:
+    """v0.9 flat component dict; strips id/component from props to prevent
+    accidental clobbering of structural keys (mirrors the helper in the
+    primitives demo and the central template library)."""
+    clean = {k: v for k, v in props.items() if k not in ("id", "component")}
+    return {"id": cid, "component": el, **clean}
+
+
 async def set_transcript(client: httpx.AsyncClient, space_id: str, text: str, label: str = "Gemini Concierge"):
     await post_endpoint(client, f"/api/transcript/{space_id}", {
         "role": "agent",
@@ -572,7 +581,7 @@ async def main():
         print(f"{CLR_CYAN}  ✈️   T O U L O U S E   A I R S P A C E   C O M M A N D   D E C K   ▲{CLR_RESET}")
         print(f"{CLR_CYAN}  ==============================================================={CLR_RESET}")
         print(f"  {CLR_SLATE}Active Meeting Space:{CLR_RESET} {CLR_CYAN}{space}{CLR_RESET}")
-        print(f"  {CLR_SLATE}A2UI Specification:{CLR_RESET} {CLR_CYAN}v0.8 Dark Cyberpunk Theme{CLR_RESET}\n")
+        print(f"  {CLR_SLATE}A2UI Specification:{CLR_RESET} {CLR_CYAN}v0.9 Dark Cyberpunk Theme{CLR_RESET}\n")
 
         # Fetch live METAR weather data
         weather = await fetch_lfbo_metar(client)
@@ -585,18 +594,13 @@ async def main():
         print(f"{CLR_CYAN}🎬 [Phase 0] Calibrating Primary S-Band Radar Transceivers...{CLR_RESET}")
         await post_endpoint(client, f"/api/sound-event/{space}", {"sound": "chimes"})
         await render_stage_api(client, space, [
-            {
-                "id": "calibration_slate",
-                "component": {
-                    "gdm-standby-slate": {
-                        "title": "📡 TLS Sector 32L/R Sweep Calibration",
-                        "description": "Booting transponder tracking matrix and aligning primary S-Band receivers...",
-                        "active": True,
-                        "seconds": 5,
-                        "fullscreen": True
-                    }
-                }
-            }
+            C("calibration_slate", "gdm-standby-slate", {
+                "title": "📡 TLS Sector 32L/R Sweep Calibration",
+                "description": "Booting transponder tracking matrix and aligning primary S-Band receivers...",
+                "active": True,
+                "seconds": 5,
+                "fullscreen": True,
+            })
         ], root_id="calibration_slate")
         await asyncio.sleep(5.0)
 
@@ -611,38 +615,23 @@ async def main():
         )
         await post_endpoint(client, f"/api/sound-event/{space}", {"sound": "sonar" if not FAST_MODE else "chimes"})
         
-        ticker_comp = {
-            "id": "airspace_ticker",
-            "component": {
-                "gdm-ticker": {
-                    "text": f"📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: {weather['wind'].upper()} • TEMP: {weather['temp']} • QNH: {weather['pressure']} • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE • RAW METAR: {weather['raw']} •",
-                    "scrollSpeed": 50,
-                    "active": True,
-                    "accentColor": "#00ff88"
-                }
-            }
-        }
+        ticker_comp = C("airspace_ticker", "gdm-ticker", {
+            "text": f"📍 LFBO Terminal Information • RUNWAY 32L/R ACTIVE FOR ARRIVALS • SURFACE WIND: {weather['wind'].upper()} • TEMP: {weather['temp']} • QNH: {weather['pressure']} • SQUAWK 7700 ALERT: NONE • ACTIVE TRAFFIC SENSORS: ONLINE • RAW METAR: {weather['raw']} •",
+            "scrollSpeed": 50,
+            "active": True,
+            "accentColor": "#00ff88",
+        })
         
-        chyron_comp = {
-            "id": "atc_chyron",
-            "component": {
-                "gdm-chyron": {
-                    "title": "LFBO TMA APPROACH CONTROL",
-                    "subtitle": "Active Approach Vectors Runway 32L/R",
-                    "active": True,
-                    "accentColor": "#00ff88"
-                }
-            }
-        }
+        chyron_comp = C("atc_chyron", "gdm-chyron", {
+            "title": "LFBO TMA APPROACH CONTROL",
+            "subtitle": "Active Approach Vectors Runway 32L/R",
+            "active": True,
+            "accentColor": "#00ff88",
+        })
 
-        deactivated_slate = {
-            "id": "calibration_slate",
-            "component": {
-                "gdm-standby-slate": {
-                    "active": False
-                }
-            }
-        }
+        deactivated_slate = C("calibration_slate", "gdm-standby-slate", {
+            "active": False,
+        })
 
         for tick in range(loop_ticks):
             print(f"  📡 Sweeping Sector Space (Tick {tick+1}/{loop_ticks})...")
@@ -650,41 +639,28 @@ async def main():
             html_console = make_supervisor_console_html(flights, weather)
             
             await render_stage_api(client, space, [
-                {
-                    "id": "grid_layout",
-                    "component": {
-                        "gdm-stage-grid": {
-                            "layout": "single",
-                            "children": {"explicitList": ["radar_view", "html_panel"]}
-                        }
-                    }
-                },
-                {
-                    "id": "radar_view",
-                    "component": {
-                        "gdm-3d-airspace": {
-                            "flights": flights,
-                            "lockedCallsign": "",
-                            "zoom": 5.5,
-                            "cameraPitch": 35.0,
-                            "cameraYaw": 45.0,
-                            "showGlideSlope": True,
-                            "showTerrain": True,
-                            "cinematicOrbit": True,
-                            "autoTrack": False
-                        }
-                    }
-                },
-                {
-                    "id": "html_panel",
-                    "component": {
-                        "gdm-html-panel": {
-                            "html": html_console,
-                            "title": "📡 Tactical Supervisor HUD",
-                            "version": tick + 1
-                        }
-                    }
-                },
+                C("grid_layout", "gdm-stage-grid", {
+                    "layout": "split",
+                    "children": {"explicitList": ["radar_view", "html_panel"]},
+                }),
+                C("radar_view", "gdm-3d-airspace", {
+                    "flights": flights,
+                    "lockedCallsign": "",
+                    **({
+                        "zoom": 5.5,
+                        "cameraPitch": 35.0,
+                        "cameraYaw": 45.0,
+                    } if tick == 0 else {}),
+                    "showGlideSlope": True,
+                    "showTerrain": True,
+                    "cinematicOrbit": True,
+                    "autoTrack": False,
+                }),
+                C("html_panel", "gdm-html-panel", {
+                    "html": html_console,
+                    "title": "📡 Tactical Supervisor HUD",
+                    "version": tick + 1,
+                }),
                 deactivated_slate,
                 ticker_comp,
                 chyron_comp
@@ -701,9 +677,9 @@ async def main():
             label="Radar Analyst"
         )
         
-        chyron_comp["component"]["gdm-chyron"]["title"] = "TARGET ACQUIRED: AFR6129"
-        chyron_comp["component"]["gdm-chyron"]["subtitle"] = "Tracking Descent Path and Instrument Glide Slope Runway 32L"
-        chyron_comp["component"]["gdm-chyron"]["accentColor"] = "#00f2ff"
+        chyron_comp["title"] = "TARGET ACQUIRED: AFR6129"
+        chyron_comp["subtitle"] = "Tracking Descent Path and Instrument Glide Slope Runway 32L"
+        chyron_comp["accentColor"] = "#00f2ff"
 
         for tick in range(loop_ticks):
             print(f"  🎯 Profiling Target AFR6129 (Tick {tick+1}/{loop_ticks})...")
@@ -712,41 +688,28 @@ async def main():
             html_hud = make_target_profile_html(lead_flight, tick)
             
             await render_stage_api(client, space, [
-                {
-                    "id": "grid_layout",
-                    "component": {
-                        "gdm-stage-grid": {
-                            "layout": "single",
-                            "children": {"explicitList": ["radar_view", "html_panel"]}
-                        }
-                    }
-                },
-                {
-                    "id": "radar_view",
-                    "component": {
-                        "gdm-3d-airspace": {
-                            "flights": flights,
-                            "lockedCallsign": "AFR6129",
-                            "zoom": 4.0,
-                            "cameraPitch": 25.0,
-                            "cameraYaw": 135.0,
-                            "showGlideSlope": True,
-                            "showTerrain": True,
-                            "cinematicOrbit": True,
-                            "autoTrack": True
-                        }
-                    }
-                },
-                {
-                    "id": "html_panel",
-                    "component": {
-                        "gdm-html-panel": {
-                            "html": html_hud,
-                            "title": "🎯 Active Target Profiler",
-                            "version": tick + loop_ticks + 1
-                        }
-                    }
-                },
+                C("grid_layout", "gdm-stage-grid", {
+                    "layout": "split",
+                    "children": {"explicitList": ["radar_view", "html_panel"]},
+                }),
+                C("radar_view", "gdm-3d-airspace", {
+                    "flights": flights,
+                    "lockedCallsign": "AFR6129",
+                    **({
+                        "zoom": 4.0,
+                        "cameraPitch": 25.0,
+                        "cameraYaw": 135.0,
+                    } if tick == 0 else {}),
+                    "showGlideSlope": True,
+                    "showTerrain": True,
+                    "cinematicOrbit": True,
+                    "autoTrack": True,
+                }),
+                C("html_panel", "gdm-html-panel", {
+                    "html": html_hud,
+                    "title": "🎯 Active Target Profiler",
+                    "version": tick + loop_ticks + 1,
+                }),
                 ticker_comp,
                 chyron_comp
             ], root_id="grid_layout")
@@ -763,54 +726,34 @@ async def main():
         )
         await post_endpoint(client, f"/api/sound-event/{space}", {"sound": "chimes"})
         
-        chyron_comp["component"]["gdm-chyron"]["title"] = "LFBO TMA AIRWAY NETWORKS"
-        chyron_comp["component"]["gdm-chyron"]["subtitle"] = "Standard Terminal Arrival Paths & Intercept Vectors Map"
-        chyron_comp["component"]["gdm-chyron"]["accentColor"] = "#ffd60a"
+        chyron_comp["title"] = "LFBO TMA AIRWAY NETWORKS"
+        chyron_comp["subtitle"] = "Standard Terminal Arrival Paths & Intercept Vectors Map"
+        chyron_comp["accentColor"] = "#ffd60a"
 
         # Display the custom SVG as a fullscreen glassmorphic diagram takeover overlay
         await render_stage_api(client, space, [
-            {
-                "id": "grid_layout",
-                "component": {
-                    "gdm-stage-grid": {
-                        "layout": "single",
-                        "children": {"explicitList": ["radar_view", "html_panel"]}
-                    }
-                }
-            },
-            {
-                "id": "radar_view",
-                "component": {
-                    "gdm-3d-airspace": {
-                        "flights": get_fallback_flights(2),
-                        "lockedCallsign": "AFR6129",
-                        "cameraPitch": 35.0,
-                        "cameraYaw": 45.0,
-                        "zoom": 5.5,
-                        "showGlideSlope": True,
-                        "showTerrain": True
-                    }
-                }
-            },
-            {
-                "id": "html_panel",
-                "component": {
-                    "gdm-html-panel": {
-                        "html": make_supervisor_console_html(get_fallback_flights(2), weather),
-                        "title": "📡 Supervisor Live Console"
-                    }
-                }
-            },
-            {
-                "id": "airspace_overlay",
-                "component": {
-                    "gdm-diagram-view": {
-                        "svg": local_airspace_svg,
-                        "diagId": "airway_network",
-                        "overlay": True
-                    }
-                }
-            },
+            C("grid_layout", "gdm-stage-grid", {
+                "layout": "split",
+                "children": {"explicitList": ["radar_view", "html_panel"]},
+            }),
+            C("radar_view", "gdm-3d-airspace", {
+                "flights": get_fallback_flights(2),
+                "lockedCallsign": "AFR6129",
+                "cameraPitch": 35.0,
+                "cameraYaw": 45.0,
+                "zoom": 5.5,
+                "showGlideSlope": True,
+                "showTerrain": True,
+            }),
+            C("html_panel", "gdm-html-panel", {
+                "html": make_supervisor_console_html(get_fallback_flights(2), weather),
+                "title": "📡 Supervisor Live Console",
+            }),
+            C("airspace_overlay", "gdm-diagram-view", {
+                "svg": local_airspace_svg,
+                "diagId": "airway_network",
+                "overlay": True,
+            }),
             ticker_comp,
             chyron_comp
         ], root_id="airspace_overlay")
@@ -826,60 +769,40 @@ async def main():
             label="Sector Chief"
         )
         
-        chyron_comp["component"]["gdm-chyron"]["title"] = "TMA CONFLICT RESOLUTION"
-        chyron_comp["component"]["gdm-chyron"]["subtitle"] = "Select separation maneuvers and runway vector allocation"
-        chyron_comp["component"]["gdm-chyron"]["accentColor"] = "#00f2ff"
+        chyron_comp["title"] = "TMA CONFLICT RESOLUTION"
+        chyron_comp["subtitle"] = "Select separation maneuvers and runway vector allocation"
+        chyron_comp["accentColor"] = "#00f2ff"
 
         await render_stage_api(client, space, [
-            {
-                "id": "grid_layout",
-                "component": {
-                    "gdm-stage-grid": {
-                        "layout": "single",
-                        "children": {"explicitList": ["radar_view", "html_panel"]}
-                    }
-                }
-            },
-            {
-                "id": "radar_view",
-                "component": {
-                    "gdm-3d-airspace": {
-                        "flights": get_fallback_flights(3),
-                        "lockedCallsign": "",
-                        "cameraPitch": 35.0,
-                        "cameraYaw": 45.0,
-                        "zoom": 5.5,
-                        "showGlideSlope": True,
-                        "showTerrain": True,
-                        "cinematicOrbit": True,
-                        "autoTrack": False
-                    }
-                }
-            },
-            {
-                "id": "html_panel",
-                "component": {
-                    "gdm-html-panel": {
-                        "html": make_supervisor_console_html(get_fallback_flights(3), weather),
-                        "title": "📡 Supervisor Live Console"
-                    }
-                }
-            },
-            {
-                "id": "traffic_poll",
-                "component": {
-                    "gdm-poll-overlay": {
-                        "question": "TMA Direction: Resolve separation conflict? 🗳️",
-                        "options": [
-                            "Establish parallel simultaneous visual arrivals Runway 32L/R",
-                            "Vector RYR109B to enter holding pattern at TOU VOR",
-                            "Instruct EZY4218 to reduce speed to minimum 180kt"
-                        ],
-                        "values": [0, 0, 0],
-                        "active": True
-                    }
-                }
-            },
+            C("grid_layout", "gdm-stage-grid", {
+                "layout": "split",
+                "children": {"explicitList": ["radar_view", "html_panel"]},
+            }),
+            C("radar_view", "gdm-3d-airspace", {
+                "flights": get_fallback_flights(3),
+                "lockedCallsign": "",
+                "cameraPitch": 35.0,
+                "cameraYaw": 45.0,
+                "zoom": 5.5,
+                "showGlideSlope": True,
+                "showTerrain": True,
+                "cinematicOrbit": True,
+                "autoTrack": False,
+            }),
+            C("html_panel", "gdm-html-panel", {
+                "html": make_supervisor_console_html(get_fallback_flights(3), weather),
+                "title": "📡 Supervisor Live Console",
+            }),
+            C("traffic_poll", "gdm-poll-overlay", {
+                "question": "TMA Direction: Resolve separation conflict? 🗳️",
+                "options": [
+                    "Establish parallel simultaneous visual arrivals Runway 32L/R",
+                    "Vector RYR109B to enter holding pattern at TOU VOR",
+                    "Instruct EZY4218 to reduce speed to minimum 180kt"
+                ],
+                "values": [0, 0, 0],
+                "active": True,
+            }),
             ticker_comp,
             chyron_comp
         ], root_id="grid_layout")
@@ -893,55 +816,32 @@ async def main():
             print(f"  🗳️ Accumulating board votes... {votes_db}")
             
             await render_stage_api(client, space, [
-                {
-                    "id": "grid_layout",
-                    "component": {
-                        "gdm-stage-grid": {
-                            "layout": "single",
-                            "children": {"explicitList": ["radar_view", "html_panel"]}
-                        }
-                    }
-                },
-                {
-                    "id": "radar_view",
-                    "component": {
-                        "gdm-3d-airspace": {
-                            "flights": get_fallback_flights(3),
-                            "lockedCallsign": "",
-                            "cameraPitch": 35.0,
-                            "cameraYaw": 45.0,
-                            "zoom": 5.5,
-                            "showGlideSlope": True,
-                            "showTerrain": True,
-                            "cinematicOrbit": True,
-                            "autoTrack": False
-                        }
-                    }
-                },
-                {
-                    "id": "html_panel",
-                    "component": {
-                        "gdm-html-panel": {
-                            "html": make_supervisor_console_html(get_fallback_flights(3), weather),
-                            "title": "📡 Supervisor Live Console"
-                        }
-                    }
-                },
-                {
-                    "id": "traffic_poll",
-                    "component": {
-                        "gdm-poll-overlay": {
-                            "question": "TMA Direction: Resolve separation conflict? 🗳️",
-                            "options": [
-                                "Establish parallel simultaneous visual arrivals Runway 32L/R",
-                                "Vector RYR109B to enter holding pattern at TOU VOR",
-                                "Instruct EZY4218 to reduce speed to minimum 180kt"
-                            ],
-                            "values": votes_db,
-                            "active": True
-                        }
-                    }
-                },
+                C("grid_layout", "gdm-stage-grid", {
+                    "layout": "split",
+                    "children": {"explicitList": ["radar_view", "html_panel"]},
+                }),
+                C("radar_view", "gdm-3d-airspace", {
+                    "flights": get_fallback_flights(3),
+                    "lockedCallsign": "",
+                    "showGlideSlope": True,
+                    "showTerrain": True,
+                    "cinematicOrbit": True,
+                    "autoTrack": False,
+                }),
+                C("html_panel", "gdm-html-panel", {
+                    "html": make_supervisor_console_html(get_fallback_flights(3), weather),
+                    "title": "📡 Supervisor Live Console",
+                }),
+                C("traffic_poll", "gdm-poll-overlay", {
+                    "question": "TMA Direction: Resolve separation conflict? 🗳️",
+                    "options": [
+                        "Establish parallel simultaneous visual arrivals Runway 32L/R",
+                        "Vector RYR109B to enter holding pattern at TOU VOR",
+                        "Instruct EZY4218 to reduce speed to minimum 180kt"
+                    ],
+                    "values": votes_db,
+                    "active": True,
+                }),
                 ticker_comp,
                 chyron_comp
             ], root_id="grid_layout")

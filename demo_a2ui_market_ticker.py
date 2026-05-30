@@ -75,6 +75,14 @@ async def render_stage_api(client: httpx.AsyncClient, space_id: str, components:
     await post_endpoint(client, f"/api/render-stage/{space_id}", payload)
 
 
+def C(cid: str, el: str, props: dict) -> dict:
+    """v0.9 flat component dict; strips id/component from props to prevent
+    accidental clobbering of structural keys (mirrors the helper in the
+    primitives demo and the central template library)."""
+    clean = {k: v for k, v in props.items() if k not in ("id", "component")}
+    return {"id": cid, "component": el, **clean}
+
+
 async def clear_stage_api(client: httpx.AsyncClient, space_id: str):
     await post_endpoint(client, f"/api/render-stage-clear/{space_id}", {})
 
@@ -166,14 +174,13 @@ async def main():
         # Phase 0 — connecting
         print(f"{CLR_CYAN}🎬 [Phase 0] Connecting to global market data feeds...{CLR_RESET}")
         await post_endpoint(client, f"/api/sound-event/{space}", {"sound": "chimes"})
-        await render_stage_api(client, space, [{
-            "id": "scan_standby",
-            "component": {"gdm-standby-slate": {
+        await render_stage_api(client, space, [
+            C("scan_standby", "gdm-standby-slate", {
                 "title": "📡 Synchronizing Global Market Feeds",
                 "description": f"Connecting to {total} instruments across indices, FX, commodities, crypto and megacap equities...",
                 "active": True, "seconds": 4,
-            }},
-        }], root_id="scan_standby")
+            }),
+        ], root_id="scan_standby")
         await asyncio.sleep(4.0)
 
         # Phase 1 — live scan
@@ -186,17 +193,17 @@ async def main():
         )
         await post_endpoint(client, f"/api/sound-event/{space}", {"sound": "sonar"})
 
-        chyron = {"id": "scan_chyron", "component": {"gdm-chyron": {
+        chyron = C("scan_chyron", "gdm-chyron", {
             "title": "GLOBAL MARKETS — LIVE",
             "subtitle": "Realtime cross-asset market scan",
             "active": True, "accentColor": "#00f2ff",
-        }}}
-        slate_off = {"id": "scan_standby", "component": {"gdm-standby-slate": {"active": False}}}
+        })
+        slate_off = C("scan_standby", "gdm-standby-slate", {"active": False})
 
         for tick in range(loop_ticks):
             print(f"  📊 Sweeping market feed (Tick {tick + 1}/{loop_ticks})...")
             sections = generate_market_sections(tick)
-            scan_board = {"id": "market_scan", "component": {"gdm-market-ticker": {
+            scan_board = C("market_scan", "gdm-market-ticker", {
                 "sections": sections,
                 "active": True,
                 "badgeText": "GLOBAL MARKET SCAN",
@@ -204,7 +211,7 @@ async def main():
                 "watchCount": 6,
                 "showClock": True,
                 "showDate": True,
-            }}}
+            })
             await render_stage_api(client, space, [scan_board, chyron, slate_off], root_id="market_scan")
             await asyncio.sleep(delay)
 
