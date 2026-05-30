@@ -110,12 +110,12 @@ def title_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
 
     out = [
         C("root", "gdm-stage-grid", {"layout": "hero",
-                                     "children": {"explicitList": ["main"]}}),
+                                     "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center",
                                     "align": "center", "grow": 1,
                                     "gap": "24px", "padding": "60px",
                                     "width": "100%", "height": "100%",
-                                    "children": {"explicitList": children}}),
+                                    "children": children}),
         C(f"{slide_id}_badge", "gdm-badge", {
             "text":  badge.get("text", ""),
             "type":  badge.get("type", "primary"),
@@ -167,12 +167,12 @@ def hero_stat_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
 
     out = [
         C("root", "gdm-stage-grid", {"layout": "hero",
-                                     "children": {"explicitList": ["main"]}}),
+                                     "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center",
                                     "align": "center", "grow": 1,
                                     "gap": "18px", "padding": "60px",
                                     "width": "100%", "height": "100%",
-                                    "children": {"explicitList": children}}),
+                                    "children": children}),
         C(f"{slide_id}_badge", "gdm-badge", {
             "text":  badge.get("text", ""),
             "type":  badge.get("type", "primary"),
@@ -226,11 +226,11 @@ def split_with_action_template(slide_id: str, cfg: dict, data: dict) -> List[Dic
 
     out = [
         C("root", "gdm-stage-grid", {"layout": "hero",
-                                     "children": {"explicitList": ["main"]}}),
+                                     "children": ["main"]}),
         C("main", "gdm-container", {
             "direction": "row", "width": "100%", "height": "100%", "grow": 1,
             "gap": "48px", "padding": "60px", "align": "stretch",
-            "children": {"explicitList": [f"{slide_id}_left", f"{slide_id}_right"]},
+            "children": [f"{slide_id}_left", f"{slide_id}_right"],
         }),
         # Left — narrative
         C(f"{slide_id}_left", "gdm-container", {
@@ -238,9 +238,9 @@ def split_with_action_template(slide_id: str, cfg: dict, data: dict) -> List[Dic
             "grow": 1, "glass": True, "borderRadius": "16px",
             "padding": "40px", "gap": "20px",
             "reveal": "slide-right", "revealDelay": 0.0,
-            "children": {"explicitList": [f"{slide_id}_l_badge",
-                                          f"{slide_id}_l_title",
-                                          f"{slide_id}_l_body"]},
+            "children": [f"{slide_id}_l_badge",
+                         f"{slide_id}_l_title",
+                         f"{slide_id}_l_body"],
         }),
         C(f"{slide_id}_l_badge", "gdm-badge", {
             "text":  l_badge.get("text", ""),
@@ -264,7 +264,7 @@ def split_with_action_template(slide_id: str, cfg: dict, data: dict) -> List[Dic
             "border": "1px dashed rgba(0,242,255,0.2)",
             "borderRadius": "16px", "background": "rgba(0,242,255,0.02)",
             "reveal": "scale-in", "revealDelay": 0.4,
-            "children": {"explicitList": btn_ids},
+            "children": btn_ids,
         }),
     ]
     for i, a in enumerate(actions):
@@ -301,12 +301,12 @@ def list_5_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
 
     out = [
         C("root", "gdm-stage-grid", {"layout": "hero",
-                                     "children": {"explicitList": ["main"]}}),
+                                     "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center",
                                     "align": "flex-start", "grow": 1,
                                     "gap": "28px", "padding": "60px",
                                     "width": "100%", "height": "100%",
-                                    "children": {"explicitList": main_kids}}),
+                                    "children": main_kids}),
         C(f"{slide_id}_badge", "gdm-badge", {
             "text":  badge.get("text", ""),
             "type":  badge.get("type", "primary"),
@@ -319,7 +319,7 @@ def list_5_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
         }),
         C(f"{slide_id}_list", "gdm-container", {
             "direction": "column", "gap": "14px", "grow": 1, "width": "100%",
-            "children": {"explicitList": point_ids},
+            "children": point_ids,
         }),
     ]
     for i, p in enumerate(points):
@@ -327,7 +327,7 @@ def list_5_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
             "direction": "row", "align": "center", "gap": "20px",
             "reveal": "slide-right",
             "revealDelay": round(0.3 + i * 0.18, 2),
-            "children": {"explicitList": [f"{point_ids[i]}_n", f"{point_ids[i]}_t"]},
+            "children": [f"{point_ids[i]}_n", f"{point_ids[i]}_t"],
         }))
         out.append(C(f"{point_ids[i]}_n", "gdm-text", {
             "content": f"{i+1:02d}",
@@ -367,12 +367,12 @@ def signoff_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
 
     out = [
         C("root", "gdm-stage-grid", {"layout": "hero",
-                                     "children": {"explicitList": ["main"]}}),
+                                     "children": ["main"]}),
         C("main", "gdm-container", {"direction": "column", "justify": "center",
                                     "align": "center", "grow": 1,
                                     "gap": "18px", "padding": "60px",
                                     "width": "100%", "height": "100%",
-                                    "children": {"explicitList": children}}),
+                                    "children": children}),
     ]
     for i, line in enumerate(lines):
         out.append(C(line_ids[i], "gdm-text", {
@@ -390,13 +390,13 @@ def signoff_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
         "direction": "column", "justify": "center", "align": "center",
         "gap": "14px", "margin": "44px 0 0 0",
         "reveal": "fade-up", "revealDelay": 0.9,
-        "children": {"explicitList": payoff_kids},
+        "children": payoff_kids,
     }))
     out.append(C(f"{slide_id}_brands", "gdm-container", {
         "direction": "row", "align": "center", "justify": "center", "gap": "28px",
-        "children": {"explicitList": [f"{slide_id}_left_b",
-                                      f"{slide_id}_x",
-                                      f"{slide_id}_right_b"]},
+        "children": [f"{slide_id}_left_b",
+                     f"{slide_id}_x",
+                     f"{slide_id}_right_b"],
     }))
     out.append(C(f"{slide_id}_left_b", "gdm-text", {
         "content": brands.get("left", ""), "size": "64px",
@@ -466,20 +466,20 @@ def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
 
     out = [
         C("root", "gdm-stage-grid", {"layout": "hero",
-                                     "children": {"explicitList": ["main"]}}),
+                                     "children": ["main"]}),
         C("main", "gdm-container", {
             "direction": "column", "padding": "24px 32px", "gap": "10px",
             "width": "100%", "height": "100%", "grow": 1,
             "glass": True, "borderRadius": "18px",
             "reveal": "scale-in", "revealDelay": 0.0,
-            "children": {"explicitList": main_kids},
+            "children": main_kids,
         }),
         C(f"{slide_id}_hdr", "gdm-container", {
             "direction": "row", "align": "center", "gap": "16px",
             "reveal": "fade-up", "revealDelay": 0.2,
-            "children": {"explicitList": [f"{slide_id}_badge",
-                                           f"{slide_id}_sp",
-                                           f"{slide_id}_clock"]},
+            "children": [f"{slide_id}_badge",
+                         f"{slide_id}_sp",
+                         f"{slide_id}_clock"],
         }),
         C(f"{slide_id}_badge", "gdm-badge", {
             "text":  badge.get("text", "REALTIME · MARKETS"),
@@ -502,7 +502,7 @@ def market_ticker_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
             "gap": "5px",
             "grow": 1,
             "width": "100%",
-            "children": {"explicitList": row_ids},
+            "children": row_ids,
         }),
     ]
 
@@ -757,7 +757,7 @@ def airspace_command_deck_template(slide_id: str, cfg: dict, data: dict) -> List
     out = [
         C("root", "gdm-stage-grid", {
             "layout": layout_type,
-            "children": {"explicitList": [radar_id, html_id]},
+            "children": [radar_id, html_id],
         })
     ]
 
