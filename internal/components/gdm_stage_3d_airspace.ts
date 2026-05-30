@@ -719,6 +719,11 @@ export class GdmStage3DAirspace extends LitElement {
       }
       if (typeof cam.zoom === 'number') {
         this.zoom = cam.zoom * 10.0;
+        this.dispatchEvent(new CustomEvent('zoom-change', {
+          detail: { delta: 0 },
+          bubbles: true,
+          composed: true
+        }));
       }
 
       this.dispatchEvent(new CustomEvent('camera-rotate', {

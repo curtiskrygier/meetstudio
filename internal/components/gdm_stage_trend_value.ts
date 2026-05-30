@@ -26,7 +26,7 @@ export class GdmStageTrendValue extends LitElement {
       grid-template-columns: 1fr auto;
       align-items: center;
       column-gap: 10px;
-      padding: 8px 12px;
+      padding: 6px 12px;
       border-radius: 9px;
       background:
         linear-gradient(90deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012));

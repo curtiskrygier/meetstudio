@@ -18,14 +18,20 @@ export class GdmStageContainer extends LitElement {
   @property({ type: Number }) grow = 0;
   @property({ type: Number }) shrink = 1;
   @property({ type: String }) margin = '0';
-  // Entrance choreography: fade-up | scale-in | slide-left | slide-right | blur-in | flip
   @property({ type: String, reflect: true }) reveal = '';
   @property({ type: Number }) revealDelay = 0; // seconds — stagger panels for a staged "set the stage" entrance
+  @property({ type: Number }) columns = 0; // 0 = no columns, > 0 = use CSS column-count
+  @property({ type: String }) columnGap = ''; // gap between columns (defaults to gap or 16px)
+
 
   static styles = css`
     :host {
       display: flex;
       box-sizing: border-box;
+    }
+    ::slotted(*) {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     :host(.scrollable) {
       overflow: auto;
@@ -70,18 +76,45 @@ export class GdmStageContainer extends LitElement {
 
   updated(changedProperties: Map<string, any>) {
     // Dynamic Host Layout styling — writes inline CSS directly onto the <gdm-container> element
-    this.style.display = 'flex';
     this.style.boxSizing = 'border-box';
-    this.style.flexDirection = this.direction;
-    this.style.justifyContent = this.justify;
-    this.style.alignItems = this.align;
-    this.style.gap = this.gap;
     this.style.padding = this.padding;
     this.style.width = this.width;
     this.style.height = this.height;
     this.style.flexGrow = String(this.grow);
     this.style.flexShrink = String(this.shrink);
     this.style.margin = this.margin;
+
+    console.log(`[gdm-container] updated ID: ${this.id}, columns: ${this.columns}, type: ${typeof this.columns}`);
+
+    const cols = Number(this.columns);
+    if (!isNaN(cols) && cols > 0) {
+      console.log(`[gdm-container] ID: ${this.id} applying block layout with ${cols} columns`);
+      this.style.display = 'block';
+      this.style.columnCount = String(cols);
+      this.style.columnGap = this.columnGap || this.gap || '16px';
+      
+      // Force height constraints to prevent column collapse in flexbox parents
+      this.style.height = (this.height && this.height !== 'auto') ? this.height : '100%';
+      this.style.minHeight = '0';
+      
+      // Clear flex attributes
+      this.style.flexDirection = '';
+      this.style.justifyContent = '';
+      this.style.alignItems = '';
+      this.style.gap = '';
+    } else {
+      console.log(`[gdm-container] ID: ${this.id} applying flex layout`);
+      this.style.display = 'flex';
+      this.style.flexDirection = this.direction;
+      this.style.justifyContent = this.justify;
+      this.style.alignItems = this.align;
+      this.style.gap = this.gap;
+      
+      // Clear column and height constraints
+      this.style.columnCount = '';
+      this.style.columnGap = '';
+      this.style.minHeight = '';
+    }
 
     if (this.scrollable) {
       this.classList.add('scrollable');

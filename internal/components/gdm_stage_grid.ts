@@ -42,6 +42,19 @@ export class GdmStageGrid extends LitElement {
     .grid.split .slot:nth-child(n+3) {
       display: none;
     }
+    .grid.presentation {
+      grid-template-columns: 2.2fr 1fr;
+      grid-template-rows: 1fr;
+    }
+    @media (max-aspect-ratio: 1/1), (max-width: 768px) {
+      .grid.presentation {
+        grid-template-columns: 1fr;
+        grid-template-rows: 2.2fr 1fr;
+      }
+    }
+    .grid.presentation .slot:nth-child(n+3) {
+      display: none;
+    }
     .grid.grid {
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr 1fr;

@@ -128,6 +128,9 @@ export class GdmArchitectAgent extends LitElement {
   @state() private studioActive = false;
   @state() private simulatedSender = 'Audience Member';
   @state() private simulatedText = 'wow I had no idea Google Meet was so versatile!';
+  @state() private gdocUrl = 'https://drive.google.com/file/d/1--WyD9_iSA45xSQ2Sbflu74z3WJejd24/view?usp=drive_link';
+  @state() private gdocDrafting = false;
+  @state() private gdocStatus = '';
   @state() private chatSpaceIdInput = '';
   @state() private chatSpaceId = '';
   private lastSeenChatMsgName = '';
@@ -316,6 +319,83 @@ export class GdmArchitectAgent extends LitElement {
     if (this.wsService?.readyState === WebSocket.OPEN) {
       this.wsService?.sendJson(payload);
       this.wsService?.sendJson({ type: 'beginRendering', beginRendering: { root: 'grid_layout' } });
+    }
+  }
+
+  private async draftPlaybookFromGdoc() {
+    const input = this.gdocUrl.trim();
+    if (!input || !this.meetingId) return;
+    this.gdocDrafting = true;
+    this.gdocStatus = 'Processing request...';
+    
+    // Auto-detect if input is a URL or a text prompt topic
+    const isUrl = input.startsWith('http://') || input.startsWith('https://');
+    const isGdoc = isUrl && (input.includes('docs.google.com') || input.includes('drive.google.com'));
+    
+    const payload = isUrl 
+      ? { source: 'drive', doc_url: input } 
+      : { source: 'prompt', prompt: input };
+
+    if (isUrl) {
+      this.gdocStatus = isGdoc 
+        ? 'Fetching Google Doc content & drafting via Gemini...' 
+        : 'Fetching website page & drafting via Gemini...';
+    } else {
+      this.gdocStatus = 'Generating custom Google Doc and presentation via Gemini...';
+    }
+
+    try {
+      const resp = await this.authenticatedFetch(`/api/playbook/draft-from-doc/${this.meetingId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        this.gdocStatus = `Draft failed: ${data.detail || data.error || 'Server error'}`;
+        return;
+      }
+      if (data.error === 'scope_missing') {
+        this.gdocStatus = `⚠️ Consent required: ${data.detail}. Required Scope: ${data.required_scope}. Fallback: ${data.fallback}`;
+        return;
+      }
+      
+      // Update status beautifully and include a link if a Doc was generated or fetched!
+      if (data.doc_url) {
+        const isUrlGdoc = data.doc_url.includes('docs.google.com') || data.doc_url.includes('drive.google.com');
+        const linkLabel = isUrlGdoc ? 'Open Doc on Drive ↗' : 'Open Website Page ↗';
+        this.gdocStatus = html`
+          ✔ Playbook drafted as "${data.playbook_name}"!<br/>
+          📝 Source Link: <a href="${data.doc_url}" target="_blank" style="color:var(--accent); font-weight:bold; text-decoration:underline;">${linkLabel}</a><br/>
+          Firing kickoff slide...
+        ` as any;
+      } else {
+        this.gdocStatus = `✔ Playbook drafted successfully as "${data.playbook_name}"! Firing kickoff slide...`;
+      }
+      
+      // Fire the first slide automatically!
+      if (data.fire_url) {
+        const fireResp = await this.authenticatedFetch(data.fire_url, { method: 'POST' });
+        if (fireResp.ok) {
+          if (data.doc_url) {
+            const isUrlGdoc = data.doc_url.includes('docs.google.com') || data.doc_url.includes('drive.google.com');
+            const linkLabel = isUrlGdoc ? 'Open Doc on Drive ↗' : 'Open Website Page ↗';
+            this.gdocStatus = html`
+              ✔ Playbook "${data.playbook_name}" drafted & kickoff slide fired successfully!<br/>
+              📝 Source Link: <a href="${data.doc_url}" target="_blank" style="color:var(--accent); font-weight:bold; text-decoration:underline;">${linkLabel}</a>
+            ` as any;
+          } else {
+            this.gdocStatus = `✔ Playbook "${data.playbook_name}" drafted and kickoff slide fired successfully!`;
+          }
+        } else {
+          this.gdocStatus = `✔ Drafted, but failed to fire kickoff slide automatically (${fireResp.status})`;
+        }
+      }
+    } catch (e: any) {
+      console.warn('[concierge] draft error:', e);
+      this.gdocStatus = `Error: ${e.message || e}`;
+    } finally {
+      this.gdocDrafting = false;
     }
   }
 
@@ -1831,6 +1911,28 @@ export class GdmArchitectAgent extends LitElement {
                 <div class="widget-subtitle" style="margin-top: 6px;">
                   Triggers explicit audio permission prompt & camera preparation overlay on the main stage.
                 </div>
+              </div>
+
+              <!-- Google Doc Playbook Drafter -->
+              <div class="widget-card">
+                <div class="widget-title">📖 Live Web & Doc Playbook Drafter</div>
+                <div class="widget-subtitle">Paste a Google Doc/PDF/Website link, OR type a topic prompt (e.g., "History of Roman Siege Engines") to auto-generate content, compile slides, and project them live on stage!</div>
+                <div class="form-group">
+                  <span class="form-label">Google Doc, PDF, Website URL or Custom Topic</span>
+                  <input class="ctx-input" type="text" placeholder="Paste link (Doc, PDF, or Web page) or enter a topic (e.g., History of Roman Siege Engines)..." .value=${this.gdocUrl} @input=${(e: any) => this.gdocUrl = e.target.value} />
+                </div>
+                <div style="font-size: 11px; margin-top: -10px; margin-bottom: 12px; color: rgba(255, 255, 255, 0.6); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                  <span>Try:</span>
+                  <a href="#" style="color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); padding-bottom: 2px; font-weight: 500;" @click=${(e: Event) => { e.preventDefault(); this.gdocUrl = 'https://drive.google.com/file/d/1--WyD9_iSA45xSQ2Sbflu74z3WJejd24/view?usp=drive_link'; }}>A2UI 0.9 Spec (PDF) ⚡</a>
+                  <span>•</span>
+                  <a href="#" style="color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); padding-bottom: 2px; font-weight: 500;" @click=${(e: Event) => { e.preventDefault(); this.gdocUrl = 'https://en.wikipedia.org/wiki/Antigravity'; }}>Antigravity (Wiki Web) 🌐</a>
+                  <span>•</span>
+                  <a href="#" style="color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); padding-bottom: 2px; font-weight: 500;" @click=${(e: Event) => { e.preventDefault(); this.gdocUrl = '15 dad jokes'; }}>15 Dad Jokes 🎭</a>
+                </div>
+                ${this.gdocStatus ? html`<div style="font-size:11px; color:var(--accent); margin-bottom:8px; word-break:break-all;">${this.gdocStatus}</div>` : ''}
+                <button class="cta" @click=${() => this.draftPlaybookFromGdoc()} ?disabled=${this.gdocDrafting || !this.gdocUrl.trim()}>
+                  ${this.gdocDrafting ? 'Drafting & Compiling...' : '📖 Draft & Fire Playbook'}
+                </button>
               </div>
 
               <!-- Grid Layout & Views -->

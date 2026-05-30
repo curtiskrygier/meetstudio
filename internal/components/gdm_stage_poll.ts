@@ -67,7 +67,7 @@ export class GdmStagePoll extends LitElement {
       bottom: 140px;
       right: 40px;
       max-width: 360px;
-      z-index: 810;
+      z-index: 9500;
       opacity: 0;
       transform: translateX(110%);
       transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
