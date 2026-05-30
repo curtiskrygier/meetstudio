@@ -68,6 +68,10 @@ scratch/
 _drive_market_playbook.py
 mermaid_svg_dump.txt
 credits.md
+scratch_capture_captions.py
+
+# Internal session / handover docs
+meetstudio.md
 
 # Screenshot artefacts
 screenshot_p*.png

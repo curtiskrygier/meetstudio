@@ -6,31 +6,72 @@ A Google Meet add-on that renders an agent-driven live stage in the meeting. The
 
 ---
 
-## A2UI Stage — running demos and playbooks
+## What it is
+
+Three deployment modes, same primitives:
+
+| Mode | Who controls it | Friction |
+|---|---|---|
+| **Live agent stage** | Gemini Live listens and decides in real time | High — AI is in the room |
+| **Sidekick to traditional decks** | Presenter speaks, agent suggests | Medium |
+| **Pre-prepped playbook** | Presenter fires slides via buttons | Zero — no listening, no recording indicator |
+
+**Tech stack:**
+- Backend: FastAPI on Cloud Run (`main.py`), connects to Gemini Live
+- Frontend: Lit web components, Vite bundling
+- Protocol: A2UI v0.9 — agent describes a component tree, server pushes via WebSocket, client materialises
+- Catalogue: 45 `gdm-*` components — atoms, molecules, overlays — spec at [`catalog/gdm-v0.2.json`](catalog/gdm-v0.2.json)
+
+---
+
+## Prerequisites
+
+> **Meet Media API access is invitation-only.** This add-on uses the [Google Meet Media API](https://developers.google.com/meet/media-api), which is in **Developer Preview** and requires explicit approval from Google. [Apply for access](https://developers.google.com/meet/media-api/guides/overview#apply_for_access) before deploying. Without it the side panel loads but audio capture is silently blocked.
+
+- Google Cloud project with Cloud Run, Meet Media API (dev preview), and Workspace Marketplace SDK enabled
+- A second GCP project (or the same) with Vertex AI API enabled for Gemini Live billing
+- OAuth 2.0 Client ID (Web application) with the Meet scopes
+- [clasp](https://github.com/google/clasp) installed and authenticated
+- Node.js 18+ and Python 3.11+
+
+---
+
+## Running locally
 
 ```bash
-# 1. Start the backend
+# 1. Install dependencies
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+npm install && npm run build
+
+# 2. Set required env vars
 export GEMINI_PROJECT=your-gcp-project-id
-export STAGE_API_KEY=your-secret-key
+export STAGE_API_KEY=any-secret-string
+
+# 3. Start the backend
 uvicorn main:app --port 8085 --reload
 
-# 2. Open the stage listener in a browser
+# 4. Open the stage in a browser
 ./open_stage.sh              # mints a ticket, opens main_stage.html
 
-# 3. Run a demo script
-python render_showreel.py     # 6-act showreel
+# 5. Run a demo
+python render_showreel.py    # 6-act showreel
 python demo_a2ui_primitives.py
-
-# 4. Fire a YAML playbook slide
-curl -X POST http://localhost:8085/api/playbook/fire/kickoff/intro/default \
-  -H "Authorization: Bearer $STAGE_API_KEY"
 ```
 
 After `npm run build`, always hard-refresh the stage tab (Ctrl+Shift+R) — Vite uses hash-based filenames.
 
-### Authoring playbooks
+### Dev gotchas
 
-Playbooks live in `playbooks/*.yaml`. Each slide maps to a template:
+- **`GEMINI_PROJECT` is required** even for showreel-only runs that don't touch Gemini Live
+- **Catch-all routes must stay last in `main.py`** — `StaticFiles` mount and the SPA fallback must remain at the bottom; routes declared after them are shadowed
+- **`gdm-container` needs `grow: 1`** when slotted into a `gdm-stage-grid` cell that should fill height
+
+---
+
+## Authoring playbooks (Mode C)
+
+Playbooks are YAML files in `playbooks/`. Each slide maps to a template:
 
 ```yaml
 - id: intro
@@ -41,257 +82,82 @@ Playbooks live in `playbooks/*.yaml`. Each slide maps to a template:
 
 - id: revenue
   template: hero_stat
+  badge: { text: "ARR", type: primary }
   label: "Annual Recurring Revenue"
   data:
     ARR: { source: literal, value: "$48.2M" }
   value: "{{ ARR }}"
   is_up: true
-  next_action: { text: "Next", fires: outro }
+  next_action: { text: "Next", fires: close }
+
+- id: close
+  template: signoff
+  lines:
+    - { text: "Thank you", color: white }
 ```
 
-Available templates: `title`, `hero_stat`, `split_with_action`, `list_5`, `signoff`, `market_ticker`
-Data sources: `literal`, `rest` (live HTTP/JSON) — `bigquery` planned.
+Fire a slide:
+```bash
+curl -X POST http://localhost:8085/api/playbook/fire/my_deck/intro/default \
+  -H "Authorization: Bearer $STAGE_API_KEY"
+```
 
-### Dev gotchas
+**Available templates:** `title`, `hero_stat`, `split_with_action`, `list_5`, `signoff`, `market_ticker`
 
-- **`GEMINI_PROJECT` is required** even for showreel-only runs that don't touch Gemini Live
-- **Catch-all routes must stay last** in `main.py` — see `§2.4` in `meetstudio.md`
-- **`gdm-container` needs `grow: 1`** when slotted into a `gdm-stage-grid` cell that should fill height
+**Data sources:** `literal`, `rest` (live HTTP/JSON with configurable refresh), `stooq` (market data) — `bigquery` planned for v0.3.
 
 ---
 
-## Meet Live Concierge (voice assistant)
-
-A real-time AI voice assistant embedded in the meeting side panel. The assistant listens to all meeting participants, responds by voice, and can optionally see the active speaker's video feed.
-
-## How it works
-
-```
-Google Meet participants
-        │  (WebRTC, recvonly)
-        ▼
-  Meet Media API  ──────────────────────────────────────────┐
-  (browser, side panel)                                     │
-        │                                                   │
-  AudioWorklet (16kHz PCM, 100ms batches)                   │
-        │ WebSocket (binary PCM + JSON video frames)        │
-        ▼                                                   │
-  FastAPI backend (Cloud Run)                               │
-        │                                                   │
-  Gemini Live  ◄────────────────────────────────────────────┘
-  gemini-live-2.5-flash-native-audio
-  (Vertex AI, configurable project)
-        │
-  Audio response (PCM 24kHz)
-        │ WebSocket
-        ▼
-  Web Audio playback (side panel)
-```
-
-## Features
-
-- 🎙 Hears all meeting participants (including the add-on user) via the Meet Media API
-- 🔊 Responds by voice using Gemini Live native audio
-- 📹 Optional 1fps video feed sent to Gemini for visual context
-- 🔇 Audio and video send toggles in the side panel UI
-- 💸 Gemini API calls billed to a configurable GCP project (separate from the Cloud Run host)
-- 📄 **Workspace Agent**: Voice-activated creation and search of Google Docs/Sheets (via a deployed Vertex AI Reasoning Engine)
-- ⏳ **Auto-Stage**: Generated documents automatically open in the Meet main stage for all participants
-- 📁 **Save to Drive**: Automatic creation of Drive shortcuts to meeting documents in a structured folder hierarchy
-
-## Workspace Integration
-
-The concierge connects to a delegated **Vertex AI Reasoning Engine** to perform Google Workspace tasks.
-
-> **Note:** This Reasoning Engine is a bridging pattern for the gap while a native Google Workspace MCP server is not yet publicly available. When Workspace MCP ships, this can be replaced with a direct MCP tool call — the agent interface stays the same.
-
-1. **Trigger**: "Hey Gemini, create a document with a summary of the meeting."
-2. **Execution**: The backend calls the reasoning engine with the user's identity.
-3. **Delivery**: When a doc URL is returned, it is surfaced in the side panel.
-4. **Collaboration**: The add-on uses `sidePanelClient.startActivity` to push the document to the Meet main stage, allowing all participants to view it simultaneously.
-
-## Save to Drive
-
-The add-on maintains a "Meet Recordings" folder in the user's Google Drive. 
-
-- **Permissions**: Requires the `https://www.googleapis.com/auth/drive.file` scope.
-- **Organization**: For every meeting, a subfolder is created.
-- **Automation**: Any document generated by the agent is automatically bookmarked in this folder as a Drive shortcut.
-- **Manual Save**: Diagrams generated during the meeting can be manually saved to the folder via the "Save to Drive" button.
-
-## Prerequisites
-
-> **Meet Media API access is invitation-only.** This add-on uses the [Google Meet Media API](https://developers.google.com/meet/media-api), which is in **Developer Preview** and requires explicit approval from Google. [Apply for access](https://developers.google.com/meet/media-api/guides/overview#apply_for_access) before attempting to deploy. Without it the side panel loads but audio capture is silently blocked.
-
-- Google Cloud project with:
-  - Cloud Run API enabled
-  - Meet Media API enabled (developer preview — see above)
-  - Google Workspace Marketplace SDK enabled (for add-on registration)
-  - A second GCP project (or the same) with Vertex AI API enabled for Gemini Live billing
-- OAuth 2.0 Client ID (Web application) with the Meet scopes
-- [clasp](https://github.com/google/clasp) installed and authenticated
-- [Node.js](https://nodejs.org/) 18+ and Python 3.11+
-
-## Setup
-
-### 1. Clone and configure
+## Deploying to Cloud Run
 
 ```bash
-git clone <this-repo>
-cd meet-live-concierge
-cp .env.production.sample .env.production
-# Edit .env.production — fill in all YOUR_* placeholders
+# Create a Secret Manager secret for your STAGE_API_KEY first:
+echo -n "your-secret-key" | gcloud secrets create stage-api-key \
+  --data-file=- --project=YOUR_CLOUD_RUN_PROJECT
 
-# Substitute your numeric GCP project number in the main stage JS
-# Example: sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/123456789012/g' public/main_stage.js
-sed -i 's/YOUR_CLOUD_PROJECT_NUMBER/YOUR_NUMERIC_PROJECT_NUMBER/g' public/main_stage.js
-```
-
-### 2. Install frontend dependencies
-
-```bash
-npm install
-```
-
-### 3. IAM — grant Gemini billing project access to Cloud Run SA
-
-```bash
-# Replace with your Cloud Run project number and Gemini billing project ID
-gcloud projects add-iam-policy-binding <GEMINI_PROJECT> \
-  --member="serviceAccount:<CLOUD_RUN_PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
-  --role="roles/aiplatform.user"
-```
-
-### 4. Deploy to Cloud Run
-
-```bash
-source .env.production
+# Deploy
 gcloud run deploy meet-live-concierge \
   --source . \
-  --region $REGION \
+  --region us-central1 \
+  --project YOUR_CLOUD_RUN_PROJECT \
   --timeout=3600 \
   --session-affinity \
   --allow-unauthenticated \
-  --set-build-env-vars="CLIENT_ID=${CLIENT_ID},CLOUD_PROJECT_NUMBER=${CLOUD_PROJECT_NUMBER}" \
-  --set-env-vars="GEMINI_PROJECT=${GEMINI_PROJECT},REGION=${REGION},KORE_VOICE=${KORE_VOICE},CLIENT_ID=${CLIENT_ID},WORKSPACE_AGENT_ENGINE=${WORKSPACE_AGENT_ENGINE}" \
-  --project=<YOUR_CLOUD_RUN_PROJECT>
-
+  --set-build-env-vars="CLIENT_ID=YOUR_OAUTH_CLIENT_ID,CLOUD_PROJECT_NUMBER=YOUR_PROJECT_NUMBER" \
+  --set-env-vars="GEMINI_PROJECT=YOUR_GEMINI_PROJECT,REGION=us-central1,KORE_VOICE=Charon,CLIENT_ID=YOUR_OAUTH_CLIENT_ID" \
+  --set-secrets="STAGE_API_KEY=stage-api-key:latest"
 ```
 
-> **Security Note**: The backend now strictly validates all incoming OAuth access tokens against Google's `tokeninfo` endpoint and verifies the `aud` (audience) matches your `CLIENT_ID`. This prevents the service from being used as an open proxy for unauthorized tokens.
+Grant the Cloud Run service account access to Gemini:
+```bash
+gcloud projects add-iam-policy-binding YOUR_GEMINI_PROJECT \
+  --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
 
-### 5. Register the Apps Script Add-on
+---
+
+## Registering the Apps Script add-on
 
 ```bash
 cd appsscript
 
-# Create a new standalone Apps Script project (only needed once)
+# First time only — create a standalone Apps Script project
 clasp create --title "Meet Live Concierge" --type standalone
-# clasp writes .clasp.json — this file is git-ignored; don't commit it
 
 # Substitute your Cloud Run URL in the manifest
-# Example: sed -i 's|YOUR_CLOUD_RUN_URL|https://meet-live-concierge-123456789012.us-central1.run.app|g' appsscript.json
-sed -i 's|YOUR_CLOUD_RUN_URL|YOUR_ACTUAL_CLOUD_RUN_URL|g' appsscript.json
+sed -i 's|YOUR_CLOUD_RUN_URL|https://YOUR_SERVICE.us-central1.run.app|g' appsscript.json
 
 clasp push --force
 clasp deploy --description "v1"
 ```
 
-Copy the deployment ID (`AKfycb...`) and enter it in:
+Copy the deployment ID and enter it in:
 **GCP Console → APIs & Services → Google Workspace Marketplace SDK → App Configuration**
 
-> **Template files**
-> - `appsscript/appsscript.json` — contains `YOUR_CLOUD_RUN_URL` placeholders; substitute before pushing
-> - `appsscript/.clasp.json.sample` — copy to `.clasp.json` if you already have a script ID:
->   ```bash
->   cp appsscript/.clasp.json.sample appsscript/.clasp.json
->   # Edit .clasp.json and replace YOUR_APPS_SCRIPT_ID with the real ID
->   ```
->   The live `.clasp.json` is git-ignored so credentials stay local.
-
-### 6. Install the add-on
-
-Use the **Test Install** button in the Marketplace SDK console, then open Google Meet.
-
-## MCP Server
-
-The backend exposes an MCP server at `/mcp` (Streamable HTTP transport — compatible with Claude Code and Gemini CLI).
-
-### Tools
-
-| Tool | Description |
-|---|---|
-| `send_transcript` | Broadcast a subtitle line to the Meet main stage |
-| `trigger_diagram` | Generate a D2 diagram from a description and broadcast it to the main stage |
-
-Both tools require the `space_id` of an active meeting session.
-
-### Connect from Claude Code
-
-Add to `~/.claude/settings.json` (or `.claude/settings.local.json` for per-project):
-
-```json
-{
-  "mcpServers": {
-    "meet-live-concierge": {
-      "type": "sse",
-      "url": "https://YOUR_CLOUD_RUN_URL/mcp"
-    }
-  }
-}
-```
-
-If `STAGE_API_KEY` is set on the server, add a `headers` block:
-
-```json
-{
-  "mcpServers": {
-    "meet-live-concierge": {
-      "type": "sse",
-      "url": "https://YOUR_CLOUD_RUN_URL/mcp",
-      "headers": { "Authorization": "Bearer YOUR_STAGE_API_KEY" }
-    }
-  }
-}
-```
-
-For local dev, point the URL at `http://localhost:8080/mcp`.
-
-### Connect from Gemini CLI
-
-```json
-{
-  "mcpServers": {
-    "meet-live-concierge": {
-      "httpUrl": "http://localhost:8080/mcp"
-    }
-  }
-}
-```
-
-### Security
-
-If `STAGE_API_KEY` is unset the endpoint is open — suitable for local development only. Set it via `--set-env-vars` when deploying to Cloud Run.
+Then use **Test Install** in the Marketplace SDK console and open Google Meet.
 
 ---
-
-## Local development
-
-```bash
-source .env.production
-# Terminal 1 — backend
-uvicorn main:app --reload --port 8080
-
-# Terminal 2 — frontend (proxies /ws to :8080)
-npm run dev
-```
-
-## Running tests
-
-```bash
-pip install -r tests/requirements.txt
-pytest tests/
-```
 
 ## Configuration
 
@@ -300,38 +166,74 @@ pytest tests/
 | `CLOUD_PROJECT_NUMBER` | Yes (build) | Numeric GCP project number for the Meet Add-on SDK |
 | `CLIENT_ID` | Yes (build) | OAuth 2.0 client ID for the Meet scopes |
 | `GEMINI_PROJECT` | Yes (runtime) | GCP project ID billed for Gemini Live API usage |
+| `STAGE_API_KEY` | Yes (runtime) | Bearer token protecting producer endpoints; load from Secret Manager in production |
 | `REGION` | No | Cloud Run / Vertex AI region (default: `us-central1`) |
 | `KORE_VOICE` | No | Gemini Live voice name (default: `Charon`) |
-| `WORKSPACE_AGENT_ENGINE` | Optional | Resource ID of a deployed Vertex AI Reasoning Engine (e.g. `projects/.../reasoningEngines/...`). Without this, voice commands to create or search Google Docs/Sheets will not work — the agent will respond but take no action. |
+| `WORKSPACE_AGENT_ENGINE` | Optional | Vertex AI Reasoning Engine resource ID for Workspace tasks (Docs/Sheets creation) |
 | `SYSTEM_PROMPT` | No | Override the agent's system instruction |
+
+---
+
+## MCP Server
+
+The backend exposes an MCP server at `/mcp` (Streamable HTTP transport).
+
+| Tool | Description |
+|---|---|
+| `send_transcript` | Broadcast a subtitle line to the Meet main stage |
+| `trigger_diagram` | Generate a D2 diagram and broadcast it to the stage |
+
+Connect from Claude Code (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "meet-live-concierge": {
+      "type": "sse",
+      "url": "https://YOUR_SERVICE.us-central1.run.app/mcp",
+      "headers": { "Authorization": "Bearer YOUR_STAGE_API_KEY" }
+    }
+  }
+}
+```
+
+---
 
 ## GCP project structure
 
-This add-on spans **two or three GCP projects**, which is intentional:
-
 | Project | Purpose |
 |---|---|
-| **Add-on / Cloud Run project** | Hosts the Cloud Run service, the OAuth Client ID, and the Meet Media API dev preview access. This is `<YOUR_CLOUD_RUN_PROJECT>` in the deploy command. |
-| **Gemini billing project** | Vertex AI API is enabled here. All Gemini Live calls are billed to this project. Set via `GEMINI_PROJECT`. |
-| **Workspace Agent project** *(optional)* | A separately deployed Vertex AI Reasoning Engine handles Workspace tasks (Docs/Sheets creation). Set via `WORKSPACE_AGENT_ENGINE`. |
+| **Cloud Run project** | Hosts the service, OAuth Client ID, Meet Media API dev preview access |
+| **Gemini billing project** | Vertex AI API enabled here; all Gemini Live calls billed to this project (`GEMINI_PROJECT`) |
+| **Workspace Agent project** *(optional)* | Vertex AI Reasoning Engine for Docs/Sheets tasks (`WORKSPACE_AGENT_ENGINE`) |
 
-The Cloud Run service account must have `roles/aiplatform.user` on the Gemini billing project (see step 3). The three projects can be collapsed into fewer if preferred, but separating billing is recommended.
+The three projects can be the same project if preferred.
+
+---
 
 ## Architecture notes
 
-**Why 100ms PCM batches?** The AudioWorklet fires at ~125Hz (128 samples @ 16kHz). Sending every frame would generate ~7,500 API calls/min, exceeding Gemini Live quota. Batching to 1,600 samples (100ms) reduces this to ~600 RPM.
+**Why 100ms PCM batches?** The AudioWorklet fires at ~125Hz (128 samples at 16kHz). Sending every frame generates ~7,500 WebSocket messages/min. Batching to 1,600 samples (100ms) reduces this to ~600/min while staying within Gemini Live's latency budget.
 
-**Why a hidden `<audio muted>` element per track?** Chrome's Opus decoder is lazy — it won't decode a `MediaStreamTrack` unless something is playing it. Without this, all Meet audio tracks deliver silence to the AudioWorklet.
+**Why a hidden `<audio muted>` element per track?** Chrome's Opus decoder is lazy — it won't decode a `MediaStreamTrack` unless something is actively playing it. Without this, all Meet audio tracks deliver silence to the AudioWorklet.
 
-**Why two AudioContexts created before any `await`?** Chrome's autoplay policy suspends AudioContexts created outside a user gesture context. Both the recording (16kHz) and playback (24kHz) contexts must be created synchronously at the start of the click handler.
+**Why two AudioContexts created before any `await`?** Chrome's autoplay policy suspends AudioContexts created outside a user-gesture handler. Both the recording (16kHz) and playback (24kHz) contexts must be created synchronously at the start of the click handler.
+
+---
 
 ## Gemini Live voices
 
 | Voice | Character |
 |---|---|
-| Charon | Informative, neutral (Default) |
+| Charon | Informative, neutral (default) |
 | Kore | Firm, clear |
 | Puck | Upbeat, expressive |
 | Aoede | Breezy, easy |
 | Fenrir | Excitable |
 | Zephyr | Light, positive |
+
+---
+
+## License
+
+MIT
