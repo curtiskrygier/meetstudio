@@ -3,6 +3,8 @@ import base64
 import inspect
 import json
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import re
 import uuid as uuid_lib
 from contextlib import asynccontextmanager
@@ -85,6 +87,10 @@ from app.reactions import detect_emojis
 from app.a2ui_catalog import A2UI_CATALOG, validate_a2ui_surface, validate_a2ui_surface_detailed
 
 from google.genai import types
+
+class DriveScopeMissingError(Exception):
+    """Raised when the user's OAuth scope does not cover the required Google Drive access."""
+    pass
 
 notepad_locks = {}  # meeting_id -> {"owner": owner_id, "expires_at": float}
 
@@ -555,7 +561,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     }
                                 })
                                 await broadcast_to_stage(session_space[0], {
-                                    "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_root_grid"}
+                                    "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_root_grid"}
                                 })
                         
                         elif data.get("type") == "diagram_mode":
@@ -672,6 +678,14 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     })
                                     if session_token[0] and session_space[0]:
                                         asyncio.create_task(save_doc_shortcut_to_drive(clean_url, label, session_space[0], session_token[0]))
+                                        if "document" in clean_url:
+                                            asyncio.create_task(auto_draft_and_fire_playbook_background(
+                                                clean_url, 
+                                                session_space[0], 
+                                                session_token[0], 
+                                                ui_state=ui_state, 
+                                                broadcast_fn=broadcast_a2ui
+                                            ))
 
                                 # Surface auth link if workspace agent needs authorization
                                 for url in re.findall(r'https?://workspace-subagent-auth[^\s)]+', res):
@@ -814,7 +828,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     if data_model_update:
                                         await broadcast_to_stage(session_space[0], {"updateDataModel": data_model_update})
                                     if root_id:
-                                        await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id}})
+                                        await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id}})
                                     if warnings:
                                         logger.warning(f"[tool] render_stage surface warnings: {'; '.join(warnings)}")
                                     logger.info(f"[tool] render_stage root={root_id} n={len(surface_update.get('components', []))}")
@@ -854,7 +868,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                             await websocket.send_text(json.dumps(transcript_msg))
                             caption_surface = {"updateComponents": {"components": [{"id": "stage_captions", "component": "gdm-captions", "text": t_text, "speaker": "You", "active": True}]}}
                             await broadcast_to_stage(session_space[0], caption_surface)
-                            await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_captions"}})
+                            await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_captions"}})
                             if is_final: current_turn["role"] = None
 
                     if sc.model_turn:
@@ -870,7 +884,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
                                     await websocket.send_text(json.dumps(transcript_msg))
                                     caption_surface = {"updateComponents": {"components": [{"id": "stage_captions", "component": "gdm-captions", "text": part.text, "speaker": "Gemini Architect", "active": True}]}}
                                     await broadcast_to_stage(session_space[0], caption_surface)
-                                    await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_captions"}})
+                                    await broadcast_to_stage(session_space[0], {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_captions"}})
                     
                     if sc.turn_complete: current_turn["role"] = None
         except Exception as e:
@@ -938,6 +952,11 @@ A2UI_ACTION_CONTEXT: dict[str, dict] = {
     },
     "tab-select": {
         "context_fn": lambda d: f"[Stage] A viewer selected the '{d.get('tabId', '?')}' tab on the telemetry dashboard.",
+        "dm_path": None,
+        "dm_val_fn": None,
+    },
+    "a2ui-action": {
+        "context_fn": lambda d: f"[Stage] A viewer clicked a button triggering action event: '{d.get('event', {}).get('name', '?')}'" + (f" with context: {d.get('event', {}).get('context')}" if d.get('event', {}).get('context') else ""),
         "dm_path": None,
         "dm_val_fn": None,
     },
@@ -1268,6 +1287,14 @@ async def ui_prompt(payload: dict = Body(...), token: str = Depends(token_requir
                                 })
                                 if token and space_id:
                                     asyncio.create_task(save_doc_shortcut_to_drive(clean_url, label, space_id, token))
+                                    if "document" in clean_url:
+                                        asyncio.create_task(auto_draft_and_fire_playbook_background(
+                                            clean_url, 
+                                            space_id, 
+                                            token, 
+                                            ui_state=ui_state, 
+                                            broadcast_fn=session_data["broadcast_fn"]
+                                        ))
 
                             # Surface auth link if workspace agent needs authorization
                             for url in re.findall(r'https?://workspace-subagent-auth[^\s)]+', res):
@@ -2114,7 +2141,7 @@ async def standby_countdown_task(space_id: str, badge: str, title: str, descript
                 }
             })
             await broadcast_to_stage(space_id, {
-                "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": "stage_root_grid"}
+                "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": "stage_root_grid"}
             })
             if remaining == 0:
                 break
@@ -2257,7 +2284,7 @@ async def render_stage(space_id: str, request: Request):
     if data_model_update:
         await broadcast_to_stage(space_id, {"updateDataModel": data_model_update})
 
-    await broadcast_to_stage(space_id, {"createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id}})
+    await broadcast_to_stage(space_id, {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id}})
 
     logger.info(f"[render-stage] {space_id} root={root_id} components={len(components)}")
     resp = {"ok": True, "root": root_id, "components": len(components)}
@@ -2513,6 +2540,7 @@ async def serve_index():
 # ═══════════════════════════════════════════════════════════════════════════
 
 import asyncio
+import inspect
 
 # Active tick loops per space — cancelled when a new slide fires on the
 # same space, so a previous slide's ticker doesn't keep painting under the
@@ -2520,15 +2548,10 @@ import asyncio
 _ACTIVE_TICKS: dict[str, asyncio.Task] = {}
 
 
-@app.post("/api/playbook/fire/{playbook_name}/{slide_id}/{space_id:path}")
-async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
-                              request: Request):
+async def fire_playbook_slide_internal(playbook_name: str, slide_id: str, space_id: str):
     """Resolve a playbook slide, cancel any in-flight tick loop on this space,
     broadcast the new surface to the audience stage (full A2UI protocol order:
-    surfaceUpdate → beginRendering), then optionally start a fresh tick loop.
-
-    NOTE on auth: unauthed for localhost PoC. See TODO at top of staged file
-    for the deployment auth options."""
+    surfaceUpdate → beginRendering), then optionally start a fresh tick loop."""
     # Lazy import to avoid main.py↔playbooks circular-import issues at module
     # load time. By the time the endpoint is HIT, playbooks/__init__.py has
     # long-since registered everything.
@@ -2590,7 +2613,7 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
         "updateComponents": {"components": components},
     })
     await broadcast_to_stage(space_id, {
-        "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id},
+        "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id},
     })
     logger.info(f"[playbook] fired {playbook_name}/{slide_id} -> {space_id} "
                 f"({len(components)} components, root={root_id})")
@@ -2623,7 +2646,7 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
                             "updateComponents": {"components": partial},
                         })
                         await broadcast_to_stage(space_id, {
-                            "createSurface": {"catalogId": "gdm-v0.1", "theme": {}, "root": root_id},
+                            "createSurface": {"catalogId": "gdm-v0.2", "theme": {}, "root": root_id},
                         })
                     tick += 1
             except asyncio.CancelledError:
@@ -2638,6 +2661,18 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
         "components": len(components),
         "ticks_active": space_id in _ACTIVE_TICKS,
     }
+
+
+@app.post("/api/playbook/fire/{playbook_name}/{slide_id}/{space_id:path}")
+async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
+                              request: Request):
+    """Resolve a playbook slide, cancel any in-flight tick loop on this space,
+    broadcast the new surface to the audience stage (full A2UI protocol order:
+    surfaceUpdate → beginRendering), then optionally start a fresh tick loop.
+
+    NOTE on auth: unauthed for localhost PoC. See TODO at top of staged file
+    for the deployment auth options."""
+    return await fire_playbook_slide_internal(playbook_name, slide_id, space_id)
 
 
 @app.get("/api/playbook/list/{playbook_name}")
@@ -2670,6 +2705,32 @@ Google Meet Studio.
 The studio renders presentations by composing slides from a small set of
 template recipes. Each playbook is one YAML file with a `name:` and a
 `slides:` list. Pick the right recipe for each section of the article.
+
+SHAPE SELECTION (decide FIRST, before picking templates):
+
+  Two output shapes are supported. The document and reader intent decide.
+
+  A. LINEAR DECK — A → B → C → close.
+     Use when the doc is a NARRATIVE argument (op-ed, blog post, story,
+     pitch). 3-6 slides. Every next_action fires the next slide forward.
+     Always ends with `signoff`.
+
+  B. OUTLINE HUB — one overview slide with N action buttons, each firing
+     its own detail slide. Detail slides end with a back-button firing
+     the overview. Use when ANY of these triggers fires:
+       - the doc is a multi-section REFERENCE (handover, RFC, strategy
+         doc, project plan, technical spec, manual, FAQ) where readers
+         will jump to sections, not read top-to-bottom;
+       - the doc has 6+ distinct major sections (H1/H2 headings);
+       - the user explicitly asks for an outline / hub / index / map /
+         overview / table-of-contents / "let me jump to" / "interactive".
+     Output: 1 overview slide + one detail slide per major section + a
+     `signoff` close slide. The overview uses `split_with_action` with N
+     `right.actions`, one per section, each `fires:` its detail. Each
+     detail slide ends with `next_action: { text: "Back", fires: <overview_id> }`.
+     The overview's final action is `{ text: "Done", fires: <close_id> }`.
+
+  Default to LINEAR DECK unless one of the OUTLINE HUB triggers fires.
 
 AVAILABLE TEMPLATES (the menu):
 
@@ -2708,9 +2769,9 @@ ACTION SHORTCUTS in buttons:
   fires: <slide_id>      → server-side fire, advances to that slide
   links: <url>           → opens URL in new tab
   emits: <event_name>    → dispatches event for the host page
-  agent: <action_id>     → existing agent-mode (legacy)
+  agent: <event_name>     → dispatches event for the agent (v0.9 event mode)
 
-GOOD YAML EXAMPLE:
+GOOD YAML EXAMPLE — LINEAR DECK:
 
   name: q3_review
   slides:
@@ -2742,21 +2803,140 @@ GOOD YAML EXAMPLE:
       chef_line: "WE CALLED IT."
       tagline: "next: q4."
 
+GOOD YAML EXAMPLE — OUTLINE HUB:
+
+  name: handover_outline
+  slides:
+    - id: overview
+      template: split_with_action
+      left:
+        badge: { text: "PROJECT HANDOVER", type: info, pulse: true }
+        title: "GOOGLE MEET STUDIO"
+        body: "Jump to any section. The agent will fill in the details."
+      right:
+        actions:
+          - { text: "1. The architecture",     variant: "outline", fires: section_arch }
+          - { text: "2. The substrate idea",   variant: "outline", fires: section_substrate }
+          - { text: "3. The doc-to-deck loop", variant: "outline", fires: section_doc2deck }
+          - { text: "4. The v0.9 migration",   variant: "outline", fires: section_v09 }
+          - { text: "Done",                    variant: "primary", fires: close }
+
+    - id: section_arch
+      template: split_with_action
+      left:
+        badge: { text: "01 · ARCHITECTURE", type: primary }
+        title: "How it fits together"
+        body: "FastAPI WebSocket spine. Gemini Live transcription. A2UI v0.9 wire format. Lit catalogue components on the main stage."
+      right:
+        actions:
+          - { text: "← Back to outline", variant: "outline", fires: overview }
+
+    - id: section_substrate
+      template: split_with_action
+      left:
+        badge: { text: "02 · SUBSTRATE", type: primary }
+        title: "Catalogue is the product"
+        body: "Atoms, molecules, and a wire grammar. The agent reasons in this vocabulary."
+      right:
+        actions:
+          - { text: "← Back to outline", variant: "outline", fires: overview }
+
+    - id: section_doc2deck
+      template: split_with_action
+      left:
+        badge: { text: "03 · DOC-TO-DECK", type: primary }
+        title: "Paste a doc. Click present."
+        body: "The agent reads markdown, emits YAML, registers it, fires the first slide. Under thirty seconds."
+      right:
+        actions:
+          - { text: "← Back to outline", variant: "outline", fires: overview }
+
+    - id: section_v09
+      template: split_with_action
+      left:
+        badge: { text: "04 · V0.9 MIGRATION", type: primary }
+        title: "Lean envelope, flat components"
+        body: "Hard-cutover from v0.8. Branch + checkpoint as the safety net. All playbooks regression-clean."
+      right:
+        actions:
+          - { text: "← Back to outline", variant: "outline", fires: overview }
+
+    - id: close
+      template: signoff
+      lines:
+        - { text: "THE CATALOGUE.", color: white }
+        - { text: "IS THE PRODUCT.", color: phosphor }
+      brands: { left: "MEET", right: "A2UI" }
+      badge_text: "ALL SECTIONS LIVE"
+      chef_line: "JUMP ANYWHERE."
+      tagline: "the chef is at the table."
+
 RULES:
 - Output ONLY YAML. No prose, no markdown fences, no explanation.
-- Aim for 3-6 slides per article. Don't over-segment.
-- Use the article's actual headlines and key phrases as the title/subtitle/body text.
+- For LINEAR DECK: 3-6 slides; chain forward via `fires:`; end with `signoff`.
+- For OUTLINE HUB: 1 overview + one detail per major section + `signoff` close.
+  Don't apply the 3-6 cap — the whole point is reader-jumpable breadth.
+  Details end with `Back`; overview has a `Done` action firing close.
+- Use the doc's actual headlines and key phrases as title/subtitle/body text.
 - Match each section to its closest template — don't shoehorn.
-- Always end with a `signoff` slide.
-- Use `fires:` to chain slides forward (each next_action points to the next slide's id).
 - Pick badge.type from: primary, danger, success, info, warning.
 - Pick signoff.lines[*].color from: white, phosphor, cyan.
-- If the article mentions a number that warrants a hero_stat, use one.
-- Keep slide ids snake_case, descriptive (intro, principles, arr, conclusion, close)."""
+- If the doc mentions a number that warrants a hero_stat, use one.
+- Keep slide ids snake_case, descriptive (intro, principles, overview, section_arch, close)."""
 
 
-class DriveScopeMissingError(Exception):
-    pass
+async def _generate_markdown_via_gemini(prompt: str) -> str:
+    """Generate a structured, comprehensive markdown document on a topic."""
+    from google import genai
+    client = genai.Client(vertexai=True, project=os.environ["GEMINI_PROJECT"],
+                          location=os.environ.get("REGION", "us-central1"))
+    
+    system_instruction = """You are a master document architect. You write beautifully detailed, structured, and visually striking documents in Markdown format.
+Depending on the user's topic or request, format it logically with:
+- A clear H1 title
+- Multiple clear H2 section headers
+Aim for a very comprehensive, informative, and engaging document that is perfect for converting into a slide deck."""
+
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model="gemini-2.5-pro",
+        contents=[f"Create a beautifully structured and highly engaging markdown document based on this request: {prompt}"],
+        config={"system_instruction": system_instruction, "temperature": 0.4}
+    )
+    return response.text.strip()
+
+
+async def _create_google_doc_on_drive(title: str, content: str, user_token: str) -> str:
+    """Create a Google Doc on user's Drive and return its file ID."""
+    metadata = {
+        "name": title,
+        "mimeType": "application/vnd.google-apps.document"
+    }
+    
+    boundary = "foo_bar_boundary"
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "Content-Type": f"multipart/related; boundary={boundary}"
+    }
+    
+    body_parts = [
+        f"--{boundary}",
+        "Content-Type: application/json; charset=UTF-8",
+        "",
+        json.dumps(metadata),
+        f"--{boundary}",
+        "Content-Type: text/plain; charset=UTF-8",
+        "",
+        content,
+        f"--{boundary}--"
+    ]
+    body = "\r\n".join(body_parts).encode("utf-8")
+    
+    upload_url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(upload_url, headers=headers, content=body)
+        r.raise_for_status()
+        return r.json().get("id")
 
 
 async def _fetch_doc_as_markdown(doc_id: str, user_token: str) -> str:
@@ -2765,23 +2945,60 @@ async def _fetch_doc_as_markdown(doc_id: str, user_token: str) -> str:
     export_url = f"https://www.googleapis.com/drive/v3/files/{doc_id}/export?mimeType=text/markdown"
     async with httpx.AsyncClient(timeout=20) as client:
         r = await client.get(export_url, headers={"Authorization": f"Bearer {user_token}"})
-        if r.status_code == 403:
+        if r.status_code in (401, 403):
             raise DriveScopeMissingError()
         r.raise_for_status()
         return r.text
 
 
-async def _draft_yaml_via_gemini(markdown: str) -> str:
-    """Call Gemini with the doc→YAML system prompt; return raw YAML string."""
+async def _get_drive_file_metadata(file_id: str, user_token: str) -> dict:
+    """Get metadata (mimeType, name) for a Google Drive file."""
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?fields=mimeType,name"
+    headers = {"Authorization": f"Bearer {user_token}"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url, headers=headers)
+        if r.status_code in (401, 403):
+            raise DriveScopeMissingError()
+        r.raise_for_status()
+        return r.json()
+
+
+async def _download_drive_file_as_bytes(file_id: str, user_token: str) -> bytes:
+    """Download any file content from Google Drive as raw bytes."""
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+    headers = {"Authorization": f"Bearer {user_token}"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(url, headers=headers)
+        if r.status_code in (401, 403):
+            raise DriveScopeMissingError()
+        r.raise_for_status()
+        return r.content
+
+
+async def _draft_yaml_via_gemini(markdown: str, pdf_bytes: bytes = None) -> str:
+    """Call Gemini with the doc→YAML system prompt; return raw YAML string.
+    Can accept either a raw markdown string OR raw pdf_bytes."""
     from google import genai
+    from google.genai import types
     client = genai.Client(vertexai=True, project=os.environ["GEMINI_PROJECT"],
                           location=os.environ.get("REGION", "us-central1"))
-    # Use Gemini 2.5 (or whichever model is current). Aim for a structured-but-loose
-    # mode — set temperature low (0.2) for reliable schema-matching.
+    
+    if pdf_bytes:
+        contents = [
+            DRAFT_FROM_DOC_PROMPT,
+            "\n\nPDF TO CONVERT:\n\n",
+            types.Part.from_bytes(
+                data=pdf_bytes,
+                mime_type="application/pdf"
+            )
+        ]
+    else:
+        contents = [DRAFT_FROM_DOC_PROMPT, "\n\nARTICLE TO CONVERT:\n\n", markdown]
+
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-2.5-pro",  # or whichever model is current
-        contents=[DRAFT_FROM_DOC_PROMPT, "\n\nARTICLE TO CONVERT:\n\n", markdown],
+        model="gemini-2.5-pro",
+        contents=contents,
         config={"temperature": 0.2, "max_output_tokens": 8000},
     )
     raw = response.text.strip()
@@ -2795,48 +3012,226 @@ async def _draft_yaml_via_gemini(markdown: str) -> str:
     return raw
 
 
+async def auto_draft_and_fire_playbook_background(
+    doc_url: str,
+    space_id: str,
+    google_token: str,
+    ui_state: dict = None,
+    broadcast_fn = None
+):
+    """Background task to fetch newly created Google Doc markdown (with 3-attempt retry loop),
+    draft YAML playbook via Gemini 2.5 Pro, save and register, then auto fire kickoff slide to stage."""
+    logger.info(f"[auto-draft] Starting background task for doc_url: {doc_url}, space_id: {space_id}")
+    
+    m = re.search(r"/(?:document|file)/d/([a-zA-Z0-9_-]+)", doc_url)
+    if not m:
+        logger.error(f"[auto-draft] Invalid Google Doc/Drive URL: {doc_url}")
+        return
+    file_id = m.group(1)
+    
+    markdown_content = None
+    retries = 3
+    delay = 1.5
+    for attempt in range(1, retries + 1):
+        try:
+            logger.info(f"[auto-draft] Attempt {attempt} to fetch document metadata/content for {file_id}")
+            meta = await _get_drive_file_metadata(file_id, google_token)
+            mime_type = meta.get("mimeType", "")
+            
+            if mime_type == "application/vnd.google-apps.document":
+                markdown_content = await _fetch_doc_as_markdown(file_id, google_token)
+            else:
+                markdown_content = await _fetch_doc_as_markdown(file_id, google_token)
+                
+            if markdown_content:
+                logger.info(f"[auto-draft] Successfully fetched markdown content ({len(markdown_content)} chars)")
+                break
+        except Exception as e:
+            logger.warning(f"[auto-draft] Fetch attempt {attempt} failed: {e}")
+            if attempt == retries:
+                logger.error(f"[auto-draft] Exhausted all {retries} fetch attempts.")
+                if ui_state:
+                    ui_state["status_text"] = "Failed to fetch document from Drive"
+                    if broadcast_fn:
+                        await broadcast_fn()
+                return
+            await asyncio.sleep(delay)
+            delay *= 1.5
+            
+    if not markdown_content:
+        logger.error("[auto-draft] No markdown content fetched from doc.")
+        return
+
+    try:
+        if ui_state:
+            ui_state["status_text"] = "Compiling slide playbook via Gemini..."
+            if broadcast_fn:
+                await broadcast_fn()
+        logger.info("[auto-draft] Calling Gemini 2.5 Pro to compile A2UI playbook...")
+        yaml_str = await _draft_yaml_via_gemini(markdown_content)
+    except Exception as e:
+        logger.error(f"[auto-draft] Gemini compile failed: {e}")
+        if ui_state:
+            ui_state["status_text"] = "Failed to compile playbook"
+            if broadcast_fn:
+                await broadcast_fn()
+        return
+
+    # Validate it parses as playbook YAML
+    import yaml as yaml_mod
+    try:
+        parsed = yaml_mod.safe_load(yaml_str)
+        assert isinstance(parsed, dict)
+        assert "name" in parsed and "slides" in parsed
+        assert isinstance(parsed["slides"], list)
+        assert len(parsed["slides"]) >= 2
+    except Exception as e:
+        logger.error(f"[auto-draft] Gemini output is not a valid playbook: {e}")
+        if ui_state:
+            ui_state["status_text"] = "Drafted playbook is invalid"
+            if broadcast_fn:
+                await broadcast_fn()
+        return
+
+    # Save to playbooks/
+    pb_name = re.sub(r"[^a-z0-9_]", "_", parsed["name"].lower())[:40] or "drafted"
+    playbook_path = os.path.join("playbooks", f"{pb_name}.yaml")
+    try:
+        with open(playbook_path, "w") as f:
+            f.write(yaml_str)
+        logger.info(f"[auto-draft] Playbook saved to {playbook_path}")
+        
+        # Reload/Register playbooks
+        from playbooks.yaml_loader import register_yaml_playbooks_in_dir
+        register_yaml_playbooks_in_dir()
+    except Exception as e:
+        logger.error(f"[auto-draft] Saving/registering playbook failed: {e}")
+        return
+
+    # Auto fire the kickoff (first) slide
+    try:
+        first_slide_id = parsed["slides"][0]["id"]
+        logger.info(f"[auto-draft] Auto-firing slide '{first_slide_id}' in playbook '{pb_name}' to stage '{space_id}'")
+        await fire_playbook_slide_internal(pb_name, first_slide_id, space_id)
+        if ui_state:
+            ui_state["status_text"] = f"Playbook '{parsed['name']}' is live on stage!"
+            if broadcast_fn:
+                await broadcast_fn()
+    except Exception as e:
+        logger.error(f"[auto-draft] Failed to fire slide to stage: {e}")
+        if ui_state:
+            ui_state["status_text"] = "Failed to fire drafted playbook"
+            if broadcast_fn:
+                await broadcast_fn()
+
+
 @app.post("/api/playbook/draft-from-doc/{space_id:path}")
 async def draft_playbook_from_doc(
     space_id: str,
     body: dict = Body(...),
     token: str = Depends(token_or_api_key_required),
 ):
-    """Convert a markdown article or Google Doc into a YAML playbook
-    via Gemini, save it to playbooks/, trigger reload, return playbook
-    metadata. The killer-loop closer.
+    """Convert a markdown article, Google Doc, or PDF on Google Drive
+    into a YAML playbook via Gemini, save it to playbooks/, trigger reload,
+    return playbook metadata. The killer-loop closer.
 
     Body shape:
       { "source": "markdown", "content": "..." }
-      { "source": "drive", "doc_url": "https://docs.google.com/document/d/..." }
+      { "source": "drive", "doc_url": "https://docs.google.com/document/d/...", "google_token": "optional_access_token" }
     """
     source = body.get("source")
+    markdown_content = None
+    pdf_bytes_content = None
+
     if source == "markdown":
         markdown_content = body.get("content", "")
     elif source == "drive":
         doc_url = body.get("doc_url", "")
-        # Extract doc ID from URL
-        m = re.search(r"/document/d/([a-zA-Z0-9_-]+)", doc_url)
+        # Extract doc or file ID from URL (e.g. document/d/... or file/d/...)
+        m = re.search(r"/(?:document|file)/d/([a-zA-Z0-9_-]+)", doc_url)
         if not m:
-            raise HTTPException(400, "invalid Google Doc URL")
-        doc_id = m.group(1)
-        # Fetch via Drive API — requires drive.readonly scope on user OAuth
+            # It's not a Google Drive/Doc URL. Let's see if it's a general website URL!
+            if doc_url.startswith("http://") or doc_url.startswith("https://"):
+                try:
+                    logger.info(f"Fetching website page: {doc_url}")
+                    fetched_text = await fetch_url(doc_url)
+                    if fetched_text.startswith("Error"):
+                        raise HTTPException(400, fetched_text)
+                    markdown_content = fetched_text
+                except Exception as e:
+                    logger.error(f"Failed to fetch website page: {e}")
+                    raise HTTPException(400, f"Failed to fetch website page: {e}")
+            else:
+                raise HTTPException(400, "invalid Google Drive, Google Doc or Website URL")
+        else:
+            file_id = m.group(1)
+            # Fetch via Drive API
+            google_token = body.get("google_token") or token
+            try:
+                meta = await _get_drive_file_metadata(file_id, google_token)
+                mime_type = meta.get("mimeType", "")
+                
+                if mime_type == "application/vnd.google-apps.document":
+                    # Native Google Doc
+                    markdown_content = await _fetch_doc_as_markdown(file_id, google_token)
+                elif mime_type == "application/pdf":
+                    # PDF File
+                    pdf_bytes_content = await _download_drive_file_as_bytes(file_id, google_token)
+                else:
+                    # Fallback to direct bytes download for other non-doc files (e.g. uploaded docx, pdf)
+                    pdf_bytes_content = await _download_drive_file_as_bytes(file_id, google_token)
+            except DriveScopeMissingError:
+                return {
+                    "error": "scope_missing",
+                    "detail": "Drive readonly scope required. User must re-consent.",
+                    "required_scope": "https://www.googleapis.com/auth/drive.readonly",
+                    "fallback": "Use source=markdown and paste the doc content"
+                }
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    raise HTTPException(400, "Google Drive file not found or is inaccessible. Please verify the URL and file access permissions.")
+                elif e.response.status_code in (401, 403):
+                    return {
+                        "error": "scope_missing",
+                        "detail": "Unauthorized Drive access. Re-consent required.",
+                        "required_scope": "https://www.googleapis.com/auth/drive.readonly",
+                        "fallback": "Paste raw prompt topic instead"
+                    }
+                else:
+                    raise HTTPException(400, f"Google Drive API error ({e.response.status_code}): {e}")
+            except Exception as e:
+                logger.error(f"Failed to fetch Google Drive file: {e}")
+                raise HTTPException(400, f"Failed to fetch file from Google Drive: {e}")
+    elif source == "prompt":
+        prompt_text = body.get("prompt", "")
+        if not prompt_text:
+            raise HTTPException(400, "prompt is required for source=prompt")
+        
+        # 1. Generate comprehensive markdown via Gemini 2.5 Pro
+        markdown_content = await _generate_markdown_via_gemini(prompt_text)
+        
+        # 2. Upload and convert to native Google Doc on user's Drive
+        google_token = body.get("google_token") or token
+        title = f"Gemini Gen: {prompt_text[:40]}"
         try:
-            markdown_content = await _fetch_doc_as_markdown(doc_id, token)
-        except DriveScopeMissingError:
-            return {
-                "error": "scope_missing",
-                "detail": "Drive readonly scope required. User must re-consent.",
-                "required_scope": "https://www.googleapis.com/auth/drive.readonly",
-                "fallback": "Use source=markdown and paste the doc content"
-            }
+            doc_id = await _create_google_doc_on_drive(title, markdown_content, google_token)
+            doc_url = f"https://docs.google.com/document/d/{doc_id}/edit"
+        except Exception as e:
+            logger.error(f"Failed to write Google Doc to Drive: {e}")
+            # Fallback gracefully to non-Drive draft if upload fails
+            doc_url = None
     else:
-        raise HTTPException(400, "source must be 'markdown' or 'drive'")
+        raise HTTPException(400, "source must be 'markdown', 'drive', or 'prompt'")
 
-    if not markdown_content or len(markdown_content) < 100:
+    # Validate that we have some material to work with
+    if not markdown_content and not pdf_bytes_content:
+        raise HTTPException(400, "content or PDF bytes are required to draft a playbook")
+    
+    if markdown_content and len(markdown_content) < 100:
         raise HTTPException(400, "content too short to draft a playbook")
 
     # Call Gemini with the doc→YAML system prompt
-    yaml_str = await _draft_yaml_via_gemini(markdown_content)
+    yaml_str = await _draft_yaml_via_gemini(markdown_content, pdf_bytes=pdf_bytes_content)
 
     # Validate it parses
     import yaml as yaml_mod
@@ -2864,6 +3259,7 @@ async def draft_playbook_from_doc(
         "playbook_name": pb_name,
         "playbook_path": playbook_path,
         "slide_ids": [s["id"] for s in parsed["slides"]],
+        "doc_url": doc_url if 'doc_url' in locals() else body.get("doc_url"),
         "fire_url": f"/api/playbook/fire/{pb_name}/{parsed['slides'][0]['id']}/{space_id}",
     }
 

@@ -181,6 +181,8 @@ CATALOG: "dict[str, Comp]" = {
             Prop("margin", "string", False, 'CSS margin (e.g. `"8px"`).', pytype=str),
             Prop("reveal", "string", False, 'Entrance animation played once on mount: `"fade-up"`, `"scale-in"`, `"slide-left"`, `"slide-right"`, `"blur-in"`, `"flip"`.', pytype=str),
             Prop("revealDelay", "number", False, 'Seconds to delay the entrance — stagger across panels to choreograph a staged "set the stage" reveal.', pytype=float),
+            Prop("columns", "number", False, 'CSS column-count for automatic multi-column text or child element flow.', pytype=int),
+            Prop("columnGap", "string", False, 'CSS column-gap spacing (e.g., `"16px"`, defaults to gap or `"16px"`).', pytype=str),
             Prop("children", doc=False, pytype=dict),
         ],
     ),
@@ -292,17 +294,13 @@ CATALOG: "dict[str, Comp]" = {
     ),
     "gdm-button": Comp(
         group="panel", strict=True,
-        desc="Interactive button element with four action modes: agent (dispatches gdm-button-click event for the agent), link (opens a URL), fire (POSTs to a server endpoint — used by Mode C playbook triggers), or emit (dispatches a custom event).",
+        desc="Interactive button element with two action modes: agent-bound (dispatches action event to the agent) or local-only (executes direct functions).",
         props=[
-            # Text content — either `text` or legacy `label` works; `text` wins if both set.
-            Prop("text", "string", False, 'Button label (new). Falls back to legacy `label` if empty.', pytype=str),
-            Prop("label", "string", False, 'Button label (legacy alias for `text`).', pytype=str),
-            # Action — discriminated union for the four modes. Shorthand props
-            # (`actionId`, `targetUrl`) still resolve to the right mode for back-compat.
-            Prop("action", "object", False, 'Action descriptor: `{type:"link",url,newTab?}` | `{type:"fire",endpoint,payload?}` | `{type:"emit",event,detail?}` | `{type:"agent",actionId,payload?}`.', pytype=dict),
-            Prop("actionId", "string", False, 'Legacy shorthand for agent mode — dispatches `gdm-button-click` with this id.', pytype=str),
-            Prop("payload", "string", False, 'Legacy payload (JSON string parsed if it starts with `{` or `[`). Used only with `actionId`.', pytype=str),
-            Prop("targetUrl", "string", False, 'Legacy shorthand for link mode — opens this URL in a new tab.', pytype=str),
+            # Text content
+            Prop("text", "string", True, 'Button label.', pytype=str),
+            # Action — discriminated union for the two modes
+            Prop("action", "object", False, 'Action descriptor: `{"event": {"name": string, "context": object}}` for agent-bound, or `{"functionCall": {"call": string, "args": object}}` for local-only (calls: "openUrl", "navigateTab", "fireEndpoint").', pytype=dict),
+            Prop("targetUrl", "string", False, 'Legacy shorthand for openUrl call — opens this URL in a new tab.', pytype=str),
             # Visual
             Prop("type", "string", False, 'Theme preset (`"primary"`, `"secondary"`, `"danger"`, `"ghost"`, `"success"`).', pytype=str),
             Prop("size", "string", False, 'Size variant (`"sm"`, `"md"` default, `"lg"`, `"hero"`).', pytype=str),
@@ -708,12 +706,22 @@ def render_mcp_component_summary() -> str:
 
 
 def emit_json_catalog():
-    """Convert CATALOG to v0.9-shaped JSON and write to catalog/gdm-v0.1.json."""
+    """Convert CATALOG to v0.9-shaped JSON and write to catalog/gdm-vX.Y.json."""
     import os
+    import sys
     import json
 
+    version = "0.2"
+    if "--version" in sys.argv:
+        try:
+            idx = sys.argv.index("--version")
+            version = sys.argv[idx + 1]
+        except (ValueError, IndexError):
+            pass
+
+    catalog_id = f"gdm-v{version}"
     catalog_data = {
-        "catalogId": "gdm-v0.1",
+        "catalogId": catalog_id,
         "description": "Google Meet Studio GDM Component Catalog",
         "components": {}
     }
@@ -735,17 +743,19 @@ def emit_json_catalog():
             "properties": props_dict
         }
 
-    # Write to catalog/gdm-v0.1.json relative to the root directory
+    # Write to catalog/gdm-vX.Y.json relative to the root directory
     workspace_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     catalog_dir = os.path.join(workspace_dir, "catalog")
     os.makedirs(catalog_dir, exist_ok=True)
-    catalog_path = os.path.join(catalog_dir, "gdm-v0.1.json")
+    catalog_path = os.path.join(catalog_dir, f"{catalog_id}.json")
 
     with open(catalog_path, "w", encoding="utf-8") as f:
         json.dump(catalog_data, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
-    print(f"Catalog JSON successfully generated and written to: {catalog_path}")
+    print(f"Catalog JSON successfully generated and written to: {catalog_path}", file=sys.stderr)
+    # Also dump to stdout as requested by redirect usages
+    print(json.dumps(catalog_data, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

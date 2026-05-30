@@ -138,7 +138,7 @@ Plate this split composition when you need to walk the audience through a docume
         "id": "action_panel",
         "component": "gdm-button",
         "text": "Acknowledge Payload",
-        "action": { "type": "agent", "actionId": "ack_payload" }
+        "action": { "event": { "name": "ack_payload" } }
       }
     ]
   },
@@ -166,11 +166,128 @@ Plate this elegant lower-third chyron whenever a new speaker takes the stage, or
 }
 ```
 
-The interactive `gdm-button` supports four primary action modes to wire up interactive responses:
-- `link`: Open an external web page. Shape: `{"type": "link", "url": "https://..."}`
-- `fire`: Call a specific backend server endpoint. Shape: `{"type": "fire", "endpoint": "/api/action"}`
-- `emit`: Raise a custom event inside the browser client. Shape: `{"type": "emit", "event": "refresh"}`
-- `agent`: Send a semantic callback actionId directly back to you, the AI agent. Shape: `{"type": "agent", "actionId": "re-roll"}`
+The interactive `gdm-button` supports two primary action modes to wire up interactive responses:
+- `functionCall`: local-only, executed on the renderer. Shapes:
+  - openUrl: `{"functionCall": {"call": "openUrl", "args": {"url": "https://..."}}}`
+  - navigateTab: `{"functionCall": {"call": "navigateTab", "args": {"tabId": "tab_1"}}}`
+  - fireEndpoint: `{"functionCall": {"call": "fireEndpoint", "args": {"endpoint": "/api/action", "body": {}}}}`
+- `event`: agent-bound, sent to you (the AI agent) for processing. Shape: `{"event": {"name": "click_event", "context": {"some_field": {"path": "/data/path"}}}}`
+
+SHAPE SELECTION — decide BEFORE composing.
+
+Two output shapes are supported. The user's intent and the source material decide.
+
+  A. LINEAR FLOW — one surface, optionally evolved with subsequent render_stage calls.
+     Use when the user asks for a presentation, a summary, a slide, a single view,
+     or a step-by-step narrative.
+
+  B. INTERACTIVE OUTLINE / HUB — an overview surface with N action buttons, each
+     opening a detail surface, with a back-button on each detail returning to the
+     overview. Use when ANY of these triggers fires:
+       - the user asks for an outline, hub, index, map, table-of-contents,
+         overview, "let me jump to", or "interactive";
+       - the source is a multi-section reference (handover, RFC, strategy doc,
+         technical spec, manual, FAQ, long-form article with 5+ headings);
+       - the source has 6+ distinct major sections.
+
+INTERACTIVE OUTLINE / HUB — how to plate it.
+
+  1. Fetch the source with `fetch_url` if needed. Identify the major sections
+     (H1/H2 headings) and a one-line summary for each.
+
+  2. Compose the OVERVIEW surface — a `split_with_action`-style layout with the
+     doc title on the left and N gdm-button components on the right, one per
+     section. Each button uses `action.event.name` with a semantic identifier
+     (e.g. `outline_section_arch`). Add a final "Done" button with
+     `action.event.name` as `outline_close`.
+
+  3. When you receive an `outline_section_*` callback, render that section's
+     DETAIL surface — a clean composition (gdm-stage-card, gdm-notepad,
+     gdm-html-panel, whatever fits) summarising that section. Add ONE
+     gdm-button at the bottom with `action.event.name` set to `outline_back`,
+     text "← Back to outline".
+
+  4. When you receive `outline_back`, re-render the OVERVIEW surface verbatim
+     (same actions). When you receive `outline_close`, render
+     a brief signoff surface and stop.
+
+  5. REMEMBER the section→action.event.name mapping across calls. The user will click
+     buttons in arbitrary order; you must route each callback to the right
+     detail content.
+
+Example — INTERACTIVE OUTLINE overview surface:
+
+```json
+{
+  "updateComponents": {
+    "components": [
+      {
+        "id": "outline_root",
+        "component": "gdm-stage-grid",
+        "layout": "split",
+        "children": { "explicitList": ["outline_left", "outline_right"] }
+      },
+      {
+        "id": "outline_left",
+        "component": "gdm-stage-card",
+        "title": "A2UI v0.9 EVOLUTION GUIDE",
+        "text": "Jump to any section. I'll surface the details on demand."
+      },
+      {
+        "id": "outline_right",
+        "component": "gdm-container",
+        "direction": "column",
+        "gap": "12px",
+        "padding": "24px",
+        "children": { "explicitList": ["btn_1", "btn_2", "btn_3", "btn_4", "btn_done"] }
+      },
+      { "id": "btn_1", "component": "gdm-button", "text": "1. The lean envelope",
+        "action": { "event": { "name": "outline_section_envelope" } } },
+      { "id": "btn_2", "component": "gdm-button", "text": "2. Flat component encoding",
+        "action": { "event": { "name": "outline_section_flat" } } },
+      { "id": "btn_3", "component": "gdm-button", "text": "3. Prompt-first vs schema-first",
+        "action": { "event": { "name": "outline_section_prompt_first" } } },
+      { "id": "btn_4", "component": "gdm-button", "text": "4. Migration path",
+        "action": { "event": { "name": "outline_section_migration" } } },
+      { "id": "btn_done", "component": "gdm-button", "text": "Done", "variant": "primary",
+        "action": { "event": { "name": "outline_close" } } }
+    ]
+  },
+  "root": "outline_root"
+}
+```
+
+Example — INTERACTIVE OUTLINE detail surface (one section):
+
+```json
+{
+  "updateComponents": {
+    "components": [
+      {
+        "id": "detail_root",
+        "component": "gdm-stage-grid",
+        "layout": "centered",
+        "children": { "explicitList": ["detail_card", "detail_back"] }
+      },
+      {
+        "id": "detail_card",
+        "component": "gdm-stage-card",
+        "title": "01 · THE LEAN ENVELOPE",
+        "text": "v0.9 drops the redundant outer `type:` discriminator. Messages are now `{updateComponents: {...}}` rather than `{type: 'updateComponents', updateComponents: {...}}`. The engine dispatches via Object.keys(msg)[0]."
+      },
+      {
+        "id": "detail_back",
+        "component": "gdm-button",
+        "text": "← Back to outline",
+        "action": { "event": { "name": "outline_back" } }
+      }
+    ]
+  },
+  "root": "detail_root"
+}
+```
+
+Default to LINEAR FLOW unless one of the INTERACTIVE OUTLINE triggers fires.
 """
 
 SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT", DEFAULT_PROMPT)
