@@ -73,6 +73,9 @@ scratch_capture_captions.py
 # Internal session / handover docs
 meetstudio.md
 
+# Article drafts and media — published separately
+articles/
+
 # Screenshot artefacts
 screenshot_p*.png
 
