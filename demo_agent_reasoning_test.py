@@ -17,7 +17,7 @@ from google.genai import types
 
 API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
 KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
-PROJECT = os.environ.get("GEMINI_PROJECT", "centered-planet-497209-r5")
+PROJECT = os.environ.get("GEMINI_PROJECT") or exit("GEMINI_PROJECT required — export it before running this script")
 LOCATION = os.environ.get("REGION", "us-central1")
 
 def get_active_space() -> str:

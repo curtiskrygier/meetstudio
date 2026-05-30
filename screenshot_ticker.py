@@ -23,7 +23,7 @@ from demo_a2ui_market_ticker import (
 async def capture():
     # Use fallback space_id if no active session is found
     space_id = "spaces/OJrdOKDMKtUB"
-    screenshot_path = "/home/curtis/.gemini/antigravity-cli/brain/aaa90b5d-fd91-4aa1-af75-ac1416d53d97/ticker_stage.png"
+    screenshot_path = os.environ.get("SCREENSHOT_PATH", "ticker_stage.png")
     
     print(f"🔗 API URL: {API_URL}")
     

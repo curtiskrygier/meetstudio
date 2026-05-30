@@ -19,7 +19,7 @@ from demo_a2ui_toulouse_airspace import (
 
 async def capture():
     space_id = "spaces/OJrdOKDMKtUB"
-    screenshot_path = "/home/curtis/.gemini/antigravity-cli/brain/aaa90b5d-fd91-4aa1-af75-ac1416d53d97/airspace_stage.png"
+    screenshot_path = os.environ.get("SCREENSHOT_PATH", "airspace_stage.png")
     
     print(f"🔗 Target Space ID: {space_id}")
     print(f"🔗 API URL: {API_URL}")

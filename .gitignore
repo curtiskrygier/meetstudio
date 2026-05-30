@@ -72,6 +72,20 @@ scratch_capture_captions.py
 
 # Internal session / handover docs
 meetstudio.md
+GEMINI-3D-KICKOFF.md
+HANDOVER-3D-CATALOGUE.md
+SKILL.md
+
+# Staging / migration plans (internal)
+staging/
+
+# Personal-project demo scripts (T212 trading backend, ADC paths)
+demo_a2ui_showcase.py
+demo_a2ui_striking_robot.py
+demo_pinnacle_showcase.py
+demo_video_hook_showcase.py
+capture_airspace_screenshot.py
+capture_cross_screenshot.py
 
 # Article drafts and media — published separately
 articles/

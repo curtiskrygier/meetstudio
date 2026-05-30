@@ -61,7 +61,7 @@ slides:
       actions:
         - text:    "Open Full Article"
           variant: ghost
-          links:   "file:///home/curtis/gemini/a2ui_capabilities_deep_dive.md"
+          links:   "https://a2ui.org"
         - text:    "Sign Off"
           variant: success
           size:    lg
