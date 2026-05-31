@@ -226,9 +226,24 @@ export class GdmStageButton extends LitElement {
         }
 
         if (call === 'fireEndpoint') {
-          const endpoint = args?.endpoint;
+          let endpoint = args?.endpoint;
           if (typeof endpoint === 'string') {
             this.loading = true;
+
+            // Append current ticket from window.location.search if present
+            const params = new URLSearchParams(window.location.search);
+            const ticket = params.get('ticket');
+            if (ticket) {
+              try {
+                // If endpoint is relative, resolve it with the current origin
+                const urlObj = new URL(endpoint, window.location.origin);
+                urlObj.searchParams.set('ticket', ticket);
+                endpoint = urlObj.pathname + urlObj.search;
+              } catch (urlErr) {
+                console.warn('[gdm-button] Failed to append ticket to endpoint URL:', urlErr);
+              }
+            }
+
             await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

@@ -140,7 +140,7 @@ from collections import defaultdict
 
 # Ticket system for Stage WS to avoid raw tokens in URL params
 # {ticket_id: (token, expiry)}
-auth_tickets: dict[str, tuple[str, datetime]] = {}
+from app.auth import auth_tickets
 
 # Simple in-memory rate limiter for /api/image (per token, max 5/min)
 _image_rate: dict[str, list[float]] = defaultdict(list)
