@@ -20,7 +20,8 @@
         "children": {
           "type": "any",
           "required": false,
-          "description": ""
+          "description": "",
+          "doc": false
         }
       }
     },
@@ -347,7 +348,8 @@
         "children": {
           "type": "any",
           "required": false,
-          "description": ""
+          "description": "",
+          "doc": false
         }
       }
     },
@@ -872,7 +874,8 @@
         "children": {
           "type": "any",
           "required": false,
-          "description": ""
+          "description": "",
+          "doc": false
         }
       }
     },
@@ -975,7 +978,8 @@
         "mode": {
           "type": "any",
           "required": false,
-          "description": ""
+          "description": "",
+          "doc": false
         }
       }
     },
@@ -997,12 +1001,14 @@
         "avatar": {
           "type": "any",
           "required": false,
-          "description": ""
+          "description": "",
+          "doc": false
         },
         "duration": {
           "type": "any",
           "required": false,
-          "description": ""
+          "description": "",
+          "doc": false
         }
       }
     },
@@ -1227,7 +1233,8 @@
       "group": "panel",
       "description": "Renders a Mermaid diagram from syntax (syntax, title, version).",
       "strict": false,
-      "properties": {}
+      "properties": {},
+      "in_prompt": false
     },
     "gdm-html-panel": {
       "group": "panel",
@@ -1254,13 +1261,15 @@
           "required": false,
           "description": ""
         }
-      }
+      },
+      "in_prompt": false
     },
     "gdm-laser-sweep": {
       "group": "overlay",
       "description": "Animated laser sweep accent overlay.",
       "strict": false,
-      "properties": {}
+      "properties": {},
+      "in_prompt": false
     },
     "gdm-3d-airspace": {
       "group": "molecule",
@@ -1317,7 +1326,8 @@
           "required": false,
           "description": ""
         }
-      }
+      },
+      "in_prompt": false
     },
     "gdm-3d-scene": {
       "group": "molecule",
@@ -1354,7 +1364,8 @@
           "required": false,
           "description": ""
         }
-      }
+      },
+      "in_prompt": false
     },
     "gdm-market-ticker": {
       "group": "molecule",
@@ -1396,7 +1407,8 @@
           "required": false,
           "description": ""
         }
-      }
+      },
+      "in_prompt": false
     },
     "gdm-flip-slate": {
       "group": "overlay",
@@ -1433,7 +1445,8 @@
           "required": false,
           "description": ""
         }
-      }
+      },
+      "in_prompt": false
     }
   }
 }
