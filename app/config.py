@@ -386,7 +386,7 @@ Meeting context:
 
 DIAGRAM_MODEL = "gemini-2.5-flash"
 
-UI_PROMPT_SYSTEM = """You are a UI automation specialist for the Meet Live Concierge.
+UI_PROMPT_SYSTEM = """You are a UI automation specialist for Meet Studio.
 Your job is to translate user text prompts into a structured UI update.
 
 Available Fields for the update_interface tool:

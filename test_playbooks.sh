@@ -12,7 +12,7 @@ TOKEN="${STAGE_API_KEY:?STAGE_API_KEY is required — export it before running t
 SPACE="default"
 
 echo -e "${CYAN}================================════════════════════════======"
-echo -e "       Meet Live Concierge Playbook Test Runner"
+echo -e "       Meet Studio Playbook Test Runner"
 echo -e "================================════════════════════════======${NC}"
 echo -e "Target URL : ${YELLOW}${BASE_URL}${NC}"
 echo -e "Space ID   : ${YELLOW}${SPACE}${NC}"

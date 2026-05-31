@@ -39,7 +39,14 @@ Three deployment modes, same primitives:
 ## Running locally
 
 ```bash
-# 1. Install dependencies
+# 1. Clone with submodules (includes the a2ui-catalogue)
+git clone --recurse-submodules https://github.com/curtiskrygier/meet-studio.git
+cd meet-studio
+
+# Or if already cloned:
+git submodule update --init
+
+# 2. Install dependencies
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 npm install && npm run build
@@ -116,7 +123,7 @@ echo -n "your-secret-key" | gcloud secrets create stage-api-key \
   --data-file=- --project=YOUR_CLOUD_RUN_PROJECT
 
 # Deploy
-gcloud run deploy meet-live-concierge \
+gcloud run deploy meetstudio \
   --source . \
   --region us-central1 \
   --project YOUR_CLOUD_RUN_PROJECT \
@@ -143,7 +150,7 @@ gcloud projects add-iam-policy-binding YOUR_GEMINI_PROJECT \
 cd appsscript
 
 # First time only — create a standalone Apps Script project
-clasp create --title "Meet Live Concierge" --type standalone
+clasp create --title "Meet Studio" --type standalone
 
 # Substitute your Cloud Run URL in the manifest
 sed -i 's|YOUR_CLOUD_RUN_URL|https://YOUR_SERVICE.us-central1.run.app|g' appsscript.json
@@ -172,6 +179,9 @@ Then use **Test Install** in the Marketplace SDK console and open Google Meet.
 | `WORKSPACE_AGENT_ENGINE` | Optional | Vertex AI Reasoning Engine resource ID for Workspace tasks (Docs/Sheets creation) |
 | `SYSTEM_PROMPT` | No | Override the agent's system instruction |
 
+> [!IMPORTANT]
+> **`STAGE_API_KEY` Security vs. Dev Convenience:** This key acts as a static master token allowing developer scripts (such as `render_showreel.py` or `test_playbooks.sh`) to cycle and trigger slides without going through a Google OAuth flow. For development, a simple string is fine, but in production, **always use a long, cryptographically secure key loaded via Secret Manager** to lock down the endpoints against abuse.
+
 ---
 
 ## MCP Server
@@ -188,7 +198,7 @@ Connect from Claude Code (`~/.claude/settings.json`):
 ```json
 {
   "mcpServers": {
-    "meet-live-concierge": {
+    "meetstudio": {
       "type": "sse",
       "url": "https://YOUR_SERVICE.us-central1.run.app/mcp",
       "headers": { "Authorization": "Bearer YOUR_STAGE_API_KEY" }
@@ -232,8 +242,20 @@ The three projects can be the same project if preferred.
 | Fenrir | Excitable |
 | Zephyr | Light, positive |
 
+
+---
+
+## Known Gaps & Roadmap (To-Dos)
+
+While the core functionality and security posture are production-ready, the following architectural gaps are tracked as future improvements:
+
+1. **Mode C Presenter Dashboard:** The presenter URL `/presenter/{space}` remains a future comment placeholder; slide trigger workflows currently rely on terminal scripts or direct API calls.
+2. **Monolithic Backend:** `main.py` remains a monolithic ~3,600-line file handling all routers, states, and WebSockets.
+3. **No Throttling/Rate Limiting:** No rate limiting is configured on paid model/trigger endpoints, exposing the system to potential billing spikes under spam.
+
 ---
 
 ## License
 
 MIT
+

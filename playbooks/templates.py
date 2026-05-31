@@ -778,6 +778,7 @@ def airspace_command_deck_template(slide_id: str, cfg: dict, data: dict) -> List
         "showTerrain": cfg.get("showTerrain", True),
         "cinematicOrbit": cfg.get("cinematicOrbit", True),
         "autoTrack": cfg.get("autoTrack", False),
+        "compact": fullscreen,
     }
 
     # Only set camera properties on tick 0 to let browser drag/pinch gesture interact.
