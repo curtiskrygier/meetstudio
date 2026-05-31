@@ -2865,6 +2865,9 @@ AVAILABLE TEMPLATES (the menu):
                      article has more, pick the 5 strongest.
                      props: badge, title, points [string...], next_action
 
+  table_view         structured grid table view — badge + title + headers (array of strings) + rows (array of arrays containing cell values/strings) + accentColor. Use when the content is naturally tabular (such as schedules, matrices, flight lists).
+                     props: badge, title, headers, rows, next_action, accentColor
+
   signoff            multi-line glitch close + brand callout + chef beat +
                      tagline. Always the last slide. Use for the article's
                      concluding payoff.

@@ -967,6 +967,75 @@ def landing_queue_display_template(slide_id: str, cfg: dict, data: dict) -> List
     ]
 
 
+def table_view_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
+    """Renders an elegant structured table view panel.
+    props: badge, title, headers, rows, next_action, accentColor
+    """
+    badge = cfg.get("badge") or {}
+    title = cfg.get("title", "")
+    headers = cfg.get("headers") or []
+    rows = cfg.get("rows") or []
+    accent_color = cfg.get("accentColor") or CYAN
+    
+    next_act = cfg.get("next_action")
+    action = None
+    if next_act and "fires" in next_act:
+        action = f"fire:{cfg['playbook_name']}/{next_act['fires']}/{cfg['space_id']}"
+        
+    out = [
+        C("root", "gdm-stage-grid", {"layout": "single", "children": ["main_container"]}),
+        C("main_container", "gdm-container", {
+            "direction": "column", "width": "100%", "height": "100%", "grow": 1,
+            "padding": "40px", "gap": "20px", "justify": "flex-start", "align": "stretch"
+        })
+    ]
+    
+    header_children = []
+    if badge and badge.get("text"):
+        out.append(C(f"{slide_id}_badge", "gdm-badge", {
+            "text": badge.get("text", ""),
+            "type": badge.get("type", "primary"),
+            "pulse": badge.get("pulse", False)
+        }))
+        header_children.append(f"{slide_id}_badge")
+    if title:
+        out.append(C(f"{slide_id}_title", "gdm-text", {
+            "text": title,
+            "variant": "glitch",
+            "fontSize": "24px",
+            "color": accent_color
+        }))
+        header_children.append(f"{slide_id}_title")
+        
+    if header_children:
+        out.append(C(f"{slide_id}_header", "gdm-container", {
+            "direction": "row", "gap": "20px", "align": "center",
+            "children": header_children
+        }))
+        out[1]["props"]["children"] = [f"{slide_id}_header"]
+    else:
+        out[1]["props"]["children"] = []
+        
+    # Table element
+    out.append(C(f"{slide_id}_table", "gdm-table-view", {
+        "headers": headers,
+        "rows": rows,
+        "accentColor": accent_color
+    }))
+    out[1]["props"]["children"].append(f"{slide_id}_table")
+    
+    # Next button
+    if action:
+        out.append(C(f"{slide_id}_btn", "gdm-button", {
+            "text": next_act.get("text", "Next"),
+            "variant": next_act.get("variant", "primary"),
+            "action": action
+        }))
+        out[1]["props"]["children"].append(f"{slide_id}_btn")
+        
+    return out
+
+
 TEMPLATES = {
     "title":              title_template,
     "hero_stat":          hero_stat_template,
@@ -976,4 +1045,6 @@ TEMPLATES = {
     "market_ticker":      market_ticker_template,
     "airspace_command_deck": airspace_command_deck_template,
     "landing_queue_display": landing_queue_display_template,
+    "table_view":         table_view_template,
 }
+
