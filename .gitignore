@@ -9,24 +9,16 @@ appsscript/.clasp.json
 *.old
 *.v[0-9]*
 *_checkpoint
-ROAST-*.md
-SKILL.md
-HANDOFF.md
-STATUS.md
-GEMINI.md
-TROUBLESHOOTING_CONTEXT.md
-PROJECT_REVIEW_*.md
-claudehelpme.md
-plan.md
+
+# Ignore all markdown files except README.md
+*.md
+!README.md
+
 api_response.json
 demo_*.d2
 demo_*.svg
 demo_*.txt
 *_demo_diagram.svg
-sheets-prez.md
-deployment-process.md
-deployment.md
-helpmegemini.md
 sample.env
 dist.zip
 *.d2
@@ -43,9 +35,10 @@ diagrams/
 *_layered*.svg
 *_sketch.*
 prompt_test.txt
-d2test.md
 test.d2
-test.svg# Media files
+test.svg
+
+# Media files
 *.mp4
 *.wav
 *.mp3
@@ -59,27 +52,15 @@ today_mess_backup/
 # Tool/IDE config not part of the project
 .agents/
 
-# Handover and diagnosis docs (session artefacts)
-HANDOVER-*.md
-DEPLOYMENT_DIAGNOSIS.md
-
-# Review / working files
-git.md
-CATALOGUE_REFACTOR_PLAN.md
+# Review / working / debug files
+debug/
 
 # Scratch / temp files
 agy
 scratch/
 _drive_market_playbook.py
 mermaid_svg_dump.txt
-credits.md
 scratch_capture_captions.py
-
-# Internal session / handover docs
-meetstudio.md
-GEMINI-3D-KICKOFF.md
-HANDOVER-3D-CATALOGUE.md
-SKILL.md
 
 # Staging / migration plans (internal)
 staging/
