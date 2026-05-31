@@ -115,16 +115,43 @@ def build_slide_2(space_id: str, tick: int = 0):
             "pulse": True,
             "action": {
                 "type": "fire",
-                "endpoint": f"/api/playbook/fire/demo_poc/slide_3_wrap/{space_id}",
+                "endpoint": f"/api/playbook/fire/demo_poc/slide_3_ticker/{space_id}",
             },
         }),
     ]
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Slide 3 — Sign-off slate (no further fire trigger — deck ends).
+# Slide 3 — Realtime Tick visualizer (ticks=True, hz=1).
 # ────────────────────────────────────────────────────────────────────────────
 def build_slide_3(space_id: str, tick: int = 0):
+    return [
+        C("root", "gdm-stage-grid", {"layout": "hero", "children": {"explicitList": ["main"]}}),
+        C("main", "gdm-container", {"direction": "column", "justify": "center", "align": "center",
+                                    "grow": 1, "gap": "24px", "padding": "60px",
+                                    "width": "100%", "height": "100%",
+                                    "children": {"explicitList": ["badge", "t1", "tick_text", "btn"]}}),
+        C("badge", "gdm-badge", {"text": "LIVE TELEMETRY MOTOR", "type": "warning", "pulse": True}),
+        C("t1", "gdm-text", {"content": "REALTIME TICK ENGINE", "size": "44px", "weight": "900",
+                             "font": "mono", "letterSpacing": "0.04em"}),
+        C("tick_text", "gdm-text", {"content": f"Ticks Elapsed: {tick}", "size": "28px", "weight": "700",
+                                    "font": "mono", "color": "#00ff88"}),
+        C("btn", "gdm-button", {
+            "text": "Finish and Archive",
+            "variant": "primary",
+            "size": "lg",
+            "action": {
+                "type": "fire",
+                "endpoint": f"/api/playbook/fire/demo_poc/slide_4_wrap/{space_id}",
+            },
+        }),
+    ]
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Slide 4 — Sign-off slate (no further fire trigger — deck ends).
+# ────────────────────────────────────────────────────────────────────────────
+def build_slide_4(space_id: str, tick: int = 0):
     return [
         C("root", "gdm-stage-grid", {"layout": "hero", "children": {"explicitList": ["main"]}}),
         C("main", "gdm-container", {"direction": "column", "justify": "center", "align": "center",
@@ -146,6 +173,8 @@ SLIDES = [
           notes="Welcome card · primary fire button"),
     Slide(slide_id="slide_2_specs", label="System Specs", builder=build_slide_2,
           notes="Asymmetrical split — narrative left, success fire button right"),
-    Slide(slide_id="slide_3_wrap",  label="Wrap Up",      builder=build_slide_3,
+    Slide(slide_id="slide_3_ticker", label="Live Ticker", builder=build_slide_3,
+          notes="Realtime tick counting telemetry", ticks=True, hz=1),
+    Slide(slide_id="slide_4_wrap",  label="Wrap Up",      builder=build_slide_4,
           notes="Final archive slate"),
 ]

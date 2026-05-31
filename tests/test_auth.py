@@ -1,6 +1,6 @@
 import pytest
 import httpx
-from app.auth import validate_google_token, validate_google_token_sync, check_producer_auth
+from app.auth import validate_google_token, check_producer_auth
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import Request
 
@@ -46,23 +46,10 @@ async def test_validate_token_exception():
         assert await validate_google_token("any-token") is False
 
 
-# ── Sync validation and check_producer_auth tests ───────────────────────────
+# ── check_producer_auth tests ───────────────────────────
 
-def test_validate_token_sync_missing():
-    assert validate_google_token_sync("") is False
-    assert validate_google_token_sync(None) is False
-
-def test_validate_token_sync_success():
-    mock_resp = MagicMock(spec=httpx.Response)
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {"aud": "test-client-id"}
-    
-    with patch("app.auth.CLIENT_ID", "test-client-id"):
-        with patch("httpx.Client.get", return_value=mock_resp):
-            result = validate_google_token_sync("valid-token")
-            assert result is True
-
-def test_check_producer_auth_valid_google_token():
+@pytest.mark.asyncio
+async def test_check_producer_auth_valid_google_token():
     # Test that check_producer_auth accepts a valid Google token
     mock_request = MagicMock(spec=Request)
     mock_request.query_params = {"ticket": "valid-google-token"}
@@ -70,11 +57,9 @@ def test_check_producer_auth_valid_google_token():
     mock_request.client = MagicMock()
     mock_request.client.host = "1.2.3.4"
     
-    mock_resp = MagicMock(spec=httpx.Response)
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {"aud": "test-client-id"}
-    
-    with patch("app.auth.CLIENT_ID", "test-client-id"):
-        with patch("httpx.Client.get", return_value=mock_resp):
-            # Should not raise HTTPException
-            check_producer_auth(mock_request)
+    with patch("app.auth.validate_google_token", new_callable=AsyncMock) as mock_validate:
+        mock_validate.return_value = True
+        # Should not raise HTTPException
+        await check_producer_auth(mock_request)
+        mock_validate.assert_called_once_with("valid-google-token")
+

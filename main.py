@@ -927,7 +927,7 @@ async def create_stage_ticket(space_id: str, request: Request):
     Used by headless recording clients that don't have a Google OAuth token.
     Returns the full stage URL ready to open in a browser.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     logger.info(f"[stage-ticket] issued for {space_id} from {request.client.host}")
     ticket = secrets.token_urlsafe(32)
     # 30-minute expiry — long enough for a full demo recording
@@ -1165,7 +1165,7 @@ last_cpu_time = [datetime.now().timestamp(), sum(os.times()[:2]) if hasattr(os, 
 
 @app.get("/api/telemetry")
 async def get_telemetry(request: Request):
-    check_producer_auth(request)
+    await check_producer_auth(request)
     import resource
     import sys
     import time
@@ -1349,13 +1349,13 @@ async def ui_prompt(payload: dict = Body(...), token: str = Depends(token_requir
 
 @app.get("/api/video-queue/{space_id:path}")
 async def get_video_queue(space_id: str, request: Request):
-    check_producer_auth(request)
+    await check_producer_auth(request)
     return {"queue": video_queues.get(space_id, []), "length": len(video_queues.get(space_id, []))}
 
 @app.post("/api/video-queue/{space_id:path}")
 async def add_to_video_queue(space_id: str, request: Request):
     """Add one or more videos to the queue. Starts playing immediately if queue was empty."""
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     items = body if isinstance(body, list) else [body]
     # Normalise: each item can be a string URL or {"url": ..., "label": ...}
@@ -1376,14 +1376,14 @@ async def add_to_video_queue(space_id: str, request: Request):
 
 @app.delete("/api/video-queue/{space_id:path}")
 async def clear_video_queue(space_id: str, request: Request):
-    check_producer_auth(request)
+    await check_producer_auth(request)
     video_queues.pop(space_id, None)
     await broadcast_to_stage(space_id, {"type": "view_change", "mode": "placeholder"})
     return {"ok": True}
 
 @app.post("/api/video-queue/{space_id:path}/skip")
 async def skip_video(space_id: str, request: Request):
-    check_producer_auth(request)
+    await check_producer_auth(request)
     queue = video_queues.get(space_id, [])
     if queue:
         next_item = queue.pop(0)
@@ -1399,7 +1399,7 @@ async def skip_video(space_id: str, request: Request):
 @app.post("/api/gemini-mute/{space_id:path}")
 async def gemini_mute(space_id: str, request: Request):
     """Mute or unmute Gemini's audio response for a given session. Used during demos."""
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     muted = bool(body.get("muted", True))
     session_data = active_sessions.get(space_id)
@@ -1527,7 +1527,7 @@ async def save_diagram(diagram_id: str, payload: dict = Body(...), token: str = 
 
 @app.get("/api/dev/sessions")
 async def dev_sessions(request: Request):
-    check_producer_auth(request)
+    await check_producer_auth(request)
     return {
         "active_sessions": list(active_sessions.keys()),
         "stage_listeners": {k: len(v) for k, v in stage_listeners.items()}
@@ -1544,7 +1544,7 @@ async def audio_inject(space_id: str, request: Request):
     Body: raw PCM bytes (audio/pcm) — use ffmpeg to convert:
         ffmpeg -i input.wav -ar 16000 -ac 1 -f s16le output.pcm
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
 
     session_data = active_sessions.get(space_id)
     if not session_data or "audio_inject" not in session_data:
@@ -1573,7 +1573,7 @@ async def stage_audio(space_id: str, request: Request):
     Auth: Bearer <STAGE_API_KEY>
     Body: any audio format (WAV recommended, max 15MB) — sent as base64 to all stage listeners.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="Empty body")
@@ -1611,7 +1611,7 @@ async def api_speak(space_id: str, request: Request):
     """
     Synthesize high-fidelity Kore voice on-demand and inject into Gemini session.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     text = body.get("text", "")
     voice = body.get("voice", VOICE)
@@ -1703,7 +1703,7 @@ async def terminal_stream(space_id: str, request: Request):
     """
     Receives stdout chunk from CLI and broadcasts it to the stage terminal.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     data = body.get("data", "")
     append = bool(body.get("append", True))
@@ -1722,7 +1722,7 @@ async def sound_event(space_id: str, request: Request):
     """
     Triggers a soundboard synthesized effect on the stage.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     sound = body.get("sound", "")
     if not sound:
@@ -1740,7 +1740,7 @@ async def set_stage_layout(space_id: str, request: Request):
     """
     Switches active main stage view layout dynamically.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     view_mode = body.get("view", "placeholder")
     await broadcast_to_stage(space_id, {
@@ -1755,7 +1755,7 @@ async def set_stage_pointer(space_id: str, request: Request):
     """
     Triggers coordinate laser pointer dots on the main stage.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     await broadcast_to_stage(space_id, {
         "type": "pointer_event",
@@ -1771,7 +1771,7 @@ async def set_stage_draw(space_id: str, request: Request):
     """
     Renders lines, rectangles, text annotations, or clears the stage canvas overlay.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     payload = {"type": "draw_event", "action": body.get("action", "clear")}
     if "color" in body: payload["color"] = body["color"]
@@ -1795,7 +1795,7 @@ async def set_stage_notepad(space_id: str, request: Request):
     """
     Updates the collaborative live markdown notepad.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     await broadcast_to_stage(space_id, {
         "type": "notepad_event",
@@ -1810,7 +1810,7 @@ async def set_stage_layout_config(space_id: str, request: Request):
     """
     Sets advanced layouts (grid, split, single) on the main stage content layer.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     await broadcast_to_stage(space_id, {
         "type": "layout_event",
@@ -1824,7 +1824,7 @@ async def set_stage_theme_config(space_id: str, request: Request):
     """
     Toggles pre-configured visual style themes dynamically.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     await broadcast_to_stage(space_id, {
         "type": "theme_event",
@@ -1838,7 +1838,7 @@ async def set_stage_chat(space_id: str, request: Request):
     """
     Broadcasts a custom chat comment card onto the stage.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     text = body.get("text", "")
     if text.strip().lower().startswith("/mainstage"):
@@ -1858,7 +1858,7 @@ async def set_stage_chat_fallback(request: Request):
     """
     Fallback when space_id is omitted. Broadcasts to all active stages or default.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     text = body.get("text", "")
     if text.strip().lower().startswith("/mainstage"):
@@ -1881,7 +1881,7 @@ async def set_stage_transcript(space_id: str, request: Request):
     """
     Broadcasts a custom live transcript caption onto the stage.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     await broadcast_to_stage(space_id, {
         "type": "transcript",
@@ -1899,7 +1899,7 @@ async def set_stage_emoji(space_id: str, request: Request):
     """
     Broadcasts a floating emoji reaction to all stage listeners.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     await broadcast_to_stage(space_id, {
         "type": "emoji_reaction",
@@ -2161,7 +2161,7 @@ async def set_stage_standby(space_id: str, request: Request):
     Toggles a premium visual standby/intermission screen with an active countdown.
     Composed entirely of atomic primitives.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     active = body.get("active", False)
     
@@ -2199,7 +2199,7 @@ async def set_stage_focus_panel(space_id: str, request: Request):
     """
     Sets advanced block focus highlighting on a specific panel.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     msg = {
         "type": "focus_panel",
@@ -2217,7 +2217,7 @@ async def trigger_stage_poll(space_id: str, request: Request):
     """
     Triggers an interactive slide-in poll widget overlay on the main stage.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     await broadcast_to_stage(space_id, {
         "type": "poll_event",
@@ -2252,7 +2252,7 @@ async def render_stage(space_id: str, request: Request):
 
     Validates component names against the catalog; rejects unknown elements.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
 
     surface_update = body.get("surfaceUpdate", {})
@@ -2303,7 +2303,7 @@ async def render_stage(space_id: str, request: Request):
 @app.post("/api/render-stage-clear/{space_id:path}")
 async def render_stage_clear(space_id: str, request: Request):
     """Clear the A2UI surface on the stage (deleteSurface)."""
-    check_producer_auth(request)
+    await check_producer_auth(request)
     await broadcast_to_stage(space_id, {"deleteSurface": {}})
     logger.info(f"[render-stage] clear {space_id}")
     return {"ok": True}
@@ -2314,7 +2314,7 @@ async def set_stage_dashboard(space_id: str, request: Request):
     """
     Updates the live telemetry dashboard on Panel 3 with custom or preset use cases.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     payload = {
         "type": "dashboard_event",
@@ -2338,7 +2338,7 @@ async def diagram_rollback(space_id: str, request: Request):
     """
     Rollback diagram state to a previous version in the active history.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     body = await request.json()
     version = body.get("version")
     steps = body.get("steps")
@@ -2395,7 +2395,7 @@ async def get_stage_state(space_id: str, request: Request):
     """
     Query current active stage dashboard and layout properties.
     """
-    check_producer_auth(request)
+    await check_producer_auth(request)
     
     listeners = stage_listeners.get(space_id, set())
     video_q = video_queues.get(space_id, [])
@@ -2763,7 +2763,7 @@ async def gchat_fire_redirect(playbook_name: str, slide_id: str, space_id: str):
 @app.post("/api/playbook/fire/{playbook_name}/{slide_id}/{space_id:path}")
 async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
                               request: Request):
-    check_producer_auth(request)
+    await check_producer_auth(request)
     return await fire_playbook_slide_internal(playbook_name, slide_id, space_id)
 
 
@@ -2771,7 +2771,7 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
 async def list_playbook_slides(playbook_name: str, request: Request):
     """List the slides in a playbook. Used by the future /presenter/{space}
     URL to populate its button strip."""
-    check_producer_auth(request)
+    await check_producer_auth(request)
     from playbooks.manager import playbook_manager
 
     slides = playbook_manager.list_slides(playbook_name)

@@ -210,7 +210,7 @@ def _rpc_error(req_id, code: int, message: str):
 
 async def handle_mcp(request: Request, broadcast_fn, generate_diagram_fn, generate_image_fn=None):
     try:
-        check_producer_auth(request)
+        await check_producer_auth(request)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=getattr(e, "status_code", 401))
 
