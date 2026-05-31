@@ -51,18 +51,24 @@ def C(cid: str, el: str, props: dict) -> dict:
 
 
 def _interpolate(value, data: dict):
-    """Substitute {{ KEY }} tokens in a string with values from `data`.
-    Non-string scalars (int, float, bool, None) pass through untouched —
-    YAML's `value: 48.2` is a valid scalar, not a template string.
-    Missing keys leave the token visible so the author sees what's not
-    resolving instead of silently dropping content."""
+    """Substitute {{ KEY }} or {{ parent.key }} tokens in a string with values from `data`.
+    Non-string scalars (int, float, bool, None) pass through untouched.
+    Missing keys leave the token visible."""
     if not isinstance(value, str):
         return value
     if "{{" not in value:
         return value
     def sub(m: re.Match) -> str:
         key = m.group(1).strip()
-        return str(data[key]) if key in data else m.group(0)
+        # Support dotted paths like weather.wind
+        parts = key.split(".")
+        val = data
+        for part in parts:
+            if isinstance(val, dict) and part in val:
+                val = val[part]
+            else:
+                return m.group(0)  # leave token visible if not found
+        return str(val)
     return re.sub(r"\{\{\s*([\w.]+)\s*\}\}", sub, value)
 
 
