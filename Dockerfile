@@ -32,6 +32,7 @@ COPY assets ./assets
 COPY app ./app
 COPY playbooks ./playbooks
 COPY catalog ./catalog
+COPY catalogue ./catalogue
 COPY main.py .
 COPY --from=frontend /app/dist ./dist
 
