@@ -3011,11 +3011,81 @@ Aim for a very comprehensive, informative, and engaging document that is perfect
 
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         contents=[f"Create a beautifully structured and highly engaging markdown document based on this request: {prompt}"],
         config={"system_instruction": system_instruction, "temperature": 0.4}
     )
     return response.text.strip()
+
+
+async def _generate_markdown_and_yaml_via_gemini(prompt: str) -> tuple[str, str]:
+    """Generate both a beautifully structured markdown document and its corresponding A2UI v0.9 playbook YAML in a single model call."""
+    from google import genai
+    client = genai.Client(vertexai=True, project=os.environ["GEMINI_PROJECT"],
+                          location=os.environ.get("REGION", "us-central1"))
+    
+    system_instruction = f"""You are a master document and slide architect. You write beautifully detailed, structured documents in Markdown, and then convert them into valid A2UI v0.9 playbook YAML for Google Meet Studio.
+
+First, you will write a comprehensive, beautifully structured and highly engaging markdown document based on the user's request.
+Second, you will convert that markdown document into a valid A2UI v0.9 playbook YAML following the precise shapes, templates, and rules.
+
+Here are the guidelines for drafting the YAML playbook from the markdown document:
+{DRAFT_FROM_DOC_PROMPT}
+
+You MUST return your response structured in the following XML tags:
+<markdown>
+(Insert your beautifully detailed and structured markdown document here, with H1 and H2 headers, bullet points, etc. This must be at least 150 characters long)
+</markdown>
+<yaml>
+(Insert your valid, well-structured A2UI v0.9 playbook YAML here. Follow all rules. No extra text, no markdown fences inside this tag)
+</yaml>
+"""
+
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model="gemini-2.5-flash",
+        contents=[f"Create both the structured markdown document and corresponding playbook YAML based on this request: {prompt}"],
+        config={"system_instruction": system_instruction, "temperature": 0.4, "max_output_tokens": 8000}
+    )
+    
+    text = response.text.strip()
+    
+    markdown_content = ""
+    yaml_str = ""
+    
+    import re
+    m_md = re.search(r"<markdown>(.*?)</markdown>", text, re.DOTALL)
+    if m_md:
+        markdown_content = m_md.group(1).strip()
+    else:
+        # Fallback if tags are missing or improperly closed
+        m_yaml_start = text.find("<yaml>")
+        if m_yaml_start != -1:
+            markdown_content = text[:m_yaml_start].replace("<markdown>", "").strip()
+        else:
+            markdown_content = text
+            
+    m_yaml = re.search(r"<yaml>(.*?)</yaml>", text, re.DOTALL)
+    if m_yaml:
+        yaml_str = m_yaml.group(1).strip()
+    else:
+        # Fallback to search for yaml after <yaml> tag or any yaml block
+        m_yaml_start = text.find("<yaml>")
+        if m_yaml_start != -1:
+            yaml_str = text[m_yaml_start + 6:].replace("</yaml>", "").strip()
+        else:
+            logger.warning("[generate-combined] Failed to parse YAML from combined response. Falling back to sequential draft.")
+            yaml_str = await _draft_yaml_via_gemini(markdown_content)
+            
+    # Clean up yaml_str fences
+    if yaml_str.startswith("```yaml"):
+        yaml_str = yaml_str[len("```yaml"):].strip()
+    if yaml_str.startswith("```"):
+        yaml_str = yaml_str[3:].strip()
+    if yaml_str.endswith("```"):
+        yaml_str = yaml_str[:-3].strip()
+        
+    return markdown_content, yaml_str
 
 
 async def _create_google_doc_on_drive(title: str, content: str, user_token: str) -> str:
@@ -3109,7 +3179,7 @@ async def _draft_yaml_via_gemini(markdown: str, pdf_bytes: bytes = None) -> str:
 
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         contents=contents,
         config={"temperature": 0.2, "max_output_tokens": 8000},
     )
@@ -3254,6 +3324,7 @@ async def draft_playbook_from_doc(
     source = body.get("source")
     markdown_content = None
     pdf_bytes_content = None
+    yaml_str = None
 
     if source == "markdown":
         markdown_content = body.get("content", "")
@@ -3319,8 +3390,8 @@ async def draft_playbook_from_doc(
         if not prompt_text:
             raise HTTPException(400, "prompt is required for source=prompt")
         
-        # 1. Generate comprehensive markdown via Gemini 2.5 Pro
-        markdown_content = await _generate_markdown_via_gemini(prompt_text)
+        # 1. Generate comprehensive markdown and A2UI playbook YAML in a single model call
+        markdown_content, yaml_str = await _generate_markdown_and_yaml_via_gemini(prompt_text)
         
         # 2. Upload and convert to native Google Doc on user's Drive
         google_token = body.get("google_token") or token
@@ -3343,7 +3414,8 @@ async def draft_playbook_from_doc(
         raise HTTPException(400, "content too short to draft a playbook")
 
     # Call Gemini with the doc→YAML system prompt
-    yaml_str = await _draft_yaml_via_gemini(markdown_content, pdf_bytes=pdf_bytes_content)
+    if not yaml_str:
+        yaml_str = await _draft_yaml_via_gemini(markdown_content, pdf_bytes=pdf_bytes_content)
 
     # Validate it parses
     import yaml as yaml_mod

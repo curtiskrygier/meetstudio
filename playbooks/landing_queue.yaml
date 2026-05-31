@@ -1,0 +1,21 @@
+name: landing_queue
+slides:
+  - id: queue
+    label: "✈️ Landing Queue"
+    template: landing_queue_display
+    mode: "queue"
+    title: "TOULOUSE ARRIVALS — LANDING QUEUE"
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "10s"
+
+  - id: track
+    label: "✈️ Flight Track"
+    template: landing_queue_display
+    mode: "track"
+    title: "TOULOUSE ARRIVALS — TRACKING"
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "10s"

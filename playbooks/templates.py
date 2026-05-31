@@ -749,16 +749,18 @@ def airspace_command_deck_template(slide_id: str, cfg: dict, data: dict) -> List
 
     tick = cfg.get("tick", 0)
     locked_callsign = cfg.get("lockedCallsign", "")
-    layout_type = cfg.get("grid_layout", "split")
+    fullscreen = cfg.get("fullscreen", False)
+    layout_type = "single" if fullscreen else cfg.get("grid_layout", "split")
 
     radar_id = f"{slide_id}_radar_view"
     html_id = f"{slide_id}_html_panel"
 
     # 1. Base Grid and Panels
+    children = [radar_id] if fullscreen else [radar_id, html_id]
     out = [
         C("root", "gdm-stage-grid", {
             "layout": layout_type,
-            "children": [radar_id, html_id],
+            "children": children,
         })
     ]
 
@@ -796,11 +798,12 @@ def airspace_command_deck_template(slide_id: str, cfg: dict, data: dict) -> List
     else:
         html_content = _make_supervisor_console_html(flights, weather)
 
-    out.append(C(html_id, "gdm-html-panel", {
-        "html": html_content,
-        "title": cfg.get("panel_title", "📡 Supervisor Live Console"),
-        "version": tick + 1,
-    }))
+    if not fullscreen:
+        out.append(C(html_id, "gdm-html-panel", {
+            "html": html_content,
+            "title": cfg.get("panel_title", "📡 Supervisor Live Console"),
+            "version": tick + 1,
+        }))
 
     # 2. Add Standby Slate if inactive
     if cfg.get("show_slate"):
@@ -862,6 +865,108 @@ def airspace_command_deck_template(slide_id: str, cfg: dict, data: dict) -> List
 # Add a new template by writing the function above + one line here.
 # ────────────────────────────────────────────────────────────────────────────
 
+def landing_queue_display_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
+    """Full-screen interactive landing queue with toggle to 3D track view."""
+    flights = data.get("flights") or []
+    mode = cfg.get("mode", "queue")
+    title = cfg.get("title", "LANDING QUEUE")
+
+    if mode == "queue":
+        # Queue view: HTML table of landing flights
+        html_content = f"""
+        <style>
+          body {{ font-family: 'JetBrains Mono', monospace; background: #080a14; color: #00f2ff; }}
+          .header {{ padding: 20px; border-bottom: 2px solid #00f2ff; text-align: center; }}
+          .header h1 {{ margin: 0; font-size: 28px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(0, 242, 255, 0.5); }}
+          .flights {{ padding: 20px; display: flex; flex-direction: column; gap: 12px; }}
+          .flight {{
+            padding: 15px 20px; background: rgba(0, 150, 136, 0.1); border-left: 4px solid #00f2ff;
+            cursor: pointer; transition: all 300ms; display: grid;
+            grid-template-columns: 1fr 1.5fr 1fr 1fr 0.8fr; gap: 20px; align-items: center;
+          }}
+          .flight:hover {{ background: rgba(0, 242, 255, 0.15); box-shadow: inset 0 0 10px rgba(0, 242, 255, 0.2); }}
+          .airline {{ font-weight: bold; color: #00ff88; }}
+          .route {{ color: #00f2ff; font-size: 14px; }}
+          .time {{ color: #ffd60a; font-weight: bold; }}
+          .eta {{ color: #00ff88; }}
+          .status {{
+            padding: 4px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;
+            background: rgba(100, 200, 255, 0.3); color: #64c8ff;
+          }}
+        </style>
+        <div class="header"><h1>✈️ {title}</h1></div>
+        <div class="flights">
+        """
+
+        for i, flight in enumerate(flights[:5]):
+            airline = flight.get("company", "UNKNOWN")
+            callsign = flight.get("callsign", "—")
+            origin = flight.get("origin", "—")
+            dest = flight.get("destination", "—")
+            dep_time = flight.get("dep_time", "—")
+            alt = int((flight.get("altitude", 0) or 0) / 100)
+            vrate = flight.get("vrate", -1000)
+
+            # Calculate ETA
+            minutes = max(0, alt) / 6  # Rough estimate
+            from datetime import datetime, timedelta
+            eta = (datetime.now() + timedelta(minutes=minutes)).strftime("%H:%M")
+
+            status = "DESCENDING" if alt > 30 else "LANDING"
+            html_content += f"""
+            <div class="flight" onclick="alert('Click: {callsign} — Toggle to 3D track')">
+              <div class="airline">{airline}<br/><span style="color: #00f2ff; font-size: 12px;">{callsign}</span></div>
+              <div class="route">{origin} → {dest}</div>
+              <div class="time">Dep: {dep_time}</div>
+              <div class="eta">ETA: {eta}</div>
+              <div class="status">{status}</div>
+            </div>
+            """
+
+        html_content += "</div>"
+    else:
+        # Track view: Show top flight with 3D context
+        if flights:
+            flight = flights[0]
+            airline = flight.get("company", "UNKNOWN")
+            callsign = flight.get("callsign", "—")
+            alt = int((flight.get("altitude", 0) or 0) / 100)
+            speed = int(flight.get("speed", 0) or 0)
+
+            html_content = f"""
+            <style>
+              body {{ font-family: 'JetBrains Mono', monospace; background: #080a14; color: #00f2ff;
+                     display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; }}
+              .track {{ text-align: center; }}
+              .track h1 {{ font-size: 32px; color: #00ff88; margin: 20px; text-shadow: 0 0 20px rgba(0, 255, 136, 0.6); }}
+              .track p {{ font-size: 18px; margin: 10px; color: #00f2ff; }}
+              .track button {{ padding: 10px 30px; background: #00f2ff; color: #080a14; border: none;
+                              font-weight: bold; cursor: pointer; margin-top: 30px; border-radius: 4px; }}
+            </style>
+            <div class="track">
+              <h1>🎯 TRACKING: {callsign}</h1>
+              <p>{airline}</p>
+              <p>Altitude: {alt}00 ft | Speed: {speed} kt</p>
+              <button onclick="alert('Toggle back to queue')">← BACK TO QUEUE</button>
+            </div>
+            """
+        else:
+            html_content = "<h1 style='color: #00f2ff; text-align: center;'>No flights available</h1>"
+
+    return [
+        C("root", "gdm-stage-grid", {
+            "layout": "single",
+            "children": ["landing_html_panel"],
+        }),
+        C("landing_html_panel", "gdm-html-panel", {
+            "html": html_content,
+            "stage": True,
+            "fullscreen": True,
+            "version": 1,
+        }),
+    ]
+
+
 TEMPLATES = {
     "title":              title_template,
     "hero_stat":          hero_stat_template,
@@ -870,4 +975,5 @@ TEMPLATES = {
     "signoff":            signoff_template,
     "market_ticker":      market_ticker_template,
     "airspace_command_deck": airspace_command_deck_template,
+    "landing_queue_display": landing_queue_display_template,
 }

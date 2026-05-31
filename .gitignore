@@ -103,3 +103,6 @@ search_ha_entities.py
 test_ha_mcp.py
 test_ha_rest.py
 test_t212_direct.py
+
+# Local startup script containing credentials
+start.sh

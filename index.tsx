@@ -375,6 +375,16 @@ export class GdmArchitectAgent extends LitElement {
       
       // Fire the first slide automatically!
       if (data.fire_url) {
+        if (this.sidePanelClient && !this.isActivityStarted) {
+          const ticket = await this.getAuthTicket();
+          const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+          try {
+            await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+            this.isActivityStarted = true;
+          } catch (e: any) {
+            console.error('[concierge] Failed to start main stage activity during draft:', e?.message || e);
+          }
+        }
         const fireResp = await this.authenticatedFetch(data.fire_url, { method: 'POST' });
         if (fireResp.ok) {
           if (data.doc_url) {
@@ -470,12 +480,23 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
-  private toggleStudioMode(forceActive?: boolean) {
+  private async toggleStudioMode(forceActive?: boolean) {
     this.studioActive = forceActive !== undefined ? forceActive : !this.studioActive;
     this.wsService?.sendJson({
       type: 'studio_mode_event',
       active: this.studioActive
     });
+    
+    if (this.studioActive && this.sidePanelClient && !this.isActivityStarted) {
+      const ticket = await this.getAuthTicket();
+      const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+      try {
+        await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+        this.isActivityStarted = true;
+      } catch (e: any) {
+        console.error('[concierge] Failed to start main stage activity:', e?.message || e);
+      }
+    }
   }
 
   private switchTab(tab: 'concierge' | 'widgets') {

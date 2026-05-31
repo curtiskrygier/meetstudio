@@ -25,9 +25,16 @@ export class GdmStageGrid extends LitElement {
     .grid.single {
       grid-template-columns: 1fr;
       grid-template-rows: 1fr;
+      gap: 0;
+      padding: 0;
     }
     .grid.single .slot:not(:first-child) {
       display: none;
+    }
+    .grid.single .slot:first-child {
+      border-radius: 0;
+      border: none;
+      background: transparent;
     }
     .grid.split {
       grid-template-columns: 1fr 1fr;

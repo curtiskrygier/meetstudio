@@ -18,10 +18,35 @@ slides:
         source: noaa_metar
         refresh: "on_fire"
 
-  # Slide 2: Supervisor Control Deck
+  # Slide 2: Clean Fullscreen — Flight Status + Corridor
+  - id: clean_deck
+    label: "✈️ Live Traffic"
+    template: airspace_command_deck
+    fullscreen: true
+    zoom: 5.5
+    cameraPitch: 35.0
+    cameraYaw: 45.0
+    showGlideSlope: true
+    showTerrain: true
+    cinematicOrbit: true
+    autoTrack: false
+    chyron_title: "LFBO TMA — LIVE TRAFFIC"
+    chyron_subtitle: "Runway 32L/R Active • {{weather.wind}} • QNH {{weather.pressure}}"
+    ticker_text: "✈️ TOULOUSE BLAGNAC APPROACH CONTROL • RUNWAY 32L/R ACTIVE • SURFACE WIND: {{weather.wind}} • TEMP: {{weather.temp}} • QNH: {{weather.pressure}} • RAW METAR: {{weather.raw}} •"
+    ticker_speed: 45
+    data:
+      flights:
+        source: simulated_airspace
+        refresh: "2s"
+      weather:
+        source: noaa_metar
+        refresh: "30s"
+
+  # Slide 3: Supervisor Control Deck
   - id: supervisor_deck
     label: "📡 Sector Control Deck"
     template: airspace_command_deck
+    fullscreen: true
     panel_type: "supervisor"
     panel_title: "📡 Tactical Supervisor HUD"
     zoom: 5.5
