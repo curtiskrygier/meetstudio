@@ -62,6 +62,10 @@ today_mess_backup/
 HANDOVER-*.md
 DEPLOYMENT_DIAGNOSIS.md
 
+# Review / working files
+git.md
+CATALOGUE_REFACTOR_PLAN.md
+
 # Scratch / temp files
 agy
 scratch/
