@@ -3,7 +3,7 @@
   "description": "Google Meet Studio GDM Component Catalog",
   "components": {
     "gdm-stage-grid": {
-      "group": "root",
+      "group": "layout",
       "description": "Layout engine container for main stage panels.",
       "strict": true,
       "properties": {
@@ -245,7 +245,7 @@
       }
     },
     "gdm-container": {
-      "group": "panel",
+      "group": "layout",
       "description": "A highly flexible layout container block supporting glassmorphism and nested compositions.",
       "strict": true,
       "properties": {
@@ -352,7 +352,7 @@
       }
     },
     "gdm-text": {
-      "group": "panel",
+      "group": "atom",
       "description": "A rich typography component supporting sizes, colors, pulsing glow and weights.",
       "strict": true,
       "properties": {
@@ -414,7 +414,7 @@
       }
     },
     "gdm-grid": {
-      "group": "root",
+      "group": "layout",
       "description": "CSS-grid layout atom: arranges children in columns/rows. The structural partner to gdm-container.",
       "strict": false,
       "properties": {
@@ -461,7 +461,7 @@
       }
     },
     "gdm-stat": {
-      "group": "panel",
+      "group": "atom",
       "description": "Generic metric atom: a label, a large value, and an optional coloured delta/change pill.",
       "strict": false,
       "properties": {
@@ -508,7 +508,7 @@
       }
     },
     "gdm-image": {
-      "group": "panel",
+      "group": "atom",
       "description": "Raw image atom (fit / radius / aspect-ratio). Lightweight sibling of gdm-image-panel.",
       "strict": false,
       "properties": {
@@ -550,7 +550,7 @@
       }
     },
     "gdm-spacer": {
-      "group": "panel",
+      "group": "atom",
       "description": "Layout filler: grows to push siblings apart, or a fixed gap when sized.",
       "strict": false,
       "properties": {
@@ -567,7 +567,7 @@
       }
     },
     "gdm-badge": {
-      "group": "panel",
+      "group": "atom",
       "description": "Status badge chip with dynamic neon color presets and pulsing indicators.",
       "strict": true,
       "properties": {
@@ -594,7 +594,7 @@
       }
     },
     "gdm-progress": {
-      "group": "panel",
+      "group": "atom",
       "description": "Glassmorphic linear progress bar or meter indicator.",
       "strict": true,
       "properties": {
@@ -626,7 +626,7 @@
       }
     },
     "gdm-divider": {
-      "group": "panel",
+      "group": "atom",
       "description": "Structural line divider with configurable layout margins and sizing.",
       "strict": true,
       "properties": {
@@ -653,7 +653,7 @@
       }
     },
     "gdm-icon": {
-      "group": "panel",
+      "group": "atom",
       "description": "Interactive vector SVG icon selector containing a robust set of symbols.",
       "strict": true,
       "properties": {
@@ -675,7 +675,7 @@
       }
     },
     "gdm-button": {
-      "group": "panel",
+      "group": "atom",
       "description": "Interactive button element with two action modes: agent-bound (dispatches action event to the agent) or local-only (executes direct functions).",
       "strict": true,
       "properties": {
@@ -727,7 +727,7 @@
       }
     },
     "gdm-clock": {
-      "group": "panel",
+      "group": "atom",
       "description": "Digital clock and date widget with dynamic timezone configurations.",
       "strict": true,
       "properties": {
@@ -759,7 +759,7 @@
       }
     },
     "gdm-sparkline": {
-      "group": "panel",
+      "group": "atom",
       "description": "Ultra-light inline SVG trend sparkline.",
       "strict": true,
       "properties": {
@@ -813,7 +813,7 @@
       }
     },
     "gdm-trend-value": {
-      "group": "panel",
+      "group": "atom",
       "description": "Compact financial ticker element with dynamic green/red direction trend arrows.",
       "strict": true,
       "properties": {
@@ -850,7 +850,7 @@
       }
     },
     "gdm-scroller": {
-      "group": "panel",
+      "group": "layout",
       "description": "Infinite ticker/marquee container wrapping nested child elements.",
       "strict": true,
       "properties": {
@@ -1263,7 +1263,7 @@
       "properties": {}
     },
     "gdm-3d-airspace": {
-      "group": "panel",
+      "group": "molecule",
       "description": "Interactive 3D tactical airspace / radar deck (flights, camera, glide-slope, terrain, orbit, auto-track).",
       "strict": true,
       "properties": {
@@ -1320,7 +1320,7 @@
       }
     },
     "gdm-3d-scene": {
-      "group": "panel",
+      "group": "molecule",
       "description": "Generic high-performance interactive 3D scene engine (points, links, camera, terrain, grid, fog).",
       "strict": true,
       "properties": {
@@ -1357,7 +1357,7 @@
       }
     },
     "gdm-market-ticker": {
-      "group": "overlay",
+      "group": "molecule",
       "description": "Live global market-scan board: flip-clock time/date, market sections (a big spread of instruments), and an auto-highlighted 'ones to watch' movers strip.",
       "strict": true,
       "properties": {

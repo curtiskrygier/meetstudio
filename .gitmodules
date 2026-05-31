@@ -1,0 +1,3 @@
+[submodule "catalogue"]
+	path = catalogue
+	url = git@github.com:curtiskrygier/a2ui-catalogue.git

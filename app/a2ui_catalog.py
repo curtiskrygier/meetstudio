@@ -67,7 +67,7 @@ _FlightsType = Union[List[Any], Dict[str, Any], str]
 CATALOG: "dict[str, Comp]" = {
     # 1. Root layout container
     "gdm-stage-grid": Comp(
-        group="root", strict=True,
+        group="layout", strict=True,
         desc="Layout engine container for main stage panels.",
         props=[
             Prop("layout", "string", None, 'Arrangement of panel(s). Options: `"single"`, `"split"`, `"grid"`, `"grid-3"`, `"presentation"`.', pytype=str),
@@ -161,7 +161,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-container": Comp(
-        group="panel", strict=True,
+        group="layout", strict=True,
         desc="A highly flexible layout container block supporting glassmorphism and nested compositions.",
         props=[
             Prop("direction", "string", False, 'Flexbox layout direction (`"row"` or `"column"`, default `"row"`).', pytype=str),
@@ -187,7 +187,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-text": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="A rich typography component supporting sizes, colors, pulsing glow and weights.",
         props=[
             Prop("content", "string", True, 'The raw text content.', pytype=str),
@@ -204,7 +204,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-grid": Comp(
-        group="root", strict=False,
+        group="layout", strict=False,
         desc="CSS-grid layout atom: arranges children in columns/rows. The structural partner to gdm-container.",
         props=[
             Prop("columns", "string", False, 'Grid columns: a number (→ equal columns) or a grid-template string (e.g. "2fr 1fr").', pytype=str),
@@ -218,7 +218,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-stat": Comp(
-        group="panel", strict=False,
+        group="atom", strict=False,
         desc="Generic metric atom: a label, a large value, and an optional coloured delta/change pill.",
         props=[
             Prop("label", "string", False, 'Small uppercase label above the value.', pytype=str),
@@ -232,7 +232,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-image": Comp(
-        group="panel", strict=False,
+        group="atom", strict=False,
         desc="Raw image atom (fit / radius / aspect-ratio). Lightweight sibling of gdm-image-panel.",
         props=[
             Prop("src", "string", True, 'Image URL or data URL.', pytype=str),
@@ -245,7 +245,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-spacer": Comp(
-        group="panel", strict=False,
+        group="atom", strict=False,
         desc="Layout filler: grows to push siblings apart, or a fixed gap when sized.",
         props=[
             Prop("size", "string", False, 'Fixed size (e.g. "24px"); omit to grow and absorb free space.', pytype=str),
@@ -253,7 +253,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-badge": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Status badge chip with dynamic neon color presets and pulsing indicators.",
         props=[
             Prop("text", "string", True, 'Badge text content.', pytype=str),
@@ -263,7 +263,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-progress": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Glassmorphic linear progress bar or meter indicator.",
         props=[
             Prop("value", "number", True, 'Progress completion percentage (0 to 100).', pytype=float),
@@ -274,7 +274,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-divider": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Structural line divider with configurable layout margins and sizing.",
         props=[
             Prop("vertical", "boolean", False, 'Toggles vertical orientation instead of horizontal.', pytype=bool),
@@ -284,7 +284,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-icon": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Interactive vector SVG icon selector containing a robust set of symbols.",
         props=[
             Prop("name", "string", True, 'Icon name key (e.g. `"sonar"`, `"clock"`, `"chart"`, `"trending-up"`, `"trending-down"`, `"lock"`, `"unlock"`, `"info"`, `"alert"`, `"activity"`, `"database"`, `"user"`, `"globe"`, `"cpu"`, `"server"`, `"arrow-up"`, `"arrow-down"`, `"check"`, `"close"`, `"chevron-right"`, `"chevron-left"`).', pytype=str),
@@ -293,7 +293,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-button": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Interactive button element with two action modes: agent-bound (dispatches action event to the agent) or local-only (executes direct functions).",
         props=[
             # Text content
@@ -311,7 +311,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-clock": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Digital clock and date widget with dynamic timezone configurations.",
         props=[
             Prop("showClock", "boolean", False, 'Toggles time display on/off.', pytype=bool),
@@ -322,7 +322,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-sparkline": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Ultra-light inline SVG trend sparkline.",
         props=[
             Prop("data", "string", True, 'Comma-separated numerical datapoints.', pytype=str),
@@ -342,7 +342,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-trend-value": Comp(
-        group="panel", strict=True,
+        group="atom", strict=True,
         desc="Compact financial ticker element with dynamic green/red direction trend arrows.",
         props=[
             Prop("symbol", "string", True, 'Asset/instrument symbol tag.', pytype=str),
@@ -354,7 +354,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-scroller": Comp(
-        group="panel", strict=True,
+        group="layout", strict=True,
         desc="Infinite ticker/marquee container wrapping nested child elements.",
         props=[
             Prop("speed", "string", False, 'CSS animation duration (e.g. `"20s"`).', pytype=str),
@@ -503,7 +503,7 @@ CATALOG: "dict[str, Comp]" = {
         desc="Animated laser sweep accent overlay.",
     ),
     "gdm-3d-airspace": Comp(
-        group="panel", in_prompt=False, strict=True,
+        group="molecule", in_prompt=False, strict=True,
         desc="Interactive 3D tactical airspace / radar deck (flights, camera, glide-slope, terrain, orbit, auto-track).",
         props=[
             Prop("flights", pytype=_FlightsType),
@@ -519,7 +519,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-3d-scene": Comp(
-        group="panel", in_prompt=False, strict=True,
+        group="molecule", in_prompt=False, strict=True,
         desc="Generic high-performance interactive 3D scene engine (points, links, camera, terrain, grid, fog).",
         props=[
             Prop("points", pytype=Union[List[Any], Dict[str, Any], str]),
@@ -531,7 +531,7 @@ CATALOG: "dict[str, Comp]" = {
         ],
     ),
     "gdm-market-ticker": Comp(
-        group="overlay", in_prompt=False, strict=True,
+        group="molecule", in_prompt=False, strict=True,
         desc="Live global market-scan board: flip-clock time/date, market sections (a big spread of instruments), and an auto-highlighted 'ones to watch' movers strip.",
         props=[
             # sections: [{label, accent?, items:[{symbol,price,changePercent,isUp?,label?}]}]
