@@ -1,0 +1,22 @@
+name: test_table
+slides:
+  - id: sample_table
+    template: table_view
+    badge: { text: "LOCAL TEST", type: "primary", pulse: true }
+    title: "A2UI Table View Render Test"
+    accentColor: "#00ff88"
+    headers: ["Engine", "Latency", "Status"]
+    rows:
+      - ["Gemini 2.5 Flash", "1.8s", "OK"]
+      - ["FastAPI / Uvicorn", "5ms", "OK"]
+      - ["A2UI Render Engine", "2ms", "OK"]
+    next_action: { text: "Signoff", fires: close }
+
+  - id: close
+    template: signoff
+    lines:
+      - { text: "RENDER PASS.", color: "phosphor" }
+    brands: { left: "A2UI", right: "v0.9" }
+    badge_text: "LOCAL RUNTIME VERIFIED"
+    chef_line: "READY."
+    tagline: "table-view template successfully rendered."
