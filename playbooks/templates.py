@@ -1018,9 +1018,9 @@ def table_view_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
             "direction": "row", "gap": "20px", "align": "center",
             "children": header_children
         }))
-        out[1]["props"]["children"] = [f"{slide_id}_header"]
+        out[1]["children"] = [f"{slide_id}_header"]
     else:
-        out[1]["props"]["children"] = []
+        out[1]["children"] = []
         
     # Table element
     out.append(C(f"{slide_id}_table", "gdm-table-view", {
@@ -1028,7 +1028,7 @@ def table_view_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
         "rows": rows,
         "accentColor": accent_color
     }))
-    out[1]["props"]["children"].append(f"{slide_id}_table")
+    out[1]["children"].append(f"{slide_id}_table")
     
     # Next button
     if action:
@@ -1037,7 +1037,7 @@ def table_view_template(slide_id: str, cfg: dict, data: dict) -> List[Dict]:
             "variant": next_act.get("variant", "primary"),
             "action": action
         }))
-        out[1]["props"]["children"].append(f"{slide_id}_btn")
+        out[1]["children"].append(f"{slide_id}_btn")
         
     return out
 
