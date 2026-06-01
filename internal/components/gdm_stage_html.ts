@@ -6,6 +6,7 @@ export class GdmStageHtml extends LitElement {
   @property({ type: String }) html = '';
   @property({ type: String }) title = '';
   @property({ type: Boolean, reflect: true }) overlay = false;
+  @property({ type: Boolean, reflect: true }) bare = false;
   @property({ type: Number }) version = 0;
 
   static styles = css`
@@ -37,6 +38,22 @@ export class GdmStageHtml extends LitElement {
       border: none;
       border-radius: 0;
       animation: backdrop-fade-in 300ms ease-out forwards;
+    }
+
+    :host([bare]) {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    :host([bare]) .header {
+      display: none;
     }
 
     .header {
@@ -123,6 +140,11 @@ export class GdmStageHtml extends LitElement {
               background: #080a14 !important;
               color: #ffffff !important;
               font-family: system-ui, -apple-system, sans-serif;
+              overflow: hidden;
+            }
+            .stage-scroll {
+              width: 100%;
+              height: 100%;
               overflow: auto;
             }
             /* Universal shield to prevent auto-dark-mode inversion */
@@ -172,7 +194,7 @@ export class GdmStageHtml extends LitElement {
         ${this.html ? html`
           <iframe
             .srcdoc="${wrappedHtml}"
-            sandbox="allow-scripts allow-same-origin allow-popups"
+            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
             allowfullscreen
             loading="lazy"
           ></iframe>

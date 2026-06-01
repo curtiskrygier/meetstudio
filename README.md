@@ -76,6 +76,31 @@ After `npm run build`, always hard-refresh the stage tab (Ctrl+Shift+R) — Vite
 
 ---
 
+## Syncing the Component Catalogue (`a2ui-catalogue`)
+
+The `curtiskrygier/meetstudio` repository depends on the component definitions and renderers from `curtiskrygier/a2ui-catalogue`, which is integrated as a Git submodule in the `catalogue/` directory.
+
+Since the local development repository (`/home/curtis/a2ui-catalogue`) is often ahead of the submodule during active feature development (e.g. implementing premium data visualization atoms), you can use the synchronization script to align them seamlessly:
+
+### 1. Dev Mode (Local Copy Only)
+To quickly copy modified code (atoms, schemas, and python renderers) directly from your local `a2ui-catalogue` workspace into the local `meetstudio/catalogue` folder without committing or pushing:
+```bash
+./sync-catalogue.sh -d
+```
+This is ideal for immediate local testing, playbook verification, or local Docker container builds.
+
+### 2. Release Mode (Full Git Synchronization)
+When you are ready to publish your changes upstream:
+```bash
+./sync-catalogue.sh -r "feat: add premium donut stat and heatmap visualization atoms"
+```
+This will:
+1. Stage, commit, and push your changes inside your local `/home/curtis/a2ui-catalogue` workspace to GitHub (`origin main`).
+2. Pull the latest commits from GitHub inside your `meetstudio/catalogue` submodule.
+3. Stage and commit the updated submodule commit pointer in `meetstudio`.
+
+---
+
 ## Authoring playbooks (Mode C)
 
 Playbooks are YAML files in `playbooks/`. Each slide maps to a template:

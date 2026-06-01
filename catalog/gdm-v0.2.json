@@ -177,7 +177,7 @@
         "label": {
           "type": "string",
           "required": false,
-          "description": "Caption chip (e.g. `\"🎥 Live Camera\"`)."
+          "description": "Caption chip (e.g. `\"\ud83c\udfa5 Live Camera\"`)."
         },
         "mirrored": {
           "type": "boolean",
@@ -333,7 +333,7 @@
         "revealDelay": {
           "type": "number",
           "required": false,
-          "description": "Seconds to delay the entrance — stagger across panels to choreograph a staged \"set the stage\" reveal."
+          "description": "Seconds to delay the entrance \u2014 stagger across panels to choreograph a staged \"set the stage\" reveal."
         },
         "columns": {
           "type": "number",
@@ -423,7 +423,7 @@
         "columns": {
           "type": "string",
           "required": false,
-          "description": "Grid columns: a number (→ equal columns) or a grid-template string (e.g. \"2fr 1fr\")."
+          "description": "Grid columns: a number (\u2192 equal columns) or a grid-template string (e.g. \"2fr 1fr\")."
         },
         "rows": {
           "type": "string",
@@ -694,7 +694,7 @@
         "targetUrl": {
           "type": "string",
           "required": false,
-          "description": "Legacy shorthand for openUrl call — opens this URL in a new tab."
+          "description": "Legacy shorthand for openUrl call \u2014 opens this URL in a new tab."
         },
         "type": {
           "type": "string",
@@ -887,7 +887,7 @@
         "emoji": {
           "type": "string",
           "required": false,
-          "description": "The emoji to launch (default `\"👏\"`)."
+          "description": "The emoji to launch (default `\"\ud83d\udc4f\"`)."
         },
         "count": {
           "type": "number",
@@ -909,7 +909,7 @@
         "strokes": {
           "type": "array of objects",
           "required": true,
-          "description": "Stroke objects with `points` (array of `[x, y]` pairs, coordinates normalized 0–1), optional `color` (string) and `width` (number)."
+          "description": "Stroke objects with `points` (array of `[x, y]` pairs, coordinates normalized 0\u20131), optional `color` (string) and `width` (number)."
         },
         "active": {
           "type": "boolean",
@@ -931,12 +931,12 @@
         "x": {
           "type": "number",
           "required": true,
-          "description": "Normalized 0–1 horizontal position."
+          "description": "Normalized 0\u20131 horizontal position."
         },
         "y": {
           "type": "number",
           "required": true,
-          "description": "Normalized 0–1 vertical position."
+          "description": "Normalized 0\u20131 vertical position."
         },
         "active": {
           "type": "boolean",
@@ -1117,7 +1117,7 @@
         "scrollSpeed": {
           "type": "number",
           "required": false,
-          "description": "Scroll animation duration in seconds — lower = faster (default `35`)."
+          "description": "Scroll animation duration in seconds \u2014 lower = faster (default `35`)."
         }
       }
     },
@@ -1187,7 +1187,7 @@
     },
     "gdm-captions": {
       "group": "overlay",
-      "description": "Lower-third live caption overlay — renders the current spoken/narrated line as a large centered pill, keeping the previous line faded above it so each point reads clearly one at a time. Use this to display captions compositionally via render_stage (preferred over the out-of-band transcript stream for agent-driven caption points).",
+      "description": "Lower-third live caption overlay \u2014 renders the current spoken/narrated line as a large centered pill, keeping the previous line faded above it so each point reads clearly one at a time. Use this to display captions compositionally via render_stage (preferred over the out-of-band transcript stream for agent-driven caption points).",
       "strict": false,
       "properties": {
         "text": {
@@ -1260,6 +1260,11 @@
           "type": "any",
           "required": false,
           "description": ""
+        },
+        "bare": {
+          "type": "any",
+          "required": false,
+          "description": "Remove chrome (border, background, header)"
         }
       },
       "in_prompt": false

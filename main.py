@@ -128,7 +128,10 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
             "connect-src 'self' https://*.google.com https://*.googleapis.com https://*.google-analytics.com wss://* ws://*; "
             "img-src * data: blob:; "
             "font-src 'self' data: https://fonts.gstatic.com https://*.google.com; "
-            "frame-src https://www.youtube.com https://www.youtube-nocookie.com;"
+            "frame-src https://www.youtube.com https://www.youtube-nocookie.com "
+            "https://docs.google.com https://codepen.io https://stackblitz.com "
+            "https://www.figma.com https://gist.github.com https://twitter.com https://platform.twitter.com; "
+            "form-action 'self';"
         )
         return response
 
@@ -2765,6 +2768,48 @@ async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
                               request: Request):
     await check_producer_auth(request)
     return await fire_playbook_slide_internal(playbook_name, slide_id, space_id)
+
+
+# ── Catalogue star/favourite endpoint ────────────────────────────────────────
+
+_STARS_FILE = "/home/curtis/a2ui-catalogue/starred.json"
+
+def _load_stars() -> set:
+    try:
+        import json as _json
+        with open(_STARS_FILE) as f:
+            return set(_json.load(f))
+    except Exception:
+        return set()
+
+def _save_stars(stars: set):
+    import json as _json
+    with open(_STARS_FILE, "w") as f:
+        _json.dump(sorted(stars), f, indent=2)
+
+@app.post("/api/catalogue/star/{atom_type}/{slide_id}/{space_id:path}")
+async def catalogue_star(atom_type: str, slide_id: str, space_id: str, request: Request):
+    """Toggle star on an atom and re-fire the current slide to update the display."""
+    stars = _load_stars()
+    if atom_type in stars:
+        stars.discard(atom_type)
+    else:
+        stars.add(atom_type)
+    _save_stars(stars)
+    logger.info(f"[catalogue] star toggled: {atom_type} ({'★' if atom_type in stars else '☆'}) — {len(stars)} total")
+    return await fire_playbook_slide_internal("a2ui_catalogue", slide_id, space_id)
+
+@app.get("/api/catalogue/star/{atom_type}/{slide_id}/{space_id:path}")
+async def catalogue_star_get(atom_type: str, slide_id: str, space_id: str):
+    """GET version — for anchor links inside CSP-restricted iframes."""
+    stars = _load_stars()
+    if atom_type in stars:
+        stars.discard(atom_type)
+    else:
+        stars.add(atom_type)
+    _save_stars(stars)
+    logger.info(f"[catalogue] star toggled: {atom_type} ({'★' if atom_type in stars else '☆'}) — {len(stars)} total")
+    return await fire_playbook_slide_internal("a2ui_catalogue", slide_id, space_id)
 
 
 @app.get("/api/playbook/list/{playbook_name}")

@@ -24,6 +24,11 @@ from playbooks.manager import playbook_manager, Slide
 from playbooks.demo_poc import SLIDES as _demo_poc_slides
 playbook_manager.register_playbook("demo_poc", _demo_poc_slides)
 
+import playbooks.a2ui_catalogue  # self-registers via playbook_manager.register_playbook
+import playbooks.patterns  # self-registers via playbook_manager.register_playbook
+import playbooks.dataviz_demo  # self-registers via playbook_manager.register_playbook
+import playbooks.new_atoms_showcase  # self-registers via playbook_manager.register_playbook
+
 # 2. Auto-register every *.yaml file in playbooks/ via the YAML loader.
 from playbooks.yaml_loader import register_yaml_playbooks_in_dir
 register_yaml_playbooks_in_dir()
