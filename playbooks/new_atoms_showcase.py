@@ -94,13 +94,13 @@ def build_cover(space_id, tick=0):
             "color": "#f3f4f6", "letterSpacing": "-1.5px",
         }),
         C("sub", "gdm-text", {
-            "content": "Next-Gen Visualizations: Donut Progress, Heatmap, Punch Card, Sankey & Cohort Retention",
+            "content": "Next-Gen Visualizations: Donut Progress, Heatmap, Punch Card, Sankey, Cohort Retention, Tasks & Sentiment",
             "size": "18px", "color": "#9ca3af", "weight": "400",
         }),
         C("grid", "gdm-container", {
             "direction": "row", "justify": "center", "align": "center",
             "gap": "14px",
-            "children": ["btn_donut", "btn_heatmap", "btn_punch", "btn_sankey", "btn_cohort"],
+            "children": ["btn_donut", "btn_heatmap", "btn_punch", "btn_sankey", "btn_cohort", "btn_tasks", "btn_sentiment"],
         }),
         C("btn_donut", "gdm-button", {
             "text": "🔵 Donut Progress",
@@ -126,6 +126,16 @@ def build_cover(space_id, tick=0):
             "text": "📐 SaaS Cohort Grid",
             "size": "md",
             "action": fire("cohort", space_id),
+        }),
+        C("btn_tasks", "gdm-button", {
+            "text": "📝 Task Checklist",
+            "size": "md",
+            "action": fire("tasks", space_id),
+        }),
+        C("btn_sentiment", "gdm-button", {
+            "text": "🎭 Sentiment Journey",
+            "size": "md",
+            "action": fire("sentiment", space_id),
         }),
     ]
     return comps
@@ -268,7 +278,72 @@ SLIDES = [
     Slide("cohort", "SaaS Cohort Retention",
           html_slide(cohort_atoms, "📐 Cohort Retention Analytics",
                      "Premium triangular subscription cohort matrix colored dynamically using continuous scale interpolation",
-                     prev_id="sankey", next_id=None)),
+                     prev_id="sankey", next_id="tasks")),
+]
+
+# ── Slide 6: Google Tasks Showcase ────────────────────────────────────────
+
+tasks_atoms = [
+    {
+        "type": "task_list",
+        "title": "Google Tasks & Call Action Items",
+        "tasks": [
+            {"id": "t1", "text": "Authenticate Google Tasks OAuth flow and verify permissions", "completed": True, "priority": "high", "due_date": "Today, 5:00 PM", "assignee": "CK"},
+            {"id": "t2", "text": "Draft system architecture for live audio transcribing pipeline", "completed": False, "priority": "high", "due_date": "Tomorrow", "assignee": "CK"},
+            {"id": "t3", "text": "Design premium SVG gauge tracking emotion and sentiment summaries", "completed": True, "priority": "medium", "due_date": "Yesterday", "assignee": "JD"},
+            {"id": "t4", "text": "Benchmark websocket streaming latency vs. long-polling under 3G", "completed": False, "priority": "low", "due_date": "Jun 5, 2026", "assignee": "AM"},
+            {"id": "t5", "text": "Verify styling and fluid transitions of the call mood summary panel", "completed": False, "priority": "medium", "due_date": "Jun 6, 2026", "assignee": "CK"},
+        ]
+    }
+]
+
+# ── Slide 7: Sentiment Summary Showcase ───────────────────────────────────
+
+sentiment_atoms = [
+    {
+        "type": "sentiment_summary",
+        "title": "Executive Call Sentiment & Mood Intelligence",
+        "sentiment_index": 82,
+        "emotional_journey": [0.15, 0.35, -0.1, 0.45, 0.78, 0.85, 0.62, 0.92, 0.82],
+        "themes": [
+            {"theme": "Technical Core Alignment", "mood": "Analytical", "score": 90},
+            {"theme": "UX Fluidity & Micro-interactions", "mood": "Engaged", "score": 95},
+            {"theme": "Deployment Speed & Integration Cost", "mood": "Hesitant", "score": 45},
+            {"theme": "Google Workspace & Tasks Sync Value", "mood": "Excited", "score": 88}
+        ]
+    }
+]
+
+SLIDES = [
+    Slide("cover", "Showcase Cover", build_cover),
+    Slide("donut", "Donut Stats",
+          html_slide(donut_atoms, "🔵 Donut Progress",
+                     "Beautiful SVG circular charts with custom stroke scaling, glowing effects, and responsive frames",
+                     prev_id=None, next_id="heatmap")),
+    Slide("heatmap", "Heatmap Grid",
+          html_slide(heatmap_atoms, "🟩 Activity Heatmaps",
+                     "Stunning mathematical layouts generating grids, continuous color scale interpolation, and neon triggers",
+                     prev_id="donut", next_id="punch")),
+    Slide("punch", "Commit Punch Card",
+          html_slide(punch_card_atoms, "📊 Repo Activity Density",
+                     "Day-of-Week vs. Hour-of-Day commit patterns with scaled neon circles and automatic density metrics",
+                     prev_id="heatmap", next_id="sankey")),
+    Slide("sankey", "Sankey Flow",
+          html_slide(sankey_atoms, "🔀 Sankey Cash Flow Allocations",
+                     "Mathematical curved Bezier flow bands projecting multiple resource streams through glowing interactive nodes",
+                     prev_id="punch", next_id="cohort")),
+    Slide("cohort", "SaaS Cohort Retention",
+          html_slide(cohort_atoms, "📐 Cohort Retention Analytics",
+                     "Premium triangular subscription cohort matrix colored dynamically using continuous scale interpolation",
+                     prev_id="sankey", next_id="tasks")),
+    Slide("tasks", "Google Task List",
+          html_slide(tasks_atoms, "📝 Google Tasks Sync",
+                     "Premium, glassmorphic checklist and action item tracker with completed statuses, priorities, and assignees",
+                     prev_id="cohort", next_id="sentiment")),
+    Slide("sentiment", "Call Sentiment",
+          html_slide(sentiment_atoms, "🎭 Call Sentiment & Mood",
+                     "Real-time sentiment tracker mapping positive/negative emotional timeline and call mood summaries",
+                     prev_id="tasks", next_id=None)),
 ]
 
 playbook_manager.register_playbook(PLAYBOOK, SLIDES)
