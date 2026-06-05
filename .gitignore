@@ -10,9 +10,11 @@ appsscript/.clasp.json
 *.v[0-9]*
 *_checkpoint
 
-# Ignore all markdown files except README.md
+# Ignore all markdown files except README.md and tracked project docs
 *.md
 !README.md
+!deployment.md
+!docs/*.md
 
 api_response.json
 demo_*.d2

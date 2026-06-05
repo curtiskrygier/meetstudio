@@ -34,7 +34,7 @@ _load_env_production()
 
 # ── Producer API auth (STAGE_API_KEY) ─────────────────────────────────────────
 
-_STAGE_API_KEY = os.environ.get("STAGE_API_KEY", "")
+_STAGE_API_KEY = os.environ.get("STAGE_API_KEY", "").strip()
 
 # Fail-closed guard on production Cloud Run
 if os.environ.get("K_SERVICE") and not _STAGE_API_KEY:
@@ -68,14 +68,17 @@ async def check_producer_auth(request: Request):
         # Check active stage ticket
         ticket_data = auth_tickets.get(ticket)
         if ticket_data and ticket_data[1] >= datetime.now(timezone.utc):
-            # Valid active ticket! Allow the request
             return
-        
+
+        # Check raw STAGE_API_KEY passed as ?ticket= (used by presenter dashboard)
+        if _STAGE_API_KEY and ticket.strip() == _STAGE_API_KEY:
+            return
+
         # Check valid Google OAuth token
         if await validate_google_token(ticket):
             return
 
-    # 2. Fall back to STAGE_API_KEY
+    # 2. Fall back to STAGE_API_KEY via Authorization header
     if not _STAGE_API_KEY:
         raise HTTPException(
             status_code=503,

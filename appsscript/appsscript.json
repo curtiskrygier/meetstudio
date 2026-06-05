@@ -9,7 +9,7 @@
     "https://www.googleapis.com/auth/chat.spaces.readonly"
   ],
   "urlFetchWhitelist": [
-    "https://meet-live-concierge-602445641262.us-central1.run.app/"
+    "https://meetstudio-738395425892.europe-west1.run.app/"
   ],
   "runtimeVersion": "V8",
   "addOns": {
@@ -22,9 +22,9 @@
       "web": {
         "logoUrl": "https://www.gstatic.com/images/branding/product/1x/diagram_48dp.png",
         "addOnOrigins": [
-          "https://meet-live-concierge-602445641262.us-central1.run.app"
+          "https://meetstudio-738395425892.europe-west1.run.app"
         ],
-        "sidePanelUrl": "https://meet-live-concierge-602445641262.us-central1.run.app/"
+        "sidePanelUrl": "https://meetstudio-738395425892.europe-west1.run.app/?v=2"
       }
     }
   }

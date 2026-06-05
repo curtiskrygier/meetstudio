@@ -10,8 +10,8 @@ import uuid as uuid_lib
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body, Depends, HTTPException
-from fastapi.responses import FileResponse, Response as FastAPIResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body, Depends, HTTPException, Response
+from fastapi.responses import FileResponse, Response as FastAPIResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -69,7 +69,8 @@ logger = logging.getLogger("concierge")
 # Modular imports
 from app.config import (
     PROJECT_ID, REGION, MODEL, VOICE, SYSTEM_PROMPT,
-    gemini_client, diagram_store, diagram_version, diagram_title,
+    gemini_client, live_client, MEET_MEDIA,
+    diagram_store, diagram_version, diagram_title,
     current_session, current_view, stage_listeners, WORKSPACE_AGENT_ENGINE,
     UI_PROMPT_SYSTEM, active_sessions, video_queues,
     current_a2ui_surface, current_a2ui_datamodel, current_a2ui_root
@@ -94,6 +95,68 @@ class DriveScopeMissingError(Exception):
 
 notepad_locks = {}  # meeting_id -> {"owner": owner_id, "expires_at": float}
 
+_FEEDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "youtube_feeds.json")
+_FEEDS_DEFAULT = {
+    "tl": "https://youtu.be/DnGvNgftRGQ",
+    "tr": "https://youtu.be/DnGvNgftRGQ",
+    "bl": "https://youtu.be/DnGvNgftRGQ",
+    "br": "https://youtu.be/DnGvNgftRGQ",
+}
+
+def _load_feeds_from_disk() -> dict:
+    try:
+        with open(_FEEDS_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_feeds_to_disk(feeds: dict):
+    try:
+        os.makedirs(os.path.dirname(_FEEDS_FILE), exist_ok=True)
+        with open(_FEEDS_FILE, "w") as f:
+            json.dump(feeds, f, indent=2)
+    except Exception as e:
+        logger.warning(f"[youtube] Failed to persist feeds: {e}")
+
+youtube_feeds: dict = _load_feeds_from_disk()  # persisted across restarts
+youtube_active: dict = {}   # space_id -> set of active positions {"tl","tr","bl","br"}
+room_feedback: dict = {}    # session_id -> [{"type": "ready"|"question", "topic": str}]
+participant_session: dict = {}   # participant_space -> session_id
+session_participants: dict = {}  # session_id -> set of participant spaces
+participant_number: dict = {}    # participant_space -> join order (1, 2, 3...)
+participant_names: dict = {}     # participant_space -> display name
+session_counters: dict = {}      # session_id -> next participant number
+_room_view_source: dict = {}     # presenter_space -> source session_id
+_join_codes: dict = {}           # join_code -> session_id (e.g. "MEET-ABC123" -> "demo")
+_active_sessions: dict = {}      # session_id -> {"created_at": timestamp, "participant_count": int}
+
+def _generate_join_code() -> str:
+    """Generate a user-friendly 7-char join code: MEET-ABC123 format."""
+    import random
+    import string
+    chars = string.ascii_uppercase + string.digits
+    code = ''.join(random.choices(chars, k=6))
+    return f"MEET-{code}"
+
+def _infer_context(space_id: str) -> str:
+    """Detect whether we're running inside a real Meet add-on or local MeetStudio.
+    Real Meet spaces arrive as 'spaces/Abc123...' from the Add-on SDK.
+    Local test spaces are 'demo', 'demo-pXXXX', etc.
+    """
+    return "meet_live" if space_id.startswith("spaces/") else "demo"
+
+# ── Format demo state (per-space, for a2ui_explainer try_it slide) ────────────
+_FORMAT_STATE: dict = {}
+_FORMAT_DEFAULTS = {"size": "32px", "color": "#f1f5f9", "weight": "400", "style": "normal"}
+
+def _get_format_state(space_id: str) -> dict:
+    return {**_FORMAT_DEFAULTS, **_FORMAT_STATE.get(space_id, {})}
+
+
+def get_youtube_feeds(space_id: str) -> dict:
+    """Helper for playbooks to get configured YouTube feeds."""
+    return youtube_feeds.get(space_id, _FEEDS_DEFAULT)
+
 
 @asynccontextmanager
 async def lifespan(app):
@@ -113,10 +176,25 @@ async def lifespan(app):
     task.cancel()
 
 app = FastAPI(lifespan=lifespan)
+_SERVER_START = datetime.now(timezone.utc).strftime("%m-%d %H:%M")
 
 class MeetFramingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
+
+        # YouTube grid page needs its own relaxed CSP to allow nested YouTube iframes
+        if request.url.path.startswith("/api/youtube/grid/"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self' blob: data:; "
+                "script-src 'self' blob: data: https://*.youtube.com https://*.ytimg.com; "
+                "style-src 'self' 'unsafe-inline'; "
+                "frame-src https://www.youtube.com https://www.youtube-nocookie.com; "
+                "img-src * data: blob:; "
+                "connect-src 'self' https://*.youtube.com; "
+                "font-src 'self' data:;"
+            )
+            return response
+
         # Hardened CSP: Removed unsafe-inline and unsafe-eval
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com; "
@@ -128,11 +206,22 @@ class MeetFramingMiddleware(BaseHTTPMiddleware):
             "connect-src 'self' https://*.google.com https://*.googleapis.com https://*.google-analytics.com wss://* ws://*; "
             "img-src * data: blob:; "
             "font-src 'self' data: https://fonts.gstatic.com https://*.google.com; "
-            "frame-src https://www.youtube.com https://www.youtube-nocookie.com "
+            "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com "
             "https://docs.google.com https://codepen.io https://stackblitz.com "
             "https://www.figma.com https://gist.github.com https://twitter.com https://platform.twitter.com; "
             "form-action 'self';"
         )
+        # Delegate media permissions to cross-origin iframes (YouTube embeds)
+        response.headers["Permissions-Policy"] = (
+            "autoplay=*, encrypted-media=*, fullscreen=*, "
+            "picture-in-picture=*, compute-pressure=()"
+        )
+        # Disable caching of dynamic HTML and compiled assets on dev rig
+        path = request.url.path
+        if path.endswith(".html") or path.endswith(".js") or path.endswith(".css") or path == "/" or "main_stage" in path:
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
         return response
 
 app.add_middleware(MeetFramingMiddleware)
@@ -178,7 +267,18 @@ async def token_or_api_key_required(token: str = Depends(get_token_from_header))
 
 async def broadcast_to_stage(meeting_id: str, message: dict, exclude_ws: WebSocket = None):
     if not meeting_id: return
-    
+
+    # Fan-out: if this meeting_id has participants registered under it as a session,
+    # broadcast to each participant space as well (fire-and-forget, errors ignored).
+    for participant_space in session_participants.get(meeting_id, set()):
+        if participant_space in stage_listeners:
+            payload = json.dumps(message)
+            for ws in list(stage_listeners[participant_space]):
+                try:
+                    await ws.send_text(payload)
+                except Exception:
+                    stage_listeners[participant_space].discard(ws)
+
     # We can detect the key/type based on either the outer key or the "type" field
     msg_type = message.get("type") if isinstance(message, dict) else None
     if not msg_type and isinstance(message, dict) and message:
@@ -519,7 +619,7 @@ async def live_session(websocket: WebSocket, meeting_id: str):
     # Initial broadcast
     await broadcast_a2ui()
 
-    async with gemini_client.aio.live.connect(model=MODEL, config=config) as session:
+    async with live_client.aio.live.connect(model=MODEL, config=config) as session:
         # Update state on successful connection
         ui_state["status_state"] = "listening"
         ui_state["status_text"] = "Assistant connected — listening"
@@ -939,15 +1039,437 @@ async def create_stage_ticket(space_id: str, request: Request):
     stage_url = f"{request.base_url}main_stage.html?meeting={space_id}&ticket={ticket}"
     return {"ticket": ticket, "stage_url": stage_url}
 
+@app.post("/api/join-code/{session_id}")
+async def create_join_code(session_id: str, request: Request):
+    """Presenter creates a join code for their session.
+    Returns a human-readable code like MEET-ABC123 that participants can use.
+    """
+    await check_producer_auth(request)
+    # Check if this session already has a code
+    existing_code = next((code for code, sid in _join_codes.items() if sid == session_id), None)
+    if existing_code:
+        return {"join_code": existing_code, "session_id": session_id}
+
+    # Generate new code
+    join_code = _generate_join_code()
+    while join_code in _join_codes:  # Avoid collisions (extremely unlikely)
+        join_code = _generate_join_code()
+
+    _join_codes[join_code] = session_id
+    _active_sessions[session_id] = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "participant_count": len(session_participants.get(session_id, set()))
+    }
+    logger.info(f"[join-code] Created {join_code} → session {session_id}")
+    return {"join_code": join_code, "session_id": session_id}
+
+
+@app.get("/api/join-code/{join_code}/resolve")
+async def resolve_join_code(join_code: str):
+    """Participant enters a join code; server returns the session_id.
+    No auth required — codes are ephemeral and participant-safe.
+    """
+    session_id = _join_codes.get(join_code.upper())
+    if not session_id:
+        raise HTTPException(status_code=404, detail=f"Join code '{join_code}' not found or expired")
+    return {"session_id": session_id}
+
+
+@app.get("/api/join/{session_id:path}")
+async def join_session(session_id: str, request: Request, name: str = ""):
+    """Open join endpoint — no STAGE_API_KEY required.
+    Each participant gets a private space for independent navigation.
+    Feedback pools into the shared session_id.
+    Optional ?name= registers a display name for presenter view.
+    """
+    import secrets as _secrets
+    participant_space = f"{session_id}-p{_secrets.token_hex(3)}"
+    ticket = _secrets.token_urlsafe(32)
+    expiry = datetime.now(timezone.utc) + timedelta(hours=4)
+    auth_tickets[ticket] = ("participant", expiry)
+    participant_session[participant_space] = session_id
+    session_participants.setdefault(session_id, set()).add(participant_space)
+    n = session_counters.get(session_id, 0) + 1
+    session_counters[session_id] = n
+    participant_number[participant_space] = n
+    display_name = name.strip() or f"Participant #{n}"
+    participant_names[participant_space] = display_name
+    stage_url = f"{request.base_url}main_stage.html?meeting={participant_space}&ticket={ticket}"
+    logger.info(f"[join] {participant_space} → session {session_id} #{n} name={display_name!r}")
+    return {"ticket": ticket, "stage_url": stage_url,
+            "participant_space": participant_space, "session_id": session_id,
+            "participant_number": n, "display_name": display_name}
+
+
+@app.get("/api/session/{session_id}/status")
+async def get_session_status(session_id: str, request: Request):
+    """Get real-time status of a session: participant count, etc.
+    Presenter uses this to show "N participants joined" feedback.
+    """
+    await check_producer_auth(request)
+    spaces = session_participants.get(session_id, set())
+    return {"session_id": session_id, "participant_count": len(spaces), "participants": list(spaces)}
+
+
+@app.post("/api/session/broadcast/{session_id}/{playbook_name}/{slide_id}")
+async def session_broadcast(session_id: str, playbook_name: str, slide_id: str, request: Request):
+    """Fire a slide to every participant in a session simultaneously."""
+    await check_producer_auth(request)
+    spaces = session_participants.get(session_id, set())
+    if not spaces:
+        raise HTTPException(status_code=404, detail=f"No participants in session '{session_id}'")
+    results = await asyncio.gather(
+        *[fire_playbook_slide_internal(playbook_name, slide_id, s) for s in spaces],
+        return_exceptions=True
+    )
+    fired = sum(1 for r in results if not isinstance(r, Exception))
+    errors = [str(r) for r in results if isinstance(r, Exception)]
+    logger.info(f"[broadcast] {session_id} → {playbook_name}/{slide_id}: {fired}/{len(spaces)} fired")
+    return {"session_id": session_id, "fired": fired, "total": len(spaces), "errors": errors}
+
+
+@app.get("/api/session/participants/{session_id}")
+async def list_session_participants(session_id: str, request: Request):
+    """List participants with name, number, and WebSocket connection status."""
+    await check_producer_auth(request)
+    spaces = session_participants.get(session_id, set())
+    participants = {
+        s: {
+            "connected": len(stage_listeners.get(s, set())) > 0,
+            "number": participant_number.get(s, 0),
+            "name": participant_names.get(s, f"Participant #{participant_number.get(s, '?')}")
+        }
+        for s in spaces
+    }
+    return {"session_id": session_id, "participants": participants,
+            "total": len(spaces), "connected": sum(1 for p in participants.values() if p["connected"])}
+
+
+@app.get("/api/session/{session_id}/active")
+async def check_session_active(session_id: str):
+    """Open endpoint — no auth. Participants poll this to know when presenter has launched."""
+    is_active = session_id in _active_sessions or session_id in session_participants
+    return {"active": is_active,
+            "participant_count": len(session_participants.get(session_id, set()))}
+
+
+_PROMPT_MODEL = "gemini-2.5-flash"
+
+_TEXT_SESSION_TOOLS = [
+    types.Tool(function_declarations=[
+        types.FunctionDeclaration(
+            name="render_stage",
+            description="Render interactive A2UI component panels on the Meet main stage.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "surfaceUpdate": {"type": "OBJECT", "description": "A2UI surfaceUpdate payload with a 'components' array."},
+                    "root": {"type": "string", "description": "ID of the root layout component."},
+                    "dataModelUpdate": {"type": "OBJECT", "description": "Optional A2UI dataModelUpdate for data binding."}
+                },
+                "required": ["surfaceUpdate"]
+            }
+        ),
+        types.FunctionDeclaration(
+            name="clear_stage",
+            description="Clear all A2UI panels from the Meet main stage.",
+            parameters={"type": "OBJECT", "properties": {}}
+        ),
+        types.FunctionDeclaration(
+            name="fire_playbook",
+            description="Fire a specific playbook slide onto the main stage. Use this to display pre-built visual presentations.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "playbook": {"type": "string", "description": "Playbook name (e.g. 'a2ui_catalogue', 'dataviz_demo')."},
+                    "slide": {"type": "string", "description": "Slide ID within the playbook."}
+                },
+                "required": ["playbook", "slide"]
+            }
+        ),
+        types.FunctionDeclaration(
+            name="update_interface",
+            description="Update the side panel UI state.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "status_text": {"type": "string"},
+                    "theme_preset": {"type": "string", "enum": ["default", "matrix", "blueprint", "corporate", "neon", "minimal"]},
+                    "layout": {"type": "string", "enum": ["default", "focus", "minimal", "presentation", "split"]},
+                    "stage_theme": {"type": "boolean"},
+                    "component_visibility": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "transcript": {"type": "boolean"},
+                            "action_links": {"type": "boolean"},
+                            "controls": {"type": "boolean"},
+                        }
+                    }
+                }
+            }
+        ),
+        types.FunctionDeclaration(
+            name="fetch_url",
+            description="Fetch the content of a URL.",
+            parameters={"type": "OBJECT", "properties": {"url": {"type": "string"}}, "required": ["url"]}
+        ),
+    ]),
+    types.Tool(google_search=types.GoogleSearch()),
+]
+
+
+async def text_session(websocket: WebSocket, meeting_id: str):
+    """Playbook-driven text session — no Gemini Live audio. Uses gemini-2.5-flash
+    for agentic tool dispatch (render_stage, fire_playbook, update_interface) driven
+    by typed prompts from the side panel."""
+
+    ui_state = {
+        "status_state": "listening",
+        "status_text": "Studio ready — send a prompt to drive the stage",
+        "authenticated": True,
+        "audioEnabled": False,
+        "videoEnabled": False,
+        "diagramMode": False,
+        "transcriptMode": False,
+        "actionLinks": [],
+        "transcript": [],
+        "theme": THEME_PRESETS["default"],
+        "layout": "default",
+        "visibility": {"transcript": True, "action_links": True, "controls": True, "diagram_refiner": False},
+        "extra_components": []
+    }
+    workspace_user = [""]
+    session_token = [""]
+
+    async def broadcast_a2ui():
+        vis = ui_state.get("visibility", {})
+        components = [
+            {"id": "hero_status", "element": "gdm-status-view", "props": {
+                "state": ui_state["status_state"],
+                "status": ui_state["status_text"],
+                "authenticated": ui_state["authenticated"]
+            }}
+        ]
+        if vis.get("controls", True):
+            components.append({"id": "control_bar", "element": "gdm-controls-view", "props": {
+                "audioEnabled": False, "videoEnabled": False,
+                "diagramMode": False, "transcriptMode": False
+            }})
+        if vis.get("action_links", True) and ui_state["actionLinks"]:
+            components.append({"id": "workspace_links", "element": "gdm-actions-view",
+                                "props": {"actions": ui_state["actionLinks"]}})
+        if vis.get("transcript", True):
+            components.append({"id": "transcript_view", "element": "gdm-transcript-view", "props": {}})
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "A2UI_STATE",
+                "components": components,
+                "theme": ui_state["theme"],
+                "layout": ui_state["layout"]
+            }))
+        except Exception as e:
+            logger.error(f"[text_session] broadcast error: {e}")
+
+    active_sessions[meeting_id] = {
+        "ui_state": ui_state,
+        "broadcast_fn": broadcast_a2ui,
+        "audio_muted": True,
+    }
+    await broadcast_a2ui()
+
+    conversation_history: list[types.Content] = []
+
+    async def dispatch_tool(name: str, args: dict) -> str:
+        if name == "render_stage":
+            surface_update = args.get("surfaceUpdate", {})
+            root_id = (args.get("root") or "").strip()
+            data_model_update = args.get("dataModelUpdate")
+            if not root_id:
+                comps = surface_update.get("components", [])
+                root_id = comps[0].get("id", "root") if comps else "root"
+            errors, warnings = validate_a2ui_surface_detailed(surface_update)
+            if errors:
+                return f"Validation failed: {', '.join(errors)}"
+            comps = surface_update.get("components", [])
+            if root_id and root_id != "root":
+                for comp in comps:
+                    if comp.get("id") == root_id:
+                        comp["id"] = "root"
+            await broadcast_to_stage(meeting_id, {"updateComponents": {"components": comps}})
+            if data_model_update:
+                await broadcast_to_stage(meeting_id, {"updateDataModel": data_model_update})
+            await broadcast_to_stage(meeting_id, {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}})
+            if warnings:
+                logger.warning(f"[text_session] render_stage warnings: {'; '.join(warnings)}")
+            return f"Stage rendered (root='{root_id}', {len(comps)} components)."
+
+        elif name == "clear_stage":
+            await broadcast_to_stage(meeting_id, {"deleteSurface": {}})
+            return "Stage cleared."
+
+        elif name == "fire_playbook":
+            playbook_name = args.get("playbook", "")
+            slide_id = args.get("slide", "")
+            if not playbook_name or not slide_id:
+                return "fire_playbook requires 'playbook' and 'slide'."
+            try:
+                await fire_playbook_slide_internal(playbook_name, slide_id, meeting_id)
+                return f"Fired {playbook_name}/{slide_id}."
+            except HTTPException as e:
+                return f"Playbook error: {e.detail}"
+            except Exception as e:
+                return f"Playbook error: {e}"
+
+        elif name == "update_interface":
+            if "status_text" in args:
+                ui_state["status_text"] = args["status_text"]
+            if "theme_preset" in args and args["theme_preset"] in THEME_PRESETS:
+                ui_state["theme"] = {**ui_state["theme"], **THEME_PRESETS[args["theme_preset"]]}
+            if "layout" in args and args["layout"] in _ALLOWED_LAYOUTS:
+                ui_state["layout"] = args["layout"]
+            if "component_visibility" in args:
+                ui_state.setdefault("visibility", {}).update(
+                    {k: bool(v) for k, v in args["component_visibility"].items() if k in _ALLOWED_VISIBILITY_KEYS}
+                )
+            if args.get("stage_theme"):
+                await broadcast_to_stage(meeting_id, {"type": "theme_change", "tokens": ui_state["theme"]})
+            await broadcast_a2ui()
+            return "UI updated."
+
+        elif name == "fetch_url":
+            return await fetch_url(args.get("url", ""))
+
+        return "Unknown tool."
+
+    try:
+        while True:
+            msg = await websocket.receive()
+            raw_text = msg.get("text")
+            if not raw_text:
+                continue
+            data = json.loads(raw_text)
+
+            if data.get("type") == "init":
+                workspace_user[0] = data.get("user_email", "")
+                session_token[0] = data.get("access_token", "")
+                active_sessions[meeting_id]["user_email"] = workspace_user[0]
+                active_sessions[meeting_id]["access_token"] = session_token[0]
+                logger.info(f"[text_session] init user={workspace_user[0]} space={meeting_id}")
+                if meeting_id not in current_a2ui_surface:
+                    welcome = make_composable_standby_components(
+                        badge="STUDIO MODE",
+                        title="Google Meet Studio",
+                        description="Playbook mode active. Use the prompt panel to drive the stage.",
+                        remaining_seconds=0
+                    )
+                    await broadcast_to_stage(meeting_id, {"updateComponents": {"components": welcome}})
+                    await broadcast_to_stage(meeting_id, {"createSurface": {"catalogId": "gdm-v0.2", "theme": {}}})
+
+            elif data.get("type") == "prompt":
+                prompt_text = data.get("text", "").strip()
+                if not prompt_text or not gemini_client:
+                    continue
+
+                ui_state["status_state"] = "processing"
+                ui_state["status_text"] = "Thinking…"
+                await broadcast_a2ui()
+                await websocket.send_text(json.dumps({
+                    "type": "transcript", "role": "user", "label": "You",
+                    "text": prompt_text, "is_final": True
+                }))
+
+                conversation_history.append(
+                    types.Content(role="user", parts=[types.Part(text=prompt_text)])
+                )
+
+                # Agentic loop — up to 6 turns to allow multi-step tool chaining
+                for _turn in range(6):
+                    response = await gemini_client.aio.models.generate_content(
+                        model=_PROMPT_MODEL,
+                        contents=conversation_history,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            tools=_TEXT_SESSION_TOOLS,
+                            temperature=0.7,
+                        )
+                    )
+                    candidate = response.candidates[0] if response.candidates else None
+                    if not candidate:
+                        break
+
+                    parts = candidate.content.parts if candidate.content else []
+                    fn_calls = [p for p in parts if p.function_call]
+
+                    if fn_calls:
+                        conversation_history.append(candidate.content)
+                        tool_response_parts = []
+                        for p in fn_calls:
+                            fc = p.function_call
+                            result = await dispatch_tool(fc.name, dict(fc.args))
+                            logger.info(f"[text_session] tool {fc.name} → {result[:80]}")
+                            tool_response_parts.append(types.Part(
+                                function_response=types.FunctionResponse(
+                                    name=fc.name, response={"result": result}
+                                )
+                            ))
+                        conversation_history.append(
+                            types.Content(role="user", parts=tool_response_parts)
+                        )
+                        continue
+
+                    # Final text response
+                    text_parts = [p.text for p in parts if getattr(p, "text", None)]
+                    if text_parts:
+                        final_text = " ".join(text_parts)
+                        conversation_history.append(candidate.content)
+                        await websocket.send_text(json.dumps({
+                            "type": "transcript", "role": "agent", "label": "Studio",
+                            "text": final_text, "is_final": True
+                        }))
+                    break
+
+                # Keep history bounded to last 20 turns
+                if len(conversation_history) > 20:
+                    conversation_history = conversation_history[-20:]
+
+                ui_state["status_state"] = "listening"
+                ui_state["status_text"] = "Ready"
+                await broadcast_a2ui()
+
+            elif data.get("type") == "fire_playbook":
+                playbook_name = data.get("playbook", "")
+                slide_id = data.get("slide", "")
+                if playbook_name and slide_id:
+                    try:
+                        await fire_playbook_slide_internal(playbook_name, slide_id, meeting_id)
+                    except Exception as e:
+                        logger.error(f"[text_session] direct fire failed: {e}")
+
+            elif data.get("type") in ("view_change", "sound_event", "layout_event", "focus_panel",
+                                      "emoji_event", "studio_mode_event", "stage_camera_frame",
+                                      "surfaceUpdate", "dataModelUpdate", "beginRendering", "deleteSurface"):
+                await broadcast_to_stage(meeting_id, data)
+
+    except (WebSocketDisconnect, Exception) as e:
+        if not isinstance(e, WebSocketDisconnect):
+            logger.error(f"[text_session] error: {e}")
+    finally:
+        active_sessions.pop(meeting_id, None)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
     # We use a backend-issued Ticket to authenticate the WebSocket handshake
-    ticket_data = auth_tickets.pop(ticket, None)
+    ticket_data = auth_tickets.get(ticket)
     if not ticket_data or ticket_data[1] < datetime.now(timezone.utc):
         logger.warning(f"[ws] handshake rejected: invalid or expired ticket for meeting {meeting_id}")
         await websocket.close(code=1008)
         return
     await websocket.accept()
+    if not MEET_MEDIA or live_client is None:
+        try: await text_session(websocket, meeting_id)
+        except WebSocketDisconnect: pass
+        return
     try: await live_session(websocket, meeting_id)
     except WebSocketDisconnect: pass
 
@@ -1052,9 +1574,12 @@ async def handle_tab_select_action(meeting_id: str, tab_id: str):
 @app.websocket("/ws/stage")
 async def ws_stage_endpoint(websocket: WebSocket, meeting_id: str = "", ticket: str = ""):
     is_local = websocket.client and websocket.client.host in ("127.0.0.1", "localhost")
+    stage_api_key = os.environ.get("STAGE_API_KEY", "").strip()
     ticket_data = auth_tickets.get(ticket)
-    if not is_local and (not ticket_data or ticket_data[1] < datetime.now(timezone.utc)):
-        logger.warning(f"[ws/stage] rejected: invalid or expired ticket")
+    api_key_ok = bool(stage_api_key and ticket.strip() == stage_api_key)
+    ticket_ok = bool(ticket_data and ticket_data[1] >= datetime.now(timezone.utc))
+    if not is_local and not api_key_ok and not ticket_ok:
+        logger.warning(f"[ws/stage] rejected: invalid or expired ticket (api_key_ok={api_key_ok} ticket_ok={ticket_ok} key_len={len(stage_api_key)})")
         await websocket.close(code=1008)
         return
     
@@ -1411,6 +1936,23 @@ async def gemini_mute(space_id: str, request: Request):
     session_data["audio_muted"] = muted
     logger.info(f"[gemini-mute] {space_id} audio_muted={muted}")
     return {"ok": True, "muted": muted}
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": "18.1", "built": _SERVER_START}
+
+@app.get("/api/capabilities")
+async def get_capabilities():
+    """Returns feature flags so the frontend knows what's available.
+    Used by the side panel to suppress Gemini Live UI when not configured.
+    No auth required — safe to call before the OAuth handshake completes.
+    """
+    return {
+        "gemini_live": MEET_MEDIA and live_client is not None,
+        "playbooks": True,
+        "stage": True,
+    }
+
 
 @app.get("/api/session/{meeting_id:path}")
 async def get_session(meeting_id: str, _=Depends(token_required)):
@@ -2580,21 +3122,29 @@ async def fire_playbook_slide_internal(playbook_name: str, slide_id: str, space_
             status_code=404,
             detail=f"Slide '{slide_id}' not found in playbook '{playbook_name}'.")
 
-    # 3. Build the surface. Calling convention: builder(space_id, tick=0).
-    #    Tolerate both sync (demo_poc.py style) and async (yaml_loader style)
-    #    builders, and both 1-arg and 2-arg signatures, during the PoC.
+    # 3. Build the surface. Calling convention: builder(space_id, tick=0, context).
+    #    Try 3-arg (space_id, tick, context) first — context-aware builders get the
+    #    right region sizing for local MeetStudio vs real Meet add-on.
+    #    Fall back to 2-arg then 1-arg for older builders.
     b = slide.builder
+    ctx = _infer_context(space_id)
     try:
         if inspect.iscoroutinefunction(b):
             try:
-                components = await b(space_id, 0)
+                components = await b(space_id, 0, ctx)
             except TypeError:
-                components = await b(space_id)
+                try:
+                    components = await b(space_id, 0)
+                except TypeError:
+                    components = await b(space_id)
         else:
             try:
-                components = b(space_id, 0)
+                components = b(space_id, 0, ctx)
             except TypeError:
-                components = b(space_id) if callable(b) else b
+                try:
+                    components = b(space_id, 0)
+                except TypeError:
+                    components = b(space_id) if callable(b) else b
     except Exception as e:
         raise HTTPException(status_code=500,
                             detail=f"Slide builder failed: {e}")
@@ -2634,6 +3184,16 @@ async def fire_playbook_slide_internal(playbook_name: str, slide_id: str, space_
     })
     logger.info(f"[playbook] fired {playbook_name}/{slide_id} -> {space_id} "
                 f"({len(components)} components, root={root_id})")
+
+    # Update active meeting context so polling clients synchronize automatically
+    try:
+        from playbook_generator import save_playbook_context, get_playbook_context
+        ctx = get_playbook_context(space_id)
+        meeting_title = ctx.get("meeting_title") if ctx else "Local Meeting"
+        pattern = ctx.get("pattern") if ctx else "demo"
+        save_playbook_context(space_id, meeting_title, pattern, playbook_name, slide_id)
+    except Exception as ctx_err:
+        logger.warning(f"[playbook] Failed to update meeting context: {ctx_err}")
 
     # 5. If the slide ticks, start a fresh background loop. Each tick re-calls
     #    the builder with an incrementing tick number; the builder decides
@@ -2767,12 +3327,22 @@ async def gchat_fire_redirect(playbook_name: str, slide_id: str, space_id: str):
 async def fire_playbook_slide(playbook_name: str, slide_id: str, space_id: str,
                               request: Request):
     await check_producer_auth(request)
+    # Auto-broadcast if space_id is a session with registered participants
+    if space_id in session_participants and session_participants[space_id]:
+        spaces = session_participants[space_id]
+        results = await asyncio.gather(
+            *[fire_playbook_slide_internal(playbook_name, slide_id, s) for s in spaces],
+            return_exceptions=True
+        )
+        fired = sum(1 for r in results if not isinstance(r, Exception))
+        return {"status": "fired", "playbook": playbook_name, "slide": slide_id,
+                "broadcast": True, "fired": fired, "total": len(spaces)}
     return await fire_playbook_slide_internal(playbook_name, slide_id, space_id)
 
 
 # ── Catalogue star/favourite endpoint ────────────────────────────────────────
 
-_STARS_FILE = "/home/curtis/a2ui-catalogue/starred.json"
+_STARS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "catalogue", "starred.json")
 
 def _load_stars() -> set:
     try:
@@ -2811,6 +3381,13 @@ async def catalogue_star_get(atom_type: str, slide_id: str, space_id: str):
     logger.info(f"[catalogue] star toggled: {atom_type} ({'★' if atom_type in stars else '☆'}) — {len(stars)} total")
     return await fire_playbook_slide_internal("a2ui_catalogue", slide_id, space_id)
 
+@app.get("/api/playbook/list")
+async def list_available_playbooks(request: Request):
+    """List all registered playbooks."""
+    await check_producer_auth(request)
+    from playbooks.manager import playbook_manager
+    return {"playbooks": playbook_manager.list_playbooks()}
+
 
 @app.get("/api/playbook/list/{playbook_name}")
 async def list_playbook_slides(playbook_name: str, request: Request):
@@ -2831,6 +3408,384 @@ async def list_playbook_slides(playbook_name: str, request: Request):
             for s in slides
         ],
     }
+
+
+@app.get("/yt-test", include_in_schema=False)
+async def yt_test_page():
+    """Bare YouTube embed test — bypasses all A2UI. Open this directly in browser."""
+    html = """<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;}
+iframe{width:80vw;height:80vh;border:none;}
+</style></head><body>
+<iframe src="https://www.youtube.com/embed/DnGvNgftRGQ?autoplay=0&mute=1&playsinline=1&rel=0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowfullscreen></iframe>
+</body></html>"""
+    resp = HTMLResponse(content=html)
+    resp.headers["Content-Security-Policy"] = "default-src 'self'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; script-src 'none';"
+    resp.headers["Permissions-Policy"] = "autoplay=*, encrypted-media=*, fullscreen=*"
+    return resp
+
+
+@app.get("/api/youtube/grid/{space_id:path}", include_in_schema=False)
+async def youtube_grid_page(space_id: str, response: Response):
+    """Serve the 4-grid YouTube HTML page directly (not sandboxed)."""
+    import re as _re
+
+    def _to_embed(src: str) -> str:
+        if not src:
+            return ""
+        m = _re.search(r"youtu\.be/([A-Za-z0-9_-]{11})", src)
+        if m:
+            return f"https://www.youtube.com/embed/{m.group(1)}?rel=0&modestbranding=1"
+        m = _re.search(r"[?&]v=([A-Za-z0-9_-]{11})", src)
+        if m:
+            return f"https://www.youtube.com/embed/{m.group(1)}?rel=0&modestbranding=1"
+        if "youtube.com/embed/" in src:
+            return src
+        return src
+
+    feeds = youtube_feeds.get(space_id, {
+        "tl": "https://youtu.be/LWGJA9i18Co",
+        "tr": "https://youtu.be/LWGJA9i18Co",
+        "bl": "https://youtu.be/LWGJA9i18Co",
+        "br": "https://youtu.be/LWGJA9i18Co",
+    })
+
+    labels = {
+        "tl": ("Feed 1", "#00f2ff"),
+        "tr": ("Feed 2", "#9b6dff"),
+        "bl": ("Feed 3", "#00ff88"),
+        "br": ("Feed 4", "#ff3366"),
+    }
+
+    cells = ""
+    for pos, (label, color) in labels.items():
+        embed = _to_embed(feeds.get(pos, ""))
+        iframe_html = (
+            f'<iframe src="{embed}" '
+            'allow="accelerometer; autoplay; clipboard-write; encrypted-media; '
+            'gyroscope; picture-in-picture" allowfullscreen></iframe>'
+            if embed else '<div class="empty">📺 No feed</div>'
+        )
+        cells += f'<div class="cell" style="border-color:{color}44"><div class="lbl" style="color:{color}">{label}</div>{iframe_html}</div>'
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+html,body{{width:100%;height:100%;background:#08090f;overflow:hidden}}
+.grid{{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;padding:10px;width:100%;height:100%}}
+.cell{{display:flex;flex-direction:column;border:1px solid;border-radius:6px;overflow:hidden;background:#05080f}}
+.lbl{{flex-shrink:0;font:600 10px/1 -apple-system,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;background:rgba(0,0,0,.6)}}
+iframe{{flex:1;width:100%;border:none;min-height:0}}
+.empty{{flex:1;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.3);font:13px sans-serif}}
+</style></head><body><div class="grid">{cells}</div></body></html>"""
+
+    resp = HTMLResponse(content=html)
+    # Override CSP for this page to allow YouTube iframes
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self' blob: data:; "
+        "script-src 'self' blob: data: https://*.youtube.com https://*.ytimg.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "frame-src https://www.youtube.com https://www.youtube-nocookie.com; "
+        "img-src * data: blob:; "
+        "connect-src 'self' https://*.youtube.com; "
+        "font-src 'self' data:;"
+    )
+    return resp
+
+
+@app.api_route("/api/room/respond/{response_type}/{space_id:path}", methods=["GET","POST"], include_in_schema=False)
+async def room_respond(response_type: str, space_id: str, topic: str = ""):
+    """Record audience feedback. Resolves participant space → session pool."""
+    if response_type not in ("ready", "question"):
+        raise HTTPException(status_code=400, detail="Invalid response type")
+    session_id = participant_session.get(space_id, space_id)
+    room_feedback.setdefault(session_id, []).append({"type": response_type, "topic": topic})
+    logger.info(f"[room] {space_id} → session {session_id}: {response_type}/{topic}")
+    return await fire_playbook_slide_internal("read_the_room", "feedback", space_id)
+
+
+@app.api_route("/api/room/reset/{session_id:path}", methods=["GET","POST"], include_in_schema=False)
+async def room_reset(session_id: str):
+    """Reset feedback for a session and re-fire cover to all participants."""
+    room_feedback[session_id] = []
+    logger.info(f"[room] reset session {session_id}")
+    # Broadcast cover to all participants if it's a session
+    if session_id in session_participants and session_participants[session_id]:
+        await asyncio.gather(*[
+            fire_playbook_slide_internal("read_the_room", "cover", s)
+            for s in session_participants[session_id]
+        ], return_exceptions=True)
+        return {"status": "reset", "session": session_id}
+    return await fire_playbook_slide_internal("read_the_room", "cover", session_id)
+
+
+@app.get("/api/room/feedback/{space_id:path}", include_in_schema=False)
+async def get_room_feedback(space_id: str):
+    """Return aggregated feedback for a space."""
+    responses = room_feedback.get(space_id, [])
+    ready = sum(1 for r in responses if r["type"] == "ready")
+    questions = [r for r in responses if r["type"] == "question"]
+    topic_counts: dict = {}
+    for q in questions:
+        topic_counts[q["topic"]] = topic_counts.get(q["topic"], 0) + 1
+    return {
+        "total": len(responses),
+        "ready": ready,
+        "questions": len(questions),
+        "topics": sorted(topic_counts.items(), key=lambda x: -x[1]),
+    }
+
+
+@app.api_route("/api/room/format/{action}/{space_id:path}", methods=["GET", "POST"], include_in_schema=False)
+async def format_demo_atom(action: str, space_id: str):
+    """Mutate per-space format state and re-fire a2ui_explainer/try_it.
+    Used by the interactive code+preview demo slide.
+    Actions: size_up, size_down, cyan, purple, green, white, bold, italic, reset
+    """
+    SIZE_STEPS = ["16px", "20px", "24px", "28px", "32px", "40px", "48px", "56px", "64px"]
+    state = {**_FORMAT_DEFAULTS, **_FORMAT_STATE.get(space_id, {})}
+    if action == "size_up":
+        idx = SIZE_STEPS.index(state["size"]) if state["size"] in SIZE_STEPS else 4
+        state["size"] = SIZE_STEPS[min(idx + 1, len(SIZE_STEPS) - 1)]
+    elif action == "size_down":
+        idx = SIZE_STEPS.index(state["size"]) if state["size"] in SIZE_STEPS else 4
+        state["size"] = SIZE_STEPS[max(idx - 1, 0)]
+    elif action == "cyan":   state["color"] = "#00f2ff"
+    elif action == "purple": state["color"] = "#9b6dff"
+    elif action == "green":  state["color"] = "#00ff88"
+    elif action == "white":  state["color"] = "#f1f5f9"
+    elif action == "bold":   state["weight"] = "900" if state["weight"] != "900" else "400"
+    elif action == "italic": state["style"] = "italic" if state["style"] != "italic" else "normal"
+    elif action == "reset":  state = {**_FORMAT_DEFAULTS}
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown format action: {action}")
+    state["last_action"] = action
+    _FORMAT_STATE[space_id] = state
+    logger.info(f"[format] {space_id} action={action} state={state}")
+    return await fire_playbook_slide_internal("a2ui_explainer", "try_it", space_id)
+
+
+@app.api_route("/api/room/view/{source_session}/{presenter_space}", methods=["GET","POST"], include_in_schema=False)
+async def room_view_private(source_session: str, presenter_space: str):
+    """Fire read_the_room to presenter_space reading data from source_session.
+    Audience stays on their slide; presenter sees results privately."""
+    _room_view_source[presenter_space] = source_session
+    return await fire_playbook_slide_internal("read_the_room", "room", presenter_space)
+
+
+@app.api_route("/api/youtube/toggle/{position}/{space_id:path}", methods=["GET","POST"], include_in_schema=False)
+async def toggle_youtube_feed(position: str, space_id: str):
+    """Toggle a feed on/off and re-fire the config slide."""
+    if position not in ("tl", "tr", "bl", "br"):
+        raise HTTPException(status_code=400, detail="Invalid position")
+    active = youtube_active.get(space_id, {"tl", "tr", "bl", "br"})
+    active = set(active)
+    if position in active:
+        active.discard(position)
+    else:
+        active.add(position)
+    youtube_active[space_id] = active
+    logger.info(f"[youtube] toggled {position} for {space_id}: {active}")
+    return await fire_playbook_slide_internal("youtube_4grid", "config", space_id)
+
+
+@app.get("/api/youtube/feeds/{space_id:path}")
+async def get_youtube_feeds_endpoint(space_id: str, request: Request):
+    """Get configured YouTube feed URLs for a space."""
+    await check_producer_auth(request)
+    return {"space_id": space_id, "feeds": get_youtube_feeds(space_id)}
+
+
+@app.post("/api/youtube/feeds/{space_id:path}")
+async def set_youtube_feeds(space_id: str, feeds: dict = Body(...), request: Request = None):
+    """Set YouTube feed URLs for a space. Only updates provided fields."""
+    global youtube_feeds
+    # Get existing feeds or defaults
+    existing = youtube_feeds.get(space_id, {
+        "tl": "https://youtu.be/kffacxfA7g4",
+        "tr": "https://youtu.be/9bZkp7q19f0",
+        "bl": "https://youtu.be/kJQP7kiw9Fk",
+        "br": "https://youtu.be/ZXsQAXx_ao0"
+    })
+    # Only update fields that are provided and non-empty
+    for key in ("tl", "tr", "bl", "br"):
+        if key in feeds and feeds[key]:
+            existing[key] = feeds[key]
+    youtube_feeds[space_id] = existing
+    _save_feeds_to_disk(youtube_feeds)
+    logger.info(f"[youtube] Updated feeds for {space_id}: {existing}")
+    return {"status": "ok", "feeds": youtube_feeds[space_id]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Title-Driven Playbook Generator (Meeting Title → Runbook → Playbook)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/playbook/from-title/{space_id:path}")
+async def playbook_from_title(space_id: str, request: Request, body: dict = Body(...)):
+    """Match meeting title to a runbook pattern and fire the base playbook.
+
+    Request body:
+    {
+        "meeting_title": "Finance Review Q3"
+    }
+
+    Response:
+    {
+        "pattern": "data",
+        "playbook_name": "dataviz_demo",
+        "first_slide": "hero",
+        "space_id": "default"
+    }
+    """
+    await check_producer_auth(request)
+    from playbook_generator import match_title_to_pattern, get_playbook_template
+
+    meeting_title = body.get("meeting_title", "").strip()
+    if not meeting_title:
+        raise HTTPException(400, "meeting_title is required")
+
+    # Match title to pattern
+    pattern_key, pattern_info = await match_title_to_pattern(meeting_title)
+    playbook_name, first_slide_id = get_playbook_template(pattern_key)
+
+    # Fire the base playbook
+    try:
+        await fire_playbook_slide_internal(playbook_name, first_slide_id, space_id)
+        logger.info(f"[from-title] Loaded {pattern_key} pattern ({playbook_name}/{first_slide_id}) for: {meeting_title}")
+    except Exception as e:
+        logger.error(f"[from-title] Failed to fire playbook: {e}")
+        raise HTTPException(500, f"Failed to fire playbook: {e}")
+
+    # Save context for this meeting
+    from playbook_generator import save_playbook_context
+    save_playbook_context(space_id, meeting_title, pattern_key, playbook_name, first_slide_id)
+
+    return {
+        "pattern": pattern_key,
+        "pattern_name": pattern_info["name"],
+        "playbook_name": playbook_name,
+        "first_slide": first_slide_id,
+        "space_id": space_id,
+    }
+
+
+@app.post("/api/playbook/refine/{space_id:path}")
+async def refine_playbook_prompt(space_id: str, request: Request, body: dict = Body(...)):
+    """Refine the current playbook based on a user prompt, dynamically build and
+    register the refined slide, and immediately fire it to the stage."""
+    await check_producer_auth(request)
+    from playbook_generator import refine_playbook_from_prompt
+
+    prompt = body.get("prompt", "").strip()
+    current_template = body.get("current_template", "").strip()
+    current_slide = body.get("current_slide", "cover").strip()
+
+    if not prompt or not current_template:
+        raise HTTPException(400, "prompt and current_template are required")
+
+    # Refine
+    refinement = await refine_playbook_from_prompt(
+        current_template=current_template,
+        current_slide_id=current_slide,
+        user_prompt=prompt,
+        space_id=space_id
+    )
+
+    if not refinement:
+        raise HTTPException(500, "Failed to refine playbook")
+
+    logger.info(f"[refine] {current_template} → {refinement.get('action')}: {refinement.get('description')}")
+
+    # Build and fire the refined slide dynamically to close the loop
+    atoms = refinement.get("atoms", [])
+    if atoms:
+        try:
+            from playbooks.manager import Slide, playbook_manager
+            from renderers.web_article import render as wa_render
+            import time
+
+            _CSS = (
+                "<style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}"
+                "html,body{width:100%;height:100%;background:#111827;color:#f3f4f6;"
+                "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+                "overflow:auto;padding:16px;}</style>"
+            )
+            html_content = _CSS + "".join(wa_render([{**d}]) for d in atoms)
+
+            def builder(space_id, tick=0):
+                footer = ["btn_back", "lbl"]
+                comps = [
+                    {"id": "root", "component": "gdm-stage-grid", "layout": "hero", "children": ["wrap"]},
+                    {"id": "wrap", "component": "gdm-container", "direction": "column", "grow": 1,
+                     "width": "100%", "height": "100%", "children": ["panel", "ftr"]},
+                    {"id": "panel", "component": "gdm-html-panel", "html": html_content, "version": tick + 1},
+                    {"id": "ftr", "component": "gdm-container", "direction": "row", "align": "center",
+                     "justify": "center", "padding": "6px 16px", "gap": "10px", "shrink": 0, "children": footer},
+                    {"id": "btn_back", "component": "gdm-button", "text": "⬡ Back", "action": {"functionCall": {"call": "fireEndpoint", "args": {"endpoint": f"/api/playbook/fire/{current_template}/cover/{space_id}"}}}},
+                    {"id": "lbl", "component": "gdm-text", "content": "Refined slide", "size": "11px", "color": "#9ca3af"},
+                ]
+                return comps
+
+            # Generate a unique slide_id
+            refined_slide_id = f"refined_{int(time.time())}"
+
+            new_slide = Slide(
+                slide_id=refined_slide_id,
+                label=refinement.get("description", "Refined Slide")[:30],
+                builder=builder,
+                notes=refinement.get("description", "Refined via prompt"),
+                ticks=False
+            )
+
+            if current_template not in playbook_manager._playbooks:
+                playbook_manager._playbooks[current_template] = {}
+            playbook_manager._playbooks[current_template][refined_slide_id] = new_slide
+
+            # Update the meeting context so the current_slide points to the new refined slide!
+            from playbook_generator import save_playbook_context, get_playbook_context
+            ctx = get_playbook_context(space_id)
+            meeting_title = ctx.get("meeting_title") if ctx else "Refined Meeting"
+            pattern = ctx.get("pattern") if ctx else "data"
+            save_playbook_context(space_id, meeting_title, pattern, current_template, refined_slide_id)
+
+            # Fire it!
+            await fire_playbook_slide_internal(current_template, refined_slide_id, space_id)
+            refinement["slide_id"] = refined_slide_id
+
+        except Exception as e:
+            logger.error(f"[refine] Failed to build/fire refined slide: {e}")
+            raise HTTPException(500, f"Playbook refined but failed to fire slide to stage: {e}")
+
+    return refinement
+
+
+@app.get("/api/playbook/context/{space_id:path}")
+async def get_playbook_context(space_id: str):
+    """Get the current playbook context for a meeting space.
+
+    Returns:
+    {
+        "meeting_title": "Q2 Finance Review",
+        "pattern": "data",
+        "playbook_name": "dataviz_demo",
+        "current_slide": "hero"
+    }
+    """
+    from playbook_generator import get_playbook_context
+
+    ctx = get_playbook_context(space_id)
+    if not ctx:
+        return {
+            "meeting_title": None,
+            "pattern": None,
+            "playbook_name": None,
+            "current_slide": None
+        }
+
+    return ctx
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3463,7 +4418,13 @@ async def draft_playbook_from_doc(
 
     # Call Gemini with the doc→YAML system prompt
     if not yaml_str:
-        yaml_str = await _draft_yaml_via_gemini(markdown_content, pdf_bytes=pdf_bytes_content)
+        try:
+            yaml_str = await _draft_yaml_via_gemini(markdown_content, pdf_bytes=pdf_bytes_content)
+        except Exception as e:
+            err_str = str(e)
+            if "PERMISSION_DENIED" in err_str or "SERVICE_DISABLED" in err_str:
+                raise HTTPException(503, f"Gemini API not available: {err_str[:200]}")
+            raise HTTPException(500, f"Gemini draft failed: {err_str[:200]}")
 
     # Validate it parses
     import yaml as yaml_mod
@@ -3736,10 +4697,1037 @@ async def gchat_webhook(request: Request):
     return {"actionResponse": {"type": "OK"}}
 
 
+@app.get("/presenter_control.js")
+async def presenter_control_js():
+    js_content = """const pathParts = window.location.pathname.split('/');
+const spaceId = decodeURIComponent(pathParts[pathParts.length - 1] || 'default');
+const params = new URLSearchParams(window.location.search);
+const ticket = params.get('ticket') || '';
+
+let loadedPlaybook = '';
+let loadedSlides = [];
+let prevSlideId = null;
+let nextSlideId = null;
+
+const playbookSelect = document.getElementById('playbook-select');
+const slidesButtons = document.getElementById('slides-buttons');
+const btnPrevSlide = document.getElementById('btn-prev-slide');
+const btnNextSlide = document.getElementById('btn-next-slide');
+const promptInput = document.getElementById('prompt-input');
+const promptSend = document.getElementById('prompt-send');
+const statusConsole = document.getElementById('status-console');
+
+function logToConsole(msg, type = 'info') {
+    const p = document.createElement('div');
+    if (type === 'error') p.className = 'console-error';
+    if (type === 'warn') p.className = 'console-warning';
+    p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    statusConsole.appendChild(p);
+    statusConsole.scrollTop = statusConsole.scrollHeight;
+}
+
+async function loadPlaybooksList() {
+    try {
+        const response = await fetch(`/api/playbook/list?ticket=${encodeURIComponent(ticket)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const playbooks = data.playbooks || [];
+        
+        playbookSelect.innerHTML = '<option value="">-- Select Playbook --</option>';
+        playbooks.forEach(pb => {
+            const opt = document.createElement('option');
+            opt.value = pb;
+            opt.textContent = pb;
+            playbookSelect.appendChild(opt);
+        });
+        if (loadedPlaybook) playbookSelect.value = loadedPlaybook;
+    } catch (err) {
+        logToConsole(`Failed to load playbooks list: ${err.message}`, 'error');
+    }
+}
+
+function updateNavigationButtons(activeSlideId) {
+    if (!activeSlideId || loadedSlides.length === 0) {
+        btnPrevSlide.disabled = true;
+        btnNextSlide.disabled = true;
+        prevSlideId = null;
+        nextSlideId = null;
+        return;
+    }
+    const activeIndex = loadedSlides.findIndex(s => s.slide_id === activeSlideId);
+    if (activeIndex === -1) {
+        btnPrevSlide.disabled = true;
+        btnNextSlide.disabled = true;
+        prevSlideId = null;
+        nextSlideId = null;
+        return;
+    }
+    if (activeIndex > 0) {
+        btnPrevSlide.disabled = false;
+        prevSlideId = loadedSlides[activeIndex - 1].slide_id;
+    } else {
+        btnPrevSlide.disabled = true;
+        prevSlideId = null;
+    }
+    if (activeIndex < loadedSlides.length - 1) {
+        btnNextSlide.disabled = false;
+        nextSlideId = loadedSlides[activeIndex + 1].slide_id;
+    } else {
+        btnNextSlide.disabled = true;
+        nextSlideId = null;
+    }
+}
+
+async function fireSlide(playbookName, slideId) {
+    logToConsole(`Firing slide ${playbookName}/${slideId}...`);
+    try {
+        const response = await fetch(`/api/playbook/fire/${encodeURIComponent(playbookName)}/${encodeURIComponent(slideId)}/${encodeURIComponent(spaceId)}?ticket=${encodeURIComponent(ticket)}`, {
+            method: 'POST'
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        logToConsole(`✓ Fired slide: ${slideId}`);
+    } catch (err) {
+        logToConsole(`Fire slide failed: ${err.message}`, 'error');
+    }
+}
+
+async function loadPlaybookSlides(playbookName, activeSlideId = null) {
+    loadedPlaybook = playbookName;
+    if (playbookSelect.value !== playbookName) playbookSelect.value = playbookName;
+    slidesButtons.innerHTML = '<span class="placeholder-text">Loading slides...</span>';
+
+    try {
+        const response = await fetch(`/api/playbook/list/${encodeURIComponent(playbookName)}?ticket=${encodeURIComponent(ticket)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        loadedSlides = data.slides || [];
+        
+        slidesButtons.innerHTML = '';
+        if (loadedSlides.length === 0) {
+            slidesButtons.innerHTML = '<span class="placeholder-text">No slides in this playbook</span>';
+            updateNavigationButtons(activeSlideId);
+            return;
+        }
+
+        loadedSlides.forEach(slide => {
+            const div = document.createElement('div');
+            div.className = 'slide-tile';
+            if (activeSlideId && slide.slide_id === activeSlideId) div.classList.add('active');
+            div.setAttribute('data-slide-id', slide.slide_id);
+
+            div.innerHTML = `
+                <div class="slide-info">
+                    <span class="slide-label">${slide.label || slide.slide_id}</span>
+                    <span class="slide-notes">${slide.notes || ''}</span>
+                </div>
+                <div class="slide-trigger-indicator">▶</div>
+            `;
+
+            div.addEventListener('click', () => {
+                fireSlide(playbookName, slide.slide_id);
+            });
+            slidesButtons.appendChild(div);
+        });
+        updateNavigationButtons(activeSlideId);
+    } catch (err) {
+        logToConsole(`Failed to load slides: ${err.message}`, 'error');
+        slidesButtons.innerHTML = '<span class="placeholder-text error">Error loading slides</span>';
+        loadedSlides = [];
+        updateNavigationButtons(activeSlideId);
+    }
+}
+
+btnPrevSlide.addEventListener('click', () => {
+    if (prevSlideId && loadedPlaybook) fireSlide(loadedPlaybook, prevSlideId);
+});
+btnNextSlide.addEventListener('click', () => {
+    if (nextSlideId && loadedPlaybook) fireSlide(loadedPlaybook, nextSlideId);
+});
+playbookSelect.addEventListener('change', () => {
+    const val = playbookSelect.value;
+    if (val) loadPlaybookSlides(val);
+    else {
+        loadedPlaybook = '';
+        loadedSlides = [];
+        slidesButtons.innerHTML = '<span class="placeholder-text">Select a playbook to view slides</span>';
+        updateNavigationButtons(null);
+    }
+});
+
+async function sendPrompt() {
+    const prompt = promptInput.value.trim();
+    if (!prompt) return;
+    logToConsole(`Refining playbook: "${prompt}"...`);
+
+    try {
+        let ctxPlaybook = document.getElementById('context-playbook').textContent || '';
+        ctxPlaybook = ctxPlaybook.trim();
+        let template = 'patterns';
+        let slideId = 'cover';
+
+        if (ctxPlaybook && ctxPlaybook !== '—') {
+            const parts = ctxPlaybook.split('/');
+            template = parts[0]?.trim() || 'patterns';
+            slideId = parts[1]?.trim() || 'cover';
+        } else if (playbookSelect && playbookSelect.value) {
+            template = playbookSelect.value;
+        }
+
+        if (template === '—') {
+            template = playbookSelect && playbookSelect.value ? playbookSelect.value : 'patterns';
+        }
+
+        const response = await fetch(`/api/playbook/refine/${encodeURIComponent(spaceId)}?ticket=${encodeURIComponent(ticket)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt,
+                current_template: template,
+                current_slide: slideId
+            })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        logToConsole(`✓ Dynamic slide created and fired: ${data.description || 'Refined slide'}`);
+        promptInput.value = '';
+    } catch (err) {
+        logToConsole(`Refinement failed: ${err.message}`, 'error');
+    }
+}
+
+promptSend.addEventListener('click', sendPrompt);
+promptInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        sendPrompt();
+    }
+});
+
+document.querySelectorAll('.suggestion-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+        promptInput.value = chip.getAttribute('data-prompt');
+        sendPrompt();
+    });
+});
+
+setInterval(async () => {
+    try {
+        const response = await fetch(`/api/playbook/context/${encodeURIComponent(spaceId)}`);
+        if (response.ok) {
+            const ctx = await response.json();
+            document.getElementById('context-title').textContent = ctx.meeting_title || 'No active meeting';
+            
+            const patternMap = {
+                sprint: '🏃 Sprint Review',
+                arch: '🏗️ Architecture',
+                demo: '🚀 Demo/Launch',
+                standup: '👥 Team Standup',
+                tech: '⚙️ Technical Brief',
+                data: '📊 Data Review'
+            };
+            document.getElementById('context-pattern').textContent = patternMap[ctx.pattern] || ctx.pattern || '—';
+            document.getElementById('context-playbook').textContent = ctx.playbook_name ? `${ctx.playbook_name}/${ctx.current_slide}` : '—';
+
+            if (ctx.playbook_name) {
+                if (ctx.playbook_name !== loadedPlaybook) {
+                    await loadPlaybookSlides(ctx.playbook_name, ctx.current_slide);
+                } else {
+                    const tiles = slidesButtons.querySelectorAll('.slide-tile');
+                    tiles.forEach(tile => {
+                        const sId = tile.getAttribute('data-slide-id');
+                        if (sId === ctx.current_slide) tile.classList.add('active');
+                        else tile.classList.remove('active');
+                    });
+                    updateNavigationButtons(ctx.current_slide);
+                }
+            }
+        }
+    } catch (err) {
+        // ignore polling errors
+    }
+}, 2000);
+
+function setupWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/stage?meeting_id=${encodeURIComponent(spaceId)}&ticket=${encodeURIComponent(ticket)}`;
+    logToConsole(`Connecting to stage telemetry stream...`);
+
+    const wsStatus = document.getElementById('ws-status');
+    const wsDot = document.getElementById('ws-dot');
+    const renderStatus = document.getElementById('render-status');
+    const renderDot = document.getElementById('render-dot');
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        logToConsole('✓ Stage telemetry stream connected');
+        wsStatus.textContent = 'Online';
+        wsDot.className = 'status-dot status-online';
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg.error) {
+                logToConsole(`⚠️ Stage Error: ${msg.error.message || JSON.stringify(msg.error)}`, 'error');
+                renderStatus.textContent = 'Error';
+                renderDot.className = 'status-dot status-offline';
+            } else if (msg.updateComponents || msg.createSurface) {
+                renderStatus.textContent = 'Rendering';
+                renderDot.className = 'status-dot status-rendering';
+                setTimeout(() => {
+                    if (renderStatus.textContent === 'Rendering') {
+                        renderStatus.textContent = 'Active';
+                        renderDot.className = 'status-dot status-online';
+                    }
+                }, 1200);
+            }
+        } catch (e) {
+            // parsing error ignore
+        }
+    };
+
+    ws.onclose = () => {
+        logToConsole('⚠️ Stage telemetry stream disconnected, retrying...', 'warn');
+        wsStatus.textContent = 'Offline';
+        wsDot.className = 'status-dot status-offline';
+        renderStatus.textContent = 'Idle';
+        renderDot.className = 'status-dot status-offline';
+        setTimeout(setupWebSocket, 3000);
+    };
+}
+
+// Live Presentation Timer logic
+let timerSeconds = 0;
+let timerInterval = null;
+const timerEl = document.getElementById('presenter-timer');
+const resetTimerBtn = document.getElementById('reset-timer');
+
+function updateTimerDisplay() {
+    const hrs = String(Math.floor(timerSeconds / 3600)).padStart(2, '0');
+    const mins = String(Math.floor((timerSeconds % 3600) / 60)).padStart(2, '0');
+    const secs = String(timerSeconds % 60).padStart(2, '0');
+    timerEl.textContent = `${hrs}:${mins}:${secs}`;
+}
+
+function startTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        timerSeconds++;
+        updateTimerDisplay();
+    }, 1000);
+}
+
+resetTimerBtn.addEventListener('click', () => {
+    timerSeconds = 0;
+    updateTimerDisplay();
+    logToConsole('Presenter clock timer reset');
+});
+
+// Keyboard shortcut navigation (Left / Right arrow keys & Spacebar)
+document.addEventListener('keydown', (e) => {
+    // Ignore shortcuts when user is typing in inputs or textareas
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
+        return;
+    }
+
+    if (e.key === 'ArrowRight' || e.key === ' ') {
+        // Go to next slide
+        if (nextSlideId && loadedPlaybook) {
+            e.preventDefault();
+            logToConsole('[Shortcut] Advancing to next slide...');
+            fireSlide(loadedPlaybook, nextSlideId);
+        }
+    } else if (e.key === 'ArrowLeft') {
+        // Go to previous slide
+        if (prevSlideId && loadedPlaybook) {
+            e.preventDefault();
+            logToConsole('[Shortcut] Going back to previous slide...');
+            fireSlide(loadedPlaybook, prevSlideId);
+        }
+    }
+});
+
+// YouTube Configuration
+async function loadYouTubeFeeds() {
+    try {
+        const response = await fetch(`/api/youtube/feeds/${encodeURIComponent(spaceId)}`);
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('yt-feed-tl').value = data.feeds.tl || '';
+            document.getElementById('yt-feed-tr').value = data.feeds.tr || '';
+            document.getElementById('yt-feed-bl').value = data.feeds.bl || '';
+            document.getElementById('yt-feed-br').value = data.feeds.br || '';
+        }
+    } catch (err) {
+        logToConsole('Failed to load YouTube feeds: ' + err.message, 'warn');
+    }
+}
+
+async function saveYouTubeFeeds() {
+    // Helper to clean YouTube URLs (strip query params like ?si=...)
+    const cleanYouTubeUrl = (url) => {
+        if (!url) return '';
+        const match = url.match(/https:\/\/youtu\.be\/([a-zA-Z0-9_-]+)/);
+        return match ? `https://youtu.be/${match[1]}` : url;
+    };
+
+    const feeds = {};
+    const tl = cleanYouTubeUrl(document.getElementById('yt-feed-tl').value);
+    const tr = cleanYouTubeUrl(document.getElementById('yt-feed-tr').value);
+    const bl = cleanYouTubeUrl(document.getElementById('yt-feed-bl').value);
+    const br = cleanYouTubeUrl(document.getElementById('yt-feed-br').value);
+
+    if (tl) feeds.tl = tl;
+    if (tr) feeds.tr = tr;
+    if (bl) feeds.bl = bl;
+    if (br) feeds.br = br;
+
+    if (!Object.keys(feeds).length) {
+        logToConsole('At least one feed URL is required', 'warn');
+        return;
+    }
+
+    try {
+        logToConsole('Saving YouTube feed configuration...');
+        const response = await fetch(`/api/youtube/feeds/${encodeURIComponent(spaceId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(feeds)
+        });
+        if (response.ok) {
+            logToConsole('✓ YouTube feeds saved. Fire youtube_4grid/grid to apply.');
+            // Reload the feeds to show what's now stored
+            await loadYouTubeFeeds();
+        } else {
+            throw new Error(`HTTP ${response.status}`);
+        }
+    } catch (err) {
+        logToConsole('Failed to save feeds: ' + err.message, 'error');
+    }
+}
+
+document.getElementById('yt-save-feeds').addEventListener('click', saveYouTubeFeeds);
+document.getElementById('yt-save-fire').addEventListener('click', async () => {
+    await saveYouTubeFeeds();
+    await fireSlide('youtube_4grid', 'grid');
+    logToConsole('✓ Feeds saved and grid fired to stage');
+});
+
+// Start subsystems
+startTimer();
+loadPlaybooksList();
+loadYouTubeFeeds();
+setupWebSocket();"""
+    return FastAPIResponse(content=js_content, media_type="application/javascript")
+
+
 # SPA-fallback GET catch-all — explicitly 404s any unmatched api/* path,
 # otherwise serves the requested file from dist/ or falls back to index.html.
 # Placed near the end so api/* GET endpoints registered above (e.g. the
 # playbook list endpoint) win before this catch-all gets a chance.
+@app.get("/presenter/{space_id:path}")
+async def presenter_dashboard(space_id: str, request: Request):
+    """Serve a beautiful, premium standalone Presenter Dashboard page."""
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meet Studio — Standalone Presenter Dashboard</title>
+    <style>
+        :root {
+            --bg-base: #0a0d16;
+            --bg-card: rgba(18, 22, 35, 0.7);
+            --border-glow: rgba(0, 242, 255, 0.15);
+            --accent-cyan: #00f2ff;
+            --accent-purple: #9b6dff;
+            --accent-green: #00ff88;
+            --accent-red: #ff3366;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Topbar styling */
+        .topbar {
+            height: 64px;
+            background: rgba(10, 13, 22, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .topbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .topbar-logo {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-transform: uppercase;
+        }
+
+        .topbar-badge {
+            background: rgba(0, 242, 255, 0.1);
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Telemetry Status grid */
+        .telemetry-grid {
+            display: flex;
+            gap: 20px;
+        }
+
+        .telemetry-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .telemetry-label {
+            color: var(--text-secondary);
+        }
+
+        .telemetry-value {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-online { background-color: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+        .status-offline { background-color: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+        .status-rendering { background-color: var(--accent-purple); box-shadow: 0 0 8px var(--accent-purple); animation: pulse 1.5s infinite; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.6; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Main Dashboard Grid */
+        .dashboard-grid {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 24px;
+            padding: 24px;
+            height: calc(100vh - 64px);
+            overflow: hidden;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+                overflow-y: auto;
+                height: auto;
+            }
+        }
+
+        /* Dashboard card styles */
+        .dashboard-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: border-color 0.3s ease;
+        }
+
+        .dashboard-card:hover {
+            border-color: var(--border-glow);
+        }
+
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-body {
+            padding: 24px;
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Playlist button styling */
+        .playbook-select-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .playbook-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .playbook-select {
+            background: rgba(10, 13, 22, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .playbook-select:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 8px rgba(0, 242, 255, 0.2);
+        }
+
+        /* Slides Grid/List */
+        .slides-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .slides-container::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .slides-container::-webkit-scrollbar-thumb {
+            background: rgba(155, 109, 255, 0.2);
+            border-radius: 2px;
+        }
+
+        /* Slide button */
+        .slide-tile {
+            background: rgba(10, 13, 22, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            text-align: left;
+            width: 100%;
+        }
+
+        .slide-tile:hover {
+            background: rgba(155, 109, 255, 0.08);
+            border-color: rgba(155, 109, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .slide-tile.active {
+            background: linear-gradient(135deg, rgba(0, 242, 255, 0.12), rgba(155, 109, 255, 0.12));
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 16px rgba(0, 242, 255, 0.15);
+        }
+
+        .slide-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .slide-label {
+            font-size: 15px;
+            font-weight: 700;
+            color: #fff;
+            transition: color 0.2s ease;
+        }
+
+        .slide-tile.active .slide-label {
+            color: var(--accent-cyan);
+        }
+
+        .slide-notes {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .slide-trigger-indicator {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 11px;
+            transition: all 0.2s ease;
+        }
+
+        .slide-tile:hover .slide-trigger-indicator {
+            background: var(--accent-purple);
+            color: #fff;
+            box-shadow: 0 0 8px var(--accent-purple);
+        }
+
+        .slide-tile.active .slide-trigger-indicator {
+            background: var(--accent-cyan);
+            color: var(--bg-base);
+            box-shadow: 0 0 8px var(--accent-cyan);
+        }
+
+        /* Quick nav section */
+        .quick-nav {
+            display: flex;
+            gap: 12px;
+            padding: 16px 24px;
+            background: rgba(10, 13, 22, 0.45);
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            flex-shrink: 0;
+        }
+
+        .nav-btn {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .nav-btn:hover:not(:disabled) {
+            background: rgba(0, 242, 255, 0.1);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Right column panel components */
+        .context-item {
+            background: rgba(10, 13, 22, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .context-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .context-value {
+            font-size: 15px;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        /* Refine Prompt Panel */
+        .prompt-input-wrapper {
+            position: relative;
+            display: flex;
+            gap: 12px;
+        }
+
+        .prompt-input {
+            flex: 1;
+            background: rgba(10, 13, 22, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .prompt-input:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 12px rgba(0, 242, 255, 0.15);
+        }
+
+        .prompt-send {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            border: none;
+            color: #fff;
+            padding: 0 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+        }
+
+        .prompt-send:hover {
+            opacity: 0.9;
+        }
+
+        /* Suggestion chips */
+        .suggestions-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .suggestion-chip {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .suggestion-chip:hover {
+            background: rgba(0, 242, 255, 0.05);
+            border-color: rgba(0, 242, 255, 0.2);
+            color: #fff;
+        }
+
+        /* Live log/error area */
+        .status-console {
+            background: #05070a;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 12px;
+            color: var(--accent-green);
+            flex: 1;
+            min-height: 120px;
+            overflow-y: auto;
+        }
+
+        .console-error {
+            color: var(--accent-red);
+        }
+
+        .console-warning {
+            color: #eab308;
+        }
+
+        .placeholder-text {
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 32px;
+            font-size: 14px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-brand">
+            <span class="topbar-logo">Meet Studio</span>
+            <span class="topbar-badge">Presenter Dashboard</span>
+        </div>
+
+        <!-- Live Presenter Clock & Timer -->
+        <div class="presenter-timer-container" style="display: flex; align-items: center; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); padding: 6px 16px; border-radius: 20px; backdrop-filter: blur(8px);">
+            <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; display: flex; align-items: center; gap: 6px;">⏱️ Session Time</span>
+            <span id="presenter-timer" style="font-family: monospace; font-size: 14px; font-weight: 700; color: var(--accent-cyan); text-shadow: 0 0 10px rgba(0, 242, 255, 0.3);">00:00:00</span>
+            <button id="reset-timer" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 12px; padding: 2px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; outline: none;" onmouseover="this.style.color='var(--accent-purple)'" onmouseout="this.style.color='var(--text-secondary)'" title="Reset Timer">🔄</button>
+        </div>
+        
+        <div class="telemetry-grid">
+            <div class="telemetry-item">
+                <span class="telemetry-label">Engine Connection:</span>
+                <span class="telemetry-value">
+                    <span id="ws-dot" class="status-dot status-offline"></span>
+                    <span id="ws-status">Offline</span>
+                </span>
+            </div>
+            <div class="telemetry-item">
+                <span class="telemetry-label">Stage Render:</span>
+                <span class="telemetry-value">
+                    <span id="render-dot" class="status-dot status-offline"></span>
+                    <span id="render-status">Idle</span>
+                </span>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="dashboard-grid">
+        <!-- Playbook Desk Card -->
+        <div class="dashboard-card">
+            <div class="card-header">
+                <div class="card-title">⚙️ Playbook Slide Deck</div>
+            </div>
+            <div class="card-body">
+                <div class="playbook-select-container">
+                    <label class="playbook-label">Select Registered Playbook</label>
+                    <select id="playbook-select" class="playbook-select">
+                        <option value="">Loading playbooks...</option>
+                    </select>
+                </div>
+                
+                <div class="slides-container" id="slides-buttons">
+                    <span class="placeholder-text">Select a playbook to load its slides.</span>
+                </div>
+            </div>
+            <div class="quick-nav">
+                <button id="btn-prev-slide" class="nav-btn" disabled>◀ Previous Slide</button>
+                <button id="btn-next-slide" class="nav-btn" disabled>Next Slide ▶</button>
+            </div>
+        </div>
+
+        <!-- Co-Pilot Card -->
+        <div class="dashboard-card">
+            <div class="card-header">
+                <div class="card-title">🤖 AI Presentation Co-Pilot</div>
+            </div>
+            <div class="card-body" style="gap: 16px;">
+                <div class="context-item">
+                    <span class="context-title">Active Meeting Title</span>
+                    <span class="context-value" id="context-title">No active meeting</span>
+                </div>
+                <div class="context-item">
+                    <span class="context-title">Active Pattern</span>
+                    <span class="context-value" id="context-pattern">—</span>
+                </div>
+                <div class="context-item">
+                    <span class="context-title">Active Stage Run</span>
+                    <span class="context-value" id="context-playbook">—</span>
+                </div>
+
+                <div class="playbook-label" style="margin-top: 8px;">Refine Playbook Slide</div>
+                <div class="prompt-input-wrapper">
+                    <input type="text" id="prompt-input" class="prompt-input" placeholder="e.g. show revenue by region" autocomplete="off">
+                    <button id="prompt-send" class="prompt-send">Send</button>
+                </div>
+
+                <div class="suggestions-grid">
+                    <button class="suggestion-chip" data-prompt="show revenue by region">📊 Revenue by region</button>
+                    <button class="suggestion-chip" data-prompt="add customer acquisition chart">📈 Customer acquisition</button>
+                    <button class="suggestion-chip" data-prompt="break down by product line">🏷️ Product breakdown</button>
+                    <button class="suggestion-chip" data-prompt="compare to last quarter">📉 YoY comparison</button>
+                </div>
+
+                <div class="playbook-label" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">🎥 YouTube Grid Config</div>
+                <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
+                    <span style="color: var(--text-secondary); font-size: 11px;">Use youtu.be share links (e.g., https://youtu.be/VIDEO_ID)</span>
+                    <div>
+                        <label style="display: block; color: var(--text-secondary); margin-bottom: 4px;">Feed 1 (Top-Left)</label>
+                        <input type="text" id="yt-feed-tl" class="prompt-input" placeholder="https://youtu.be/VIDEO_ID" style="font-size: 11px;">
+                    </div>
+                    <div>
+                        <label style="display: block; color: var(--text-secondary); margin-bottom: 4px;">Feed 2 (Top-Right)</label>
+                        <input type="text" id="yt-feed-tr" class="prompt-input" placeholder="https://youtu.be/VIDEO_ID" style="font-size: 11px;">
+                    </div>
+                    <div>
+                        <label style="display: block; color: var(--text-secondary); margin-bottom: 4px;">Feed 3 (Bottom-Left)</label>
+                        <input type="text" id="yt-feed-bl" class="prompt-input" placeholder="https://youtu.be/VIDEO_ID" style="font-size: 11px;">
+                    </div>
+                    <div>
+                        <label style="display: block; color: var(--text-secondary); margin-bottom: 4px;">Feed 4 (Bottom-Right)</label>
+                        <input type="text" id="yt-feed-br" class="prompt-input" placeholder="https://youtu.be/VIDEO_ID" style="font-size: 11px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 4px;">
+                        <button id="yt-save-feeds" style="flex:1; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 10px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer;">💾 Save</button>
+                        <button id="yt-save-fire" style="flex:2; background: linear-gradient(135deg, #00f2ff, #9b6dff); border: none; color: #000; padding: 10px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">🎥 Save & Fire to Stage</button>
+                    </div>
+                </div>
+
+                <div class="playbook-label" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">Live Telemetry Console</div>
+                <div class="status-console" id="status-console"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/presenter_control.js"></script>
+</body>
+</html>"""
+    return HTMLResponse(content=html_content, status_code=200)
+
+
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_static(path: str):
     if path.startswith("api/") or path in ("mcp",):
@@ -3757,3 +5745,46 @@ async def serve_static(path: str):
 # StaticFiles mount — placed LAST so it doesn't intercept the API routes
 # defined above (notably the playbook fire/list endpoints).
 if os.path.isdir("dist"): app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+
+
+# ── DEBUG / DEMO UTILITIES ────────────────────────────────────────────────────
+
+@app.get("/api/demo/reset/{space_id}/{ticket}", include_in_schema=False)
+async def demo_reset_session(space_id: str, ticket: str):
+    """DEBUG: Force a specific space_id + ticket combo for testing."""
+    # Register the space with auto-generated session
+    session_id = space_id.rsplit('-p', 1)[0] if '-p' in space_id else "demo"
+    participant_session[space_id] = session_id
+    session_participants.setdefault(session_id, set()).add(space_id)
+    n = session_counters.get(session_id, 0) + 1
+    session_counters[session_id] = n
+    participant_number[space_id] = n
+    auth_tickets[ticket] = ("participant", datetime.now(timezone.utc) + timedelta(hours=4))
+    
+    stage_url = f"http://127.0.0.1:8001/main_stage.html?meeting={space_id}&ticket={ticket}"
+    logger.info(f"[demo_reset] forced {space_id} with ticket {ticket[:16]}...")
+    return {"stage_url": stage_url, "space_id": space_id, "session_id": session_id, "ticket": ticket}
+
+
+@app.get("/api/demo/auto-open/{space_id}/{ticket}", include_in_schema=False)
+async def demo_auto_open(space_id: str, ticket: str):
+    """DEBUG: Return HTML that auto-opens the stage in new tab."""
+    stage_url = f"http://127.0.0.1:8001/main_stage.html?meeting={space_id}&ticket={ticket}"
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><title>Opening Demo...</title></head>
+    <body style="background:#0f172a; color:#f1f5f9; font-family:monospace; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
+        <div style="text-align:center;">
+            <h1>🎬 Opening Demo Stage...</h1>
+            <p>Space: <code>{space_id}</code></p>
+            <p><a href="{stage_url}" target="_blank" style="color:#00f2ff; text-decoration:none;">📺 Open Stage</a> (if not opening automatically)</p>
+        </div>
+        <script>
+            window.open("{stage_url}", "_blank");
+            setTimeout(() => window.location.href = "/api/playbook/list", 2000);
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)

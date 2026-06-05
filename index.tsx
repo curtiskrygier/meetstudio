@@ -56,6 +56,10 @@ export class GdmArchitectAgent extends LitElement {
   @state() diagramming = false;
   @state() status = 'Initialising...';
   @state() authenticated = false;
+  @state() geminiLiveEnabled: boolean | null = null;  // explicitly null until /api/capabilities checks
+  @state() demoJoinCode = '';  // MEET-ABC123 displayed to presenter
+  @state() demoParticipantCount = 0;
+  @state() demoLaunchError = '';
   @state() layout = 'default';
   @state() uiPromptText = '';
   @state() uiPromptSending = false;
@@ -138,6 +142,22 @@ export class GdmArchitectAgent extends LitElement {
   private chatPollInterval: ReturnType<typeof setInterval> | null = null;
   private standbyInterval: ReturnType<typeof setInterval> | null = null;
   @state() private standbyRemainingSecs = 0;
+
+  // Presenter / participant mode
+  @state() private sessionRole: 'presenter' | 'participant' | null = null;
+  @state() private participantRegistered = false;
+  @state() private participantName = '';
+  @state() private participantNumber = 0;
+  @state() private participantDisplayName = '';
+  @state() private sessionActive = false;
+  @state() private playbookList: string[] = [];
+  @state() private selectedPlaybook = '';
+  @state() private slideList: Array<{slide_id: string; label: string}> = [];
+  @state() private selectedSlide = '';
+  @state() private participantList: Array<{space: string; connected: boolean; number: number; name: string}> = [];
+  @state() private sendingSlide = false;
+  @state() private sessionLaunched = false;
+  private sessionCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   private parseChatSpaceId(input: string): string {
     const trimmed = input.trim();
@@ -489,7 +509,10 @@ export class GdmArchitectAgent extends LitElement {
     
     if (this.studioActive && this.sidePanelClient && !this.isActivityStarted) {
       const ticket = await this.getAuthTicket();
-      const stageUrl = `${location.origin}/main_stage.html?meeting=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+      // join_session: each participant auto-joins to get their own private space
+      // meeting: used for shared/presenter stage (Gemini Live mode)
+      const param = this.geminiLiveEnabled ? 'meeting' : 'join_session';
+      const stageUrl = `${location.origin}/main_stage.html?${param}=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
       try {
         await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
         this.isActivityStarted = true;
@@ -1032,9 +1055,40 @@ export class GdmArchitectAgent extends LitElement {
 
   private unloadHandler = () => { this.disconnect(); };
 
+  updated(changed: Map<string, unknown>) {
+    // Auto-load playbooks when connected in playbook mode and list is empty
+    if (changed.has('connected') && this.connected && this.geminiLiveEnabled === false && this.accessToken && this.playbookList.length === 0) {
+      this.loadPlaybooks();
+    }
+  }
+
   firstUpdated() {
     console.log('[concierge] build v18.1 — modular backend, 16:9 optimized, cinematic UX');
-    this.initializeAddon();
+    fetch('/api/version').then(r => r.json()).then(d => {
+      const el = this.shadowRoot?.querySelector('#build-badge') as HTMLElement;
+      if (el) el.textContent = `v${d.version} · ${d.built}`;
+    }).catch(() => {});
+    this.checkCapabilities().then(() => this.initializeAddon());
+  }
+
+  private async checkCapabilities() {
+    try {
+      const resp = await fetch('/api/capabilities');
+      if (resp.ok) {
+        const caps = await resp.json();
+        this.geminiLiveEnabled = caps.gemini_live === true;
+        if (!this.geminiLiveEnabled) {
+          console.log('[concierge] Gemini Live disabled — playbook mode only');
+          this.status = 'Ready';
+        }
+      } else {
+        console.warn('[concierge] capabilities check returned non-ok status, assuming full mode');
+        this.geminiLiveEnabled = true;
+      }
+    } catch (e) {
+      console.warn('[concierge] capabilities check failed, assuming full mode:', e);
+      this.geminiLiveEnabled = true;
+    }
   }
 
   private async initializeAddon() {
@@ -1048,20 +1102,24 @@ export class GdmArchitectAgent extends LitElement {
       this.isAddonInitialized = true;
       this.initialized = true;
 
+      // Detect if this side panel opened because the user joined an activity
+      const openReason = await this.sidePanelClient.getFrameOpenReason();
+      if (openReason === 'JOIN_ACTIVITY') {
+        this.sessionRole = 'participant';
+        this.sessionActive = true;
+        console.log('[concierge] Joined activity — switching to participant view');
+      }
+
       this.sidePanelClient.on('frameToFrameMessage', (arg: any) => {
         try {
           const msg = JSON.parse(arg.payload);
-          
-          // Handle existing view_change
           if (msg.type === 'view_change' && msg.mode === 'doc') {
             this.openInMainStage(msg.url, msg.label, msg.content);
           }
-          
-          // Handle new diagram_override
           if (msg.type === 'diagram_override' && msg.text) {
             console.log('[concierge] Main Stage override received:', msg.text);
-            this.diagramContext = msg.text; // Update local context
-            this.generateDiagram();         // Trigger the API call
+            this.diagramContext = msg.text;
+            this.generateDiagram();
           }
         } catch (e) {}
       });
@@ -1076,12 +1134,10 @@ export class GdmArchitectAgent extends LitElement {
     return new Promise((resolve, reject) => {
       const google = (window as any).google;
       if (!google) { reject(new Error('Google Identity Services not loaded')); return; }
-      
+
       const client = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: [
-          'https://www.googleapis.com/auth/meetings.space.created',
-          'https://www.googleapis.com/auth/meetings.conference.media.readonly',
           'https://www.googleapis.com/auth/meetings.space.readonly',
           'https://www.googleapis.com/auth/chat.messages.readonly',
           'https://www.googleapis.com/auth/drive.file',
@@ -1105,8 +1161,8 @@ export class GdmArchitectAgent extends LitElement {
           reject(new Error(err.message || 'Authentication failed'));
         },
       });
-      
-      client.requestAccessToken({ prompt: 'consent' });
+
+      client.requestAccessToken({ prompt: '' });
     });
   }
 
@@ -1196,10 +1252,99 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
+  private async startPlaybookDemo() {
+    if (!this.sidePanelClient || !this.connected) {
+      await this.connect();
+      return;
+    }
+    this.demoLaunchError = '';
+    this.status = 'Launching Read the Room...';
+    try {
+      // Step 1: Create join code for participants
+      const codeResp = await this.authenticatedFetch(
+        `/api/join-code/${encodeURIComponent(this.meetingId)}`,
+        { method: 'POST' }
+      );
+      const { join_code } = await codeResp.json();
+      this.demoJoinCode = join_code;
+      console.log('[concierge] Join code created:', join_code);
+
+      // Step 2: Push stage to participants
+      const ticket = await this.getAuthTicket();
+      const stageUrl = `${location.origin}/main_stage.html?join_session=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+      await this.sidePanelClient.startActivity({ mainStageUrl: stageUrl });
+      this.isActivityStarted = true;
+      this.status = `Broadcast sent — show code: ${join_code}`;
+
+      // Step 3: Fire read_the_room cover to the session
+      const fireResp = await this.authenticatedFetch(
+        `/api/playbook/fire/read_the_room/cover/${encodeURIComponent(this.meetingId)}`,
+        { method: 'POST' }
+      );
+      if (!fireResp.ok) throw new Error(`Fire failed: ${fireResp.status}`);
+
+      console.log('[concierge] Read the Room started — code:', join_code);
+
+      // Step 4: Poll participant count
+      this.startParticipantCountPoll();
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[concierge] startPlaybookDemo failed:', msg);
+      this.demoLaunchError = `Failed to launch: ${msg}. Check connection and retry.`;
+      this.status = 'Ready — playbook mode';
+    }
+  }
+
+  private pollParticipantInterval: ReturnType<typeof setInterval> | null = null;
+
+  private _pollTick = 0;
+  private startParticipantCountPoll() {
+    if (this.pollParticipantInterval) clearInterval(this.pollParticipantInterval);
+    this._pollTick = 0;
+    this.pollParticipantInterval = setInterval(async () => {
+      this._pollTick++;
+      try {
+        const resp = await this.authenticatedFetch(
+          `/api/session/${encodeURIComponent(this.meetingId)}/status`
+        );
+        const { participant_count } = await resp.json();
+        this.demoParticipantCount = participant_count;
+      } catch (e) {
+        // Silent fail on poll
+      }
+      // Refresh detailed participant list every 5 ticks (5s)
+      if (this._pollTick % 5 === 0) {
+        this.refreshParticipantList();
+      }
+    }, 1000);
+  }
+
   private async connect() {
     if (!this.initialized) return;
     this.connecting = true;
     this.error = '';
+
+    // Playbook-only mode — no Gemini Live, no audio/video
+    if (this.geminiLiveEnabled === false) {
+      if (!this.accessToken) {
+        await this.requestOAuthToken();
+        this.connecting = false;
+        return;
+      }
+      await this.connectWebSocket();
+      this.connected = true;
+      this.connecting = false;
+      this.status = 'Ready — playbook mode';
+      this.startChatPolling();
+      return;
+    }
+
+    // Not yet determined or Gemini Live mode
+    if (this.geminiLiveEnabled !== true) {
+      console.warn('[concierge] capabilities not yet checked; waiting...');
+      this.connecting = false;
+      return;
+    }
 
     try {
       // Must initialize audio context in this click handler to satisfy browser policy
@@ -1795,10 +1940,182 @@ export class GdmArchitectAgent extends LitElement {
     }
   }
 
+  private async loadPlaybooks() {
+    try {
+      const resp = await this.authenticatedFetch('/api/playbook/list');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      this.playbookList = data.playbooks || [];
+      if (this.playbookList.length > 0 && !this.selectedPlaybook) {
+        await this.loadSlides(this.playbookList[0]);
+      } else if (this.selectedPlaybook) {
+        await this.loadSlides(this.selectedPlaybook);
+      }
+    } catch (e) {
+      console.warn('[concierge] loadPlaybooks error:', e);
+    }
+  }
+
+  private async loadSlides(playbook: string) {
+    if (!playbook) return;
+    this.selectedPlaybook = playbook;
+    this.selectedSlide = '';
+    this.slideList = [];
+    try {
+      const resp = await this.authenticatedFetch(`/api/playbook/list/${encodeURIComponent(playbook)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      this.slideList = data.slides || [];
+      if (this.slideList.length > 0) {
+        this.selectedSlide = this.slideList[0].slide_id;
+      }
+    } catch (e) {
+      console.warn('[concierge] loadSlides error:', e);
+    }
+  }
+
+  private async registerAsParticipant() {
+    if (!this.meetingId || !this.participantName.trim()) return;
+    try {
+      const resp = await fetch(
+        `/api/join/${encodeURIComponent(this.meetingId)}?name=${encodeURIComponent(this.participantName.trim())}`
+      );
+      if (!resp.ok) throw new Error(`Join failed: ${resp.status}`);
+      const data = await resp.json();
+      this.participantNumber = data.participant_number;
+      this.participantDisplayName = data.display_name;
+      this.participantRegistered = true;
+    } catch (e: any) {
+      this.error = `Join failed: ${e.message || e}`;
+    }
+  }
+
+  private startSessionCheck() {
+    if (this.sessionCheckInterval) clearInterval(this.sessionCheckInterval);
+    this.sessionCheckInterval = setInterval(async () => {
+      if (!this.meetingId) return;
+      try {
+        const resp = await fetch(`/api/session/${encodeURIComponent(this.meetingId)}/active`);
+        if (resp.ok) {
+          const { active } = await resp.json();
+          if (active && !this.sessionActive) {
+            this.sessionActive = true;
+            clearInterval(this.sessionCheckInterval!);
+            this.sessionCheckInterval = null;
+            // Try to auto-join the activity so participant doesn't need to click
+            await this.participantAutoJoinActivity();
+          }
+        }
+      } catch (e) { /* silent */ }
+    }, 3000);
+  }
+
+  private async participantAutoJoinActivity() {
+    if (!this.sidePanelClient || !this.meetingId) return;
+    try {
+      // Get a stage ticket for this participant
+      const joinResp = await fetch(`/api/join/${encodeURIComponent(this.meetingId)}`);
+      if (!joinResp.ok) return;
+      const { ticket, stage_url } = await joinResp.json();
+      // Attempt startActivity — Meet may auto-join rather than error if activity matches
+      await this.sidePanelClient.startActivity({ mainStageUrl: stage_url });
+    } catch (e: any) {
+      // ActivityIsOngoing means host already has it running — participant sees "Join the activity" button
+      // Nothing further needed; the prompt guides them
+      console.log('[concierge] participant auto-join:', e?.name || e?.message);
+    }
+  }
+
+  private async launchPresenterSession() {
+    if (!this.sidePanelClient || !this.accessToken) return;
+    this.demoLaunchError = '';
+    if (!this.connected) {
+      await this.connect();
+      if (!this.connected) return;
+    }
+    try {
+      this.status = 'Launching session...';
+      const codeResp = await this.authenticatedFetch(
+        `/api/join-code/${encodeURIComponent(this.meetingId)}`,
+        { method: 'POST' }
+      );
+      const { join_code } = await codeResp.json();
+      this.demoJoinCode = join_code;
+
+      const ticket = await this.getAuthTicket();
+      const stageUrl = `${location.origin}/main_stage.html?join_session=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+      await this.sidePanelClient.startActivity({
+        mainStageUrl: stageUrl,
+        sidePanelUrl: location.origin + '/',
+        additionalData: JSON.stringify({ session: this.meetingId }),
+      });
+      this.isActivityStarted = true;
+      this.sessionLaunched = true;
+
+      if (this.selectedPlaybook && this.selectedSlide) {
+        await this.authenticatedFetch(
+          `/api/playbook/fire/${encodeURIComponent(this.selectedPlaybook)}/${encodeURIComponent(this.selectedSlide)}/${encodeURIComponent(this.meetingId)}`,
+          { method: 'POST' }
+        );
+      }
+      this.status = `Live — code: ${join_code}`;
+      this.startParticipantCountPoll();
+    } catch (e: any) {
+      this.demoLaunchError = `Launch failed: ${e?.message || e}`;
+      this.status = 'Ready';
+    }
+  }
+
+  private async sendSlideToAll() {
+    if (!this.selectedPlaybook || !this.selectedSlide || !this.meetingId) return;
+    this.sendingSlide = true;
+    try {
+      await this.authenticatedFetch(
+        `/api/playbook/fire/${encodeURIComponent(this.selectedPlaybook)}/${encodeURIComponent(this.selectedSlide)}/${encodeURIComponent(this.meetingId)}`,
+        { method: 'POST' }
+      );
+    } catch (e) {
+      console.warn('[concierge] sendSlideToAll error:', e);
+    } finally {
+      this.sendingSlide = false;
+    }
+  }
+
+  private async sendSlideToParticipant(space: string) {
+    if (!this.selectedPlaybook || !this.selectedSlide || !space) return;
+    try {
+      await this.authenticatedFetch(
+        `/api/playbook/fire/${encodeURIComponent(this.selectedPlaybook)}/${encodeURIComponent(this.selectedSlide)}/${encodeURIComponent(space)}`,
+        { method: 'POST' }
+      );
+    } catch (e) {
+      console.warn('[concierge] sendSlideToParticipant error:', e);
+    }
+  }
+
+  private async refreshParticipantList() {
+    if (!this.meetingId || !this.accessToken) return;
+    try {
+      const resp = await this.authenticatedFetch(`/api/session/participants/${encodeURIComponent(this.meetingId)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const parts: Record<string, any> = data.participants || {};
+      this.participantList = Object.entries(parts).map(([space, p]) => ({
+        space,
+        connected: p.connected || false,
+        number: p.number || 0,
+        name: p.name || `Participant #${p.number}`
+      }));
+      this.demoParticipantCount = data.total || 0;
+    } catch (e) {
+      // silent
+    }
+  }
+
   private get componentRegistry() {
     return new Map<string, (props: any) => any>([
       ['gdm-status-view', (p) => html`<gdm-status-view .state=${p.state} .status=${p.status} .authenticated=${p.authenticated}></gdm-status-view>`],
-      ['gdm-controls-view', (p) => html`<gdm-controls-view .audioEnabled=${p.audioEnabled} .videoEnabled=${p.videoEnabled} .diagramMode=${p.diagramMode} .transcriptMode=${p.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()} @generate-image=${()=>this.generateImage()}></gdm-controls-view>`],
+      ['gdm-controls-view', (p) => this.geminiLiveEnabled ? html`<gdm-controls-view .audioEnabled=${p.audioEnabled} .videoEnabled=${p.videoEnabled} .diagramMode=${p.diagramMode} .transcriptMode=${p.transcriptMode} @toggle-audio=${()=>this.toggleAudio()} @toggle-video=${()=>this.toggleVideo()} @toggle-diagram=${()=>this.toggleDiagramMode()} @toggle-transcript=${()=>this.toggleTranscriptMode()} @generate-image=${()=>this.generateImage()}></gdm-controls-view>` : html``],
       ['gdm-actions-view', (p) => html`<gdm-actions-view .actions=${p.actions} @action-click=${(e: any)=>this.openInMainStage(e.detail.url, e.detail.label, e.detail.content)}></gdm-actions-view>`],
       ['gdm-doc-view', (p) => html`<gdm-doc-view .title=${p.title} .htmlContent=${p.htmlContent}></gdm-doc-view>`],
       ['gdm-diagram-refiner', (p) => html`<gdm-diagram-refiner .diagramStyle=${this.diagramStyle} .context=${this.diagramContext} .generating=${this.diagramming} .canSave=${!!(this.diagramSessionId && this.lastGenerationTime)} @change-style=${(e: any) => { this.diagramStyle = e.detail; this.generateDiagram(); }} @update-context=${(e: any) => this.diagramContext = e.detail} @generate=${() => this.generateDiagram()} @new=${() => this.resetDiagram()} @save=${() => this.saveDiagramToDrive()}></gdm-diagram-refiner>`],
@@ -1844,7 +2161,7 @@ export class GdmArchitectAgent extends LitElement {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             </button>
           ` : ''}
-          <div style="font-size:9px;color:var(--fg-4)">v18.1</div>
+          <div id="build-badge" style="font-size:9px;color:#00f2ff;background:rgba(0,242,255,0.1);border:1px solid rgba(0,242,255,0.3);border-radius:4px;padding:2px 6px;font-family:monospace;">v18.1</div>
         </div>
       </div>
 
@@ -1858,19 +2175,140 @@ export class GdmArchitectAgent extends LitElement {
           </gdm-status-view>
           
           <div class="section" style="padding-top:0">
-            ${!this.accessToken ? html`
-              <button class="cta google" @click=${() => this.requestOAuthToken().catch(e => console.error('[concierge] click-auth error:', e))}>
-                <svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:8px"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                Sign in with Google
-              </button>
+            ${this.geminiLiveEnabled === false ? html`
+              ${this.sessionRole === null ? html`
+                <!-- Role picker -->
+                <p style="font-size:12px;color:#94a3b8;margin:0 0 14px;line-height:1.5;text-align:center;">Who are you in this session?</p>
+                <div style="display:flex;gap:8px;">
+                  <button class="cta" style="flex:1;" @click=${() => { this.sessionRole = 'presenter'; if (this.accessToken) this.loadPlaybooks(); }}>
+                    🎙️ Presenting
+                  </button>
+                  <button class="cta" style="flex:1;background:rgba(0,242,255,0.08);border:1px solid rgba(0,242,255,0.4);color:#00f2ff;"
+                    @click=${() => { this.sessionRole = 'participant'; this.startSessionCheck(); }}>
+                    👤 Participant
+                  </button>
+                </div>
+              ` : this.sessionRole === 'presenter' ? html`
+                <!-- Presenter flow -->
+                <div style="display:flex;align-items:center;margin-bottom:12px;">
+                  <span style="font-size:11px;color:#6ee7b7;font-weight:600;">🎙️ Presenting</span>
+                  <button style="margin-left:auto;font-size:10px;color:#64748b;background:none;border:none;cursor:pointer;"
+                    @click=${() => { this.sessionRole = null; }}>← Change</button>
+                </div>
+                ${!this.accessToken ? html`
+                  <button class="cta google" @click=${() => this.requestOAuthToken().then(() => this.loadPlaybooks()).catch(e => console.error('[concierge] auth error:', e))}>
+                    <svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:8px"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                    Sign in as Presenter
+                  </button>
+                ` : html`
+                  <div style="font-size:10px;color:#64748b;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em;">Meeting ID</div>
+                  <div style="font-size:11px;color:#00f2ff;font-family:monospace;background:rgba(0,242,255,0.06);border:1px solid rgba(0,242,255,0.2);border-radius:6px;padding:5px 10px;margin-bottom:14px;word-break:break-all;">
+                    ${this.meetingId || 'Initialising...'}
+                  </div>
+                  ${this.playbookList.length === 0 ? html`
+                    <button class="btn-action" style="width:100%;margin-bottom:12px;" @click=${() => this.loadPlaybooks()}>
+                      Load Playbooks
+                    </button>
+                  ` : html`
+                    <div style="display:flex;gap:8px;margin-bottom:10px;">
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Playbook</div>
+                        <select class="select-control" @change=${(e: any) => this.loadSlides(e.target.value)}>
+                          ${this.playbookList.map(p => html`<option value=${p} ?selected=${p === this.selectedPlaybook}>${p}</option>`)}
+                        </select>
+                      </div>
+                      <div style="flex:1;min-width:0;">
+                        <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Slide</div>
+                        <select class="select-control" @change=${(e: any) => this.selectedSlide = e.target.value}>
+                          ${this.slideList.map(s => html`<option value=${s.slide_id} ?selected=${s.slide_id === this.selectedSlide}>${s.label || s.slide_id}</option>`)}
+                        </select>
+                      </div>
+                    </div>
+                  `}
+                  ${!this.sessionLaunched ? html`
+                    <button class="cta" style="background:linear-gradient(135deg,#00f2ff,#9b6dff);color:#000;font-weight:900;"
+                      @click=${() => this.launchPresenterSession()}
+                      ?disabled=${!this.selectedPlaybook || !this.selectedSlide}>
+                      ▶ Launch Session
+                    </button>
+                  ` : html`
+                    <button class="cta" @click=${() => this.sendSlideToAll()} ?disabled=${this.sendingSlide || !this.selectedSlide}>
+                      ${this.sendingSlide ? 'Sending...' : '⬆ Send to All'}
+                    </button>
+                    <div style="background:rgba(0,242,255,0.08);border:1px solid rgba(0,242,255,0.25);border-radius:8px;padding:10px 12px;margin-top:10px;">
+                      <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Join Code</div>
+                      <div style="font-size:20px;font-weight:900;color:#00f2ff;font-family:monospace;letter-spacing:0.15em;margin:3px 0;">${this.demoJoinCode}</div>
+                      <div style="font-size:11px;color:${this.demoParticipantCount > 0 ? '#6ee7b7' : '#64748b'};">
+                        ${this.demoParticipantCount > 0 ? `✓ ${this.demoParticipantCount} joined` : '⏳ Waiting for participants...'}
+                      </div>
+                    </div>
+                  `}
+                  ${this.demoLaunchError ? html`
+                    <div style="font-size:11px;color:#ff5252;background:rgba(244,67,54,0.1);border-left:2px solid #ff5252;padding:8px;margin-top:10px;border-radius:4px;">
+                      ⚠ ${this.demoLaunchError}
+                    </div>
+                  ` : ''}
+                `}
+              ` : html`
+                <!-- Participant flow -->
+                <div style="display:flex;align-items:center;margin-bottom:12px;">
+                  <span style="font-size:11px;color:#00f2ff;font-weight:600;">👤 Participant</span>
+                  <button style="margin-left:auto;font-size:10px;color:#64748b;background:none;border:none;cursor:pointer;"
+                    @click=${() => { this.sessionRole = null; this.participantRegistered = false; this.sessionActive = false; if (this.sessionCheckInterval) { clearInterval(this.sessionCheckInterval); this.sessionCheckInterval = null; } }}>← Change</button>
+                </div>
+
+                ${!this.sessionActive ? html`
+                  <div style="text-align:center;padding:20px 0;">
+                    <div style="font-size:28px;margin-bottom:10px;">⏳</div>
+                    <div style="font-size:13px;color:#94a3b8;margin-bottom:6px;">Waiting for presenter...</div>
+                    <div style="font-size:10px;color:#475569;">The stage will appear in Meet automatically when the session starts</div>
+                  </div>
+                ` : !this.participantRegistered ? html`
+                  <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+                    <div style="font-size:12px;font-weight:600;color:#6ee7b7;">✓ Session is live</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Enter your name so the presenter can see you</div>
+                  </div>
+                  <input
+                    class="ctx-input"
+                    type="text"
+                    placeholder="Your name..."
+                    .value=${this.participantName}
+                    @input=${(e: any) => this.participantName = e.target.value}
+                    @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this.registerAsParticipant()}
+                    style="margin-bottom:8px;"
+                  />
+                  <button class="cta" style="background:rgba(0,242,255,0.1);border:1px solid rgba(0,242,255,0.4);color:#00f2ff;"
+                    @click=${() => this.registerAsParticipant()}
+                    ?disabled=${!this.participantName.trim()}>
+                    ✓ Join Session
+                  </button>
+                ` : html`
+                  <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.35);border-radius:8px;padding:16px;text-align:center;">
+                    <div style="font-size:16px;font-weight:700;color:#6ee7b7;">${this.participantDisplayName}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Participant #${this.participantNumber}</div>
+                    <div style="font-size:10px;color:#475569;margin-top:8px;">Content is appearing on your Meet stage</div>
+                  </div>
+                `}
+              `}
+            ` : (this.geminiLiveEnabled === true ? html`
+              <!-- Gemini Live mode — original sign in / connect flow -->
+              ${!this.accessToken ? html`
+                <button class="cta google" @click=${() => this.requestOAuthToken().catch(e => console.error('[concierge] click-auth error:', e))}>
+                  <svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:8px"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                  Sign in with Google
+                </button>
+              ` : html`
+                <button class="cta" @click=${() => this.connect()}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+                  Join & Start Audio
+                </button>
+              `}
             ` : html`
-              <button class="cta" @click=${() => this.connect()}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
-                Join & Start Audio
-              </button>
-            `}
+              <p style="font-size:12px;color:#94a3b8;">Loading capabilities...</p>
+            `)}
           </div>
 
+          ${this.geminiLiveEnabled === true ? html`
           <div class="section">
             <div class="section-head"><span class="section-title">How it works</span></div>
             <div class="tips">
@@ -1879,6 +2317,7 @@ export class GdmArchitectAgent extends LitElement {
               <div class="tip"><div class="tip-num">3</div><span>New documents appear here and launch on the main stage for everyone</span></div>
             </div>
           </div>
+          ` : html``}
         ` : ''}
 
         ${this.connecting ? html`
@@ -1892,8 +2331,12 @@ export class GdmArchitectAgent extends LitElement {
             <div class="conn-progress"></div>
             <div class="checklist">
               <div class="check done"><div class="check-tick">✓</div>Add-on initialised</div>
-              <div class="check active"><div class="check-tick"></div>Connecting to Gemini Live…</div>
-              <div class="check"><div class="check-tick"></div>Joining meeting audio</div>
+              ${this.geminiLiveEnabled ? html`
+                <div class="check active"><div class="check-tick"></div>Connecting to Gemini Live…</div>
+                <div class="check"><div class="check-tick"></div>Joining meeting audio</div>
+              ` : html`
+                <div class="check active"><div class="check-tick"></div>Connecting to stage…</div>
+              `}
             </div>
           </div>
         ` : ''}
@@ -1901,7 +2344,7 @@ export class GdmArchitectAgent extends LitElement {
         ${this.connected ? html`
           <div class="tabs-container">
             <button class="tab-btn ${this.activeTab === 'concierge' ? 'active' : ''}" @click=${() => this.switchTab('concierge')}>
-              🤖 Concierge
+              ⬡ Studio
             </button>
             <button class="tab-btn ${this.activeTab === 'widgets' ? 'active' : ''}" @click=${() => this.switchTab('widgets')}>
               🎛️ Studio Mode
@@ -1909,27 +2352,87 @@ export class GdmArchitectAgent extends LitElement {
           </div>
 
           ${this.activeTab === 'concierge' ? html`
-            ${this.components.map(comp => html`<div class="section">${this.renderComponent(comp)}</div>`)}
-            
-            <div class="section ui-prompt-bar">
-              <div class="ui-prompt-row">
-                <input
-                  class="ctx-input ui-prompt-input"
-                  type="text"
-                  placeholder="Change UI or describe an image… e.g. neon robot at a meeting"
-                  .value=${this.uiPromptText}
-                  ?disabled=${this.uiPromptSending}
-                  @input=${(e: any) => this.uiPromptText = e.target.value}
-                  @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this.sendUiPrompt()}
-                />
-                <button
-                  class="ctx-send"
-                  ?disabled=${this.uiPromptSending || !this.uiPromptText.trim()}
-                  @click=${() => this.sendUiPrompt()}>
-                  ${this.uiPromptSending ? '…' : 'Apply'}
+            ${this.geminiLiveEnabled === false ? html`
+              <!-- Playbook presenter controls (connected) -->
+              <div class="section">
+                <div style="font-size:10px;color:#64748b;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em;">Meeting ID</div>
+                <div style="font-size:11px;color:#00f2ff;font-family:monospace;background:rgba(0,242,255,0.06);border:1px solid rgba(0,242,255,0.2);border-radius:6px;padding:5px 10px;margin-bottom:14px;word-break:break-all;">
+                  ${this.meetingId}
+                </div>
+
+                <div style="display:flex;gap:8px;margin-bottom:10px;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Playbook</div>
+                    <select class="select-control" .value=${this.selectedPlaybook}
+                      @change=${(e: any) => this.loadSlides(e.target.value)}>
+                      ${this.playbookList.length === 0
+                        ? html`<option value="">— tap Load —</option>`
+                        : this.playbookList.map(p => html`<option value=${p}>${p}</option>`)}
+                    </select>
+                  </div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:10px;color:#64748b;margin-bottom:3px;">Slide</div>
+                    <select class="select-control" .value=${this.selectedSlide}
+                      @change=${(e: any) => this.selectedSlide = e.target.value}>
+                      ${this.slideList.map(s => html`<option value=${s.slide_id}>${s.label || s.slide_id}</option>`)}
+                    </select>
+                  </div>
+                </div>
+
+                ${this.playbookList.length === 0 ? html`
+                  <button class="btn-action" style="width:100%;margin-bottom:10px;" @click=${() => this.loadPlaybooks()}>Load Playbooks</button>
+                ` : ''}
+
+                <button class="cta" @click=${() => this.sendSlideToAll()} ?disabled=${this.sendingSlide || !this.selectedSlide}>
+                  ${this.sendingSlide ? 'Sending...' : '⬆ Send to All'}
                 </button>
+
+                ${this.demoJoinCode ? html`
+                  <div style="display:flex;align-items:baseline;gap:10px;margin-top:12px;padding:8px 10px;background:rgba(0,242,255,0.06);border:1px solid rgba(0,242,255,0.2);border-radius:6px;">
+                    <span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap;">Code</span>
+                    <span style="font-size:15px;font-weight:900;color:#00f2ff;font-family:monospace;letter-spacing:0.12em;">${this.demoJoinCode}</span>
+                    <span style="margin-left:auto;font-size:11px;color:${this.demoParticipantCount > 0 ? '#6ee7b7' : '#64748b'};">
+                      ${this.demoParticipantCount > 0 ? `${this.demoParticipantCount} joined` : 'none yet'}
+                    </span>
+                  </div>
+
+                  ${this.participantList.length > 0 ? html`
+                    <div style="margin-top:10px;">
+                      <div style="font-size:10px;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">Participants</div>
+                      ${this.participantList.map((p) => html`
+                        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:rgba(255,255,255,0.03);border-radius:6px;margin-bottom:3px;">
+                          <div style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${p.connected ? '#10b981' : '#475569'};"></div>
+                          <span style="font-size:11px;color:#e2e8f0;flex:1;">${p.name}</span>
+                          <button class="btn-action" style="height:22px;padding:0 8px;font-size:10px;margin:0;"
+                            @click=${() => this.sendSlideToParticipant(p.space)}>Send</button>
+                        </div>
+                      `)}
+                    </div>
+                  ` : ''}
+                ` : ''}
               </div>
-            </div>
+            ` : html`
+              ${this.components.map(comp => html`<div class="section">${this.renderComponent(comp)}</div>`)}
+              <div class="section ui-prompt-bar">
+                <div class="ui-prompt-row">
+                  <input
+                    class="ctx-input ui-prompt-input"
+                    type="text"
+                    placeholder="Change UI or describe an image… e.g. neon robot at a meeting"
+                    .value=${this.uiPromptText}
+                    ?disabled=${this.uiPromptSending}
+                    @input=${(e: any) => this.uiPromptText = e.target.value}
+                    @keydown=${(e: KeyboardEvent) => e.key === 'Enter' && this.sendUiPrompt()}
+                  />
+                  <button
+                    class="ctx-send"
+                    ?disabled=${this.uiPromptSending || !this.uiPromptText.trim()}
+                    @click=${() => this.sendUiPrompt()}>
+                    ${this.uiPromptSending ? '…' : 'Apply'}
+                  </button>
+                </div>
+              </div>
+            `}
           ` : html`
             <div class="widget-container">
               <!-- Studio Activation & Controls -->

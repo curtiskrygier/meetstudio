@@ -1,0 +1,25 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args:
+    - build
+    - --no-cache
+    - -t
+    - europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/meetstudio:$BUILD_ID
+    - .
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/meetstudio:$BUILD_ID']
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+    - run
+    - deploy
+    - meetstudio
+    - --image=europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/meetstudio:$BUILD_ID
+    - --region=europe-west1
+    - --timeout=3600
+    - --session-affinity
+    - --allow-unauthenticated
+    - --set-env-vars=GEMINI_PROJECT=weighty-arcadia-196219,REGION=europe-west1,CLIENT_ID=738395425892-i8mqor2bm9vknrpjdskfaj8b6is9iehi.apps.googleusercontent.com
+    - --set-secrets=STAGE_API_KEY=stage-api-key:latest
+images:
+  - europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/meetstudio:$BUILD_ID

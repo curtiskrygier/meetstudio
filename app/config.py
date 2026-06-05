@@ -313,13 +313,33 @@ Default to LINEAR FLOW unless one of the INTERACTIVE OUTLINE triggers fires.
 
 SYSTEM_PROMPT = os.environ.get("SYSTEM_PROMPT", DEFAULT_PROMPT)
 
-if not PROJECT_ID:
-    raise RuntimeError(
-        "GEMINI_PROJECT environment variable is required. "
-        "Set it before starting: export GEMINI_PROJECT=your-gcp-project-id"
-    )
+# MEET_MEDIA controls whether Gemini Live (audio streaming) is activated.
+# When false, the service runs in playbook/text-only mode using GEMINI_PROJECT for Vertex AI calls.
+# When true, a separate live_client is created against MEET_MEDIA_PROJECT (agent-archi) for the
+# Gemini Live native-audio session, keeping billing and quota separate from the main Vertex project.
+MEET_MEDIA = os.environ.get("MEET_MEDIA", "false").lower() == "true"
+MEET_MEDIA_PROJECT = os.environ.get("MEET_MEDIA_PROJECT", "agent-archi")
 
-gemini_client = genai.Client(vertexai=True, project=PROJECT_ID, location=REGION)
+import logging as _logging
+
+if PROJECT_ID:
+    gemini_client = genai.Client(vertexai=True, project=PROJECT_ID, location=REGION)
+else:
+    _logging.getLogger("concierge").warning(
+        "GEMINI_PROJECT not set — text/image Vertex AI calls disabled. Playbooks still work."
+    )
+    gemini_client = None
+
+if MEET_MEDIA:
+    live_client = genai.Client(vertexai=True, project=MEET_MEDIA_PROJECT, location="us-central1")
+    _logging.getLogger("concierge").info(
+        f"MEET_MEDIA enabled — Gemini Live client using project: {MEET_MEDIA_PROJECT}"
+    )
+else:
+    live_client = None
+    _logging.getLogger("concierge").info(
+        "MEET_MEDIA disabled — Gemini Live audio session will not be initiated."
+    )
 
 # SVG processing limits
 MAX_SVG_SIZE = 5 * 1024 * 1024  # 5MB safety limit

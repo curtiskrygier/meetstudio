@@ -21,8 +21,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      'process.env.CLIENT_ID': JSON.stringify(env.CLIENT_ID || process.env.CLIENT_ID || ''),
-      'process.env.CLOUD_PROJECT_NUMBER': JSON.stringify(env.CLOUD_PROJECT_NUMBER || process.env.CLOUD_PROJECT_NUMBER || ''),
+      'process.env.CLIENT_ID': JSON.stringify(process.env.CLIENT_ID || env.CLIENT_ID || ''),
+      'process.env.CLOUD_PROJECT_NUMBER': JSON.stringify(process.env.CLOUD_PROJECT_NUMBER || env.CLOUD_PROJECT_NUMBER || ''),
+      '__BUILD_TIME__': JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')),
     },
     resolve: {
       alias: { '@': path.resolve(__dirname, '.') },
