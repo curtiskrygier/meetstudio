@@ -1423,7 +1423,7 @@ export class GdmArchitectAgent extends LitElement {
   private async connectWebSocket() {
     const ticket = await this.getAuthTicket();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
+    const url = `wss://${location.host}/ws?meeting_id=${encodeURIComponent(this.meetingId)}&ticket=${encodeURIComponent(ticket)}`;
 
     
     this.wsService = new WebSocketService(
