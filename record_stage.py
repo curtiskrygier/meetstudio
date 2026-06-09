@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 from playwright.async_api import async_playwright
 
-API_URL = "CONCIERGE_API_URL_PLACEHOLDER"
+API_URL = os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")
 KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 OUTPUT_PATH = sys.argv[3] if len(sys.argv) > 3 else sys.argv[2] if (len(sys.argv) > 2 and sys.argv[2].endswith(".mp4")) else "demo_recording.mp4"
 SPACE_ARG = next((a for a in sys.argv[1:] if a.startswith("spaces/")), "")

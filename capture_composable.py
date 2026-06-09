@@ -11,7 +11,7 @@ import httpx
 from playwright.async_api import async_playwright
 from demo_a2ui_composable_market import render_stage_api, generate_composed_market_board
 
-API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
+API_URL = os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")
 KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 SPACE = os.environ.get("CAPTURE_SPACE", "spaces/capshot-composable")
 OUT = "/tmp/cap"

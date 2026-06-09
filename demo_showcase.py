@@ -17,7 +17,7 @@ import httpx
 import os
 import sys
 
-API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER").rstrip("/")
+API_URL = (os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")).rstrip("/")
 MCP_URL = f"{API_URL}/mcp"
 KEY = os.environ.get("STAGE_API_KEY", "")
 

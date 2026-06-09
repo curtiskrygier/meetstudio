@@ -14,7 +14,7 @@ Features:
 
 Environment Variables:
     FAST_MODE: Set to "0" or "false" to slow down transitions for recording. Default: True.
-    CONCIERGE_API_URL: Target FastAPI backend URL. Default: CONCIERGE_API_URL_PLACEHOLDER
+    CONCIERGE_API_URL: Target FastAPI backend URL (required — set in .env.production.sample)
     STAGE_API_KEY: Secure authorization token.
     MEET_SPACE_ID: Force target Google Meet space.
 """
@@ -35,7 +35,7 @@ for _vd in _venv_dirs:
         sys.path.insert(0, _vd)
 
 # --- Configuration & Environment Setup ---
-API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
+API_URL = os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")
 KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 FAST_MODE = os.environ.get("FAST_MODE", "true").lower() not in ("0", "false", "no")
 

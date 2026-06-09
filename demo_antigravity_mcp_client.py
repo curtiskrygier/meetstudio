@@ -12,7 +12,7 @@ import httpx
 import asyncio
 
 # --- Environment Configurations ---
-API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
+API_URL = os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")
 MCP_URL = f"{API_URL}/mcp"
 KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 

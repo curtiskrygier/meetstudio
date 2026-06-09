@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 
-API_URL = "CONCIERGE_API_URL_PLACEHOLDER"
+API_URL = os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")
 KEY = os.environ.get("STAGE_API_KEY", "")
 
 SAMPLE_RATE = 16000

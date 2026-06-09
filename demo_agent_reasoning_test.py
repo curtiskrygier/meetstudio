@@ -15,7 +15,7 @@ import httpx
 from google import genai
 from google.genai import types
 
-API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
+API_URL = os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")
 KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 PROJECT = os.environ.get("GEMINI_PROJECT") or exit("GEMINI_PROJECT required — export it before running this script")
 LOCATION = os.environ.get("REGION", "us-central1")

@@ -35,7 +35,7 @@ for _vd in _venv_dirs:
         sys.path.insert(0, _vd)
 
 # --- Configuration & Environment Setup ---
-API_URL = os.environ.get("CONCIERGE_API_URL", "CONCIERGE_API_URL_PLACEHOLDER")
+API_URL = os.environ.get("CONCIERGE_API_URL") or exit("CONCIERGE_API_URL not set — see .env.production.sample")
 KEY = os.environ.get("STAGE_API_KEY") or exit("STAGE_API_KEY required — export it before running this script")
 FAST_MODE = os.environ.get("FAST_MODE", "false").lower() not in ("0", "false", "no")
 
