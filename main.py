@@ -5750,7 +5750,7 @@ if os.path.isdir("dist"): app.mount("/", StaticFiles(directory="dist", html=True
 # ── DEBUG / DEMO UTILITIES ────────────────────────────────────────────────────
 
 @app.get("/api/demo/reset/{space_id}/{ticket}", include_in_schema=False)
-async def demo_reset_session(space_id: str, ticket: str):
+async def demo_reset_session(space_id: str, ticket: str, request: Request):
     """DEBUG: Force a specific space_id + ticket combo for testing."""
     # Register the space with auto-generated session
     session_id = space_id.rsplit('-p', 1)[0] if '-p' in space_id else "demo"
@@ -5761,15 +5761,15 @@ async def demo_reset_session(space_id: str, ticket: str):
     participant_number[space_id] = n
     auth_tickets[ticket] = ("participant", datetime.now(timezone.utc) + timedelta(hours=4))
     
-    stage_url = f"http://127.0.0.1:8001/main_stage.html?meeting={space_id}&ticket={ticket}"
+    stage_url = f"{request.base_url}main_stage.html?meeting={space_id}&ticket={ticket}"
     logger.info(f"[demo_reset] forced {space_id} with ticket {ticket[:16]}...")
     return {"stage_url": stage_url, "space_id": space_id, "session_id": session_id, "ticket": ticket}
 
 
 @app.get("/api/demo/auto-open/{space_id}/{ticket}", include_in_schema=False)
-async def demo_auto_open(space_id: str, ticket: str):
+async def demo_auto_open(space_id: str, ticket: str, request: Request):
     """DEBUG: Return HTML that auto-opens the stage in new tab."""
-    stage_url = f"http://127.0.0.1:8001/main_stage.html?meeting={space_id}&ticket={ticket}"
+    stage_url = f"{request.base_url}main_stage.html?meeting={space_id}&ticket={ticket}"
     html = f"""
     <!DOCTYPE html>
     <html>
